@@ -51,9 +51,22 @@ It reuses the setup already in `~/.claude` rather than replacing it:
 Nothing here writes to `~/.claude`. The existing hotkey keeps working whether or not this app
 is running, and the app keeps working if you delete the hotkey.
 
-Two engines: macOS `say` by default (free, offline, instant) and ElevenLabs when
-`ELEVENLABS_API_KEY` is in the environment and the toggle is on. ElevenLabs falls back to `say`
-on any network failure, so a dead connection degrades the voice rather than losing the clip.
+Two engines, ElevenLabs by default and macOS `say` as the fallback. `say` only has Apple's
+*compact* voices unless premium ones are downloaded in System Settings → Accessibility → Spoken
+Content, which is why it sounds robotic; ElevenLabs is the reason this app has a voice worth
+listening to. It falls back to `say` on any network failure, so a dead connection degrades the
+voice rather than losing the clip.
+
+**The API key lives in the login Keychain, not a file.** This is not optional polish: an app
+launched from the Dock inherits none of your shell environment, so a key in `.env` or `.zshrc`
+is invisible to it. Set it in Settings, or from a shell:
+
+```bash
+security add-generic-password -U -s clipwave-term-elevenlabs -a clipwave-term -w "sk_..."
+```
+
+The voice dropdown in Settings lists your actual ElevenLabs library, fetched live, with a
+Preview button that runs the real synthesis path.
 
 Clips are cached as audio files under `~/Library/Application Support/clipwave-term/voice/`,
 which is what makes replay, scrubbing and "save a copy" instant.
@@ -73,6 +86,9 @@ raw PTY byte stream mid-flight, which breaks on redraws and partial reads.
 | `⇧⌘S` | play / replay the latest summary |
 | `⌘+` / `⌘−` | font size |
 | `⌘,` | settings |
+
+Drag the divider between the rail and the terminal to resize the sidebar; double-click it to
+reset. The width is clamped to 150–460px and remembered.
 
 Everything else falls through to the shell untouched, so Claude Code's own bindings still work.
 

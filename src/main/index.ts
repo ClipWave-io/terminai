@@ -7,7 +7,16 @@ import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
 import { availableVoices } from './tts/say'
-import { hasKey as hasElevenKey } from './tts/elevenlabs'
+import {
+  hasKey as hasElevenKey,
+  listVoices as listElevenVoices,
+  forgetKey as forgetElevenKey,
+  KEYCHAIN_SERVICE,
+} from './tts/elevenlabs'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 import { getTheme } from '../shared/themes'
 import type { Prefs, VoicePrefs } from '../shared/types'
 
@@ -144,6 +153,37 @@ function registerIpc(): void {
   })
   ipcMain.handle('voice:voices', () => availableVoices())
   ipcMain.handle('voice:hasElevenKey', () => hasElevenKey())
+  ipcMain.handle('voice:elevenVoices', async () => {
+    try {
+      return { ok: true as const, voices: await listElevenVoices() }
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+  ipcMain.handle('voice:setElevenKey', async (_e, { key }: { key: string }) => {
+    const trimmed = key.trim()
+    try {
+      if (trimmed) {
+        // -U updates in place if the item already exists.
+        await execFileAsync('security', [
+          'add-generic-password',
+          '-U',
+          '-s',
+          KEYCHAIN_SERVICE,
+          '-a',
+          'clipwave-term',
+          '-w',
+          trimmed,
+        ])
+      } else {
+        await execFileAsync('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE])
+      }
+      forgetElevenKey()
+      return { ok: true as const }
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
   ipcMain.handle('voice:save', async (_e, { path, text }: { path: string; text: string }) => {
     if (!win) return { saved: false }
     const suggested = `${text.slice(0, 48).replace(/[^\w\s-]/g, '').trim() || 'summary'}${

@@ -73,7 +73,7 @@ export async function synthesize(
 ): Promise<{ path: string; engine: 'say' | 'elevenlabs' }> {
   await mkdir(cacheDir(), { recursive: true })
 
-  const wantEleven = prefs.engine === 'elevenlabs' && eleven.hasKey()
+  const wantEleven = prefs.engine === 'elevenlabs' && (await eleven.hasKey())
   const key = cacheKey(text, prefs)
   const ext = wantEleven ? 'mp3' : 'wav'
   const out = join(cacheDir(), `${key}.${ext}`)

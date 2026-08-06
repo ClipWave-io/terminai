@@ -5,6 +5,7 @@ interface Props {
   tabs: TabInfo[]
   activeId: string | null
   speakingId: string | null
+  width: number
   onSelect: (id: string) => void
   onClose: (id: string) => void
   onNew: () => void
@@ -34,6 +35,7 @@ export function TabRail({
   tabs,
   activeId,
   speakingId,
+  width,
   onSelect,
   onClose,
   onNew,
@@ -41,7 +43,7 @@ export function TabRail({
   onSettings,
 }: Props): JSX.Element {
   return (
-    <aside className="rail">
+    <aside className="rail" style={{ width, flexBasis: width }}>
       {/* leaves room for the traffic lights and drags the window */}
       <div className="rail-top" />
 

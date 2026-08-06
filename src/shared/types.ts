@@ -73,18 +73,27 @@ export interface VoicePrefs {
 export interface Prefs {
   theme: ThemeName
   fontSize: number
+  /** width of the tab rail in px; drag its right edge to change */
+  railWidth: number
   voice: VoicePrefs
   /** restored on launch */
   tabs: { cwd: string; title: string }[]
 }
 
+export const RAIL_MIN = 150
+export const RAIL_MAX = 460
+export const RAIL_DEFAULT = 224
+
 export const DEFAULT_PREFS: Prefs = {
   theme: 'dusk',
   fontSize: 13,
+  railWidth: RAIL_DEFAULT,
   voice: {
     enabled: true,
     autoplay: true,
-    engine: 'say',
+    // Best available: synthesize() silently falls back to `say` when no
+    // ElevenLabs key is configured, so this is safe as a default.
+    engine: 'elevenlabs',
     sayVoice: 'Samantha',
     elevenVoiceId: '21m00Tcm4TlvDq8ikWAM',
     volume: 1,

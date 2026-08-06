@@ -4,7 +4,15 @@ import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
 import { getTheme } from '../shared/themes'
-import { DEFAULT_PREFS, type Prefs, type TabInfo, type VoiceClip } from '../shared/types'
+import {
+  DEFAULT_PREFS,
+  RAIL_MIN,
+  RAIL_MAX,
+  RAIL_DEFAULT,
+  type Prefs,
+  type TabInfo,
+  type VoiceClip,
+} from '../shared/types'
 import type { JSX } from 'react'
 
 const MAX_CLIPS = 12
@@ -37,6 +45,7 @@ export function App(): JSX.Element {
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
 
   // Kept in refs so the global key handler never closes over stale state.
   const tabsRef = useRef<TabInfo[]>([])
@@ -50,6 +59,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     void window.term.prefs.get().then((p) => {
       setPrefs(p)
+      setRailWidth(p.railWidth)
       applyThemeVars(p)
       setReady(true)
     })
@@ -175,6 +185,35 @@ export function App(): JSX.Element {
     setSpeakingId(clip?.tabId ?? null)
   }, [])
 
+  // ---- rail resize -------------------------------------------------------
+  // Pointer capture rather than window listeners, so the drag keeps tracking
+  // once the cursor crosses into the terminal pane, which has its own handlers.
+  // Width is tracked in local state during the drag and only written to
+  // prefs.json on release.
+  const startDrag = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const handle = e.currentTarget
+      handle.setPointerCapture(e.pointerId)
+      const originX = e.clientX
+      const originW = railWidth
+      let latest = railWidth
+
+      const move = (ev: PointerEvent): void => {
+        latest = Math.min(RAIL_MAX, Math.max(RAIL_MIN, Math.round(originW + ev.clientX - originX)))
+        setRailWidth(latest)
+      }
+      const up = (): void => {
+        handle.removeEventListener('pointermove', move)
+        handle.removeEventListener('pointerup', up)
+        patchPrefs({ railWidth: latest })
+      }
+      handle.addEventListener('pointermove', move)
+      handle.addEventListener('pointerup', up)
+    },
+    [railWidth, patchPrefs],
+  )
+
   // ---- keybindings -------------------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -251,11 +290,25 @@ export function App(): JSX.Element {
         tabs={tabs}
         activeId={activeId}
         speakingId={speakingId}
+        width={railWidth}
         onSelect={setActiveId}
         onClose={closeTab}
         onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
         onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
         onSettings={() => setShowSettings(true)}
+      />
+
+      {/* Lives in the gutter rather than inside the rail: the rail clips its own
+          overflow, which would swallow half the grip's hit area. */}
+      <div
+        className="rail-grip"
+        style={{ left: railWidth + 7 }}
+        onPointerDown={startDrag}
+        onDoubleClick={() => {
+          setRailWidth(RAIL_DEFAULT)
+          patchPrefs({ railWidth: RAIL_DEFAULT })
+        }}
+        title="Drag to resize · double-click to reset"
       />
 
       <main className="stage">

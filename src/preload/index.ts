@@ -43,6 +43,12 @@ const api = {
     speak: (text: string): Promise<VoiceClip> => ipcRenderer.invoke('voice:speak', { text }),
     voices: (): Promise<string[]> => ipcRenderer.invoke('voice:voices'),
     hasElevenKey: (): Promise<boolean> => ipcRenderer.invoke('voice:hasElevenKey'),
+    elevenVoices: (): Promise<
+      | { ok: true; voices: { id: string; name: string; category: string; description: string }[] }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('voice:elevenVoices'),
+    setElevenKey: (key: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('voice:setElevenKey', { key }),
     save: (path: string, text: string): Promise<{ saved: boolean; filePath?: string }> =>
       ipcRenderer.invoke('voice:save', { path, text }),
 

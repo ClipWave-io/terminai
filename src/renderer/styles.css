@@ -29,6 +29,7 @@ body {
 /* ---------- shell ---------- */
 
 .app {
+  position: relative;
   display: flex;
   height: 100%;
   gap: 8px;
@@ -39,14 +40,46 @@ body {
 /* ---------- left tab rail ---------- */
 
 .rail {
-  width: 224px;
-  flex: 0 0 224px;
+  position: relative;
+  /* width is set inline from prefs.railWidth */
+  flex-grow: 0;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border-radius: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   overflow: hidden;
+}
+
+/* Drag target for resizing. Sits over the rail's right edge and spills a few px
+   into the gutter so it is comfortable to grab without a visible seam. */
+.rail-grip {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  /* left is set inline from railWidth; it sits in the 8px gutter */
+  width: 10px;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.rail-grip::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 130ms ease;
+}
+
+.rail-grip:hover::after {
+  opacity: 0.55;
 }
 
 /* Space for the traffic lights, and a drag handle for the whole window. */
@@ -462,6 +495,7 @@ input[type='range'] {
 
 select,
 input[type='text'],
+input[type='password'],
 input[type='range'] {
   font-family: inherit;
   font-size: 12px;
