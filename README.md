@@ -17,7 +17,25 @@ npm run dev     # hot-reloading development window
 npm run dist    # builds release/mac-arm64/Clipwave Term.app
 ```
 
-The app is unsigned, so the first launch needs right-click → Open.
+To install a fresh build over the one in the Dock:
+
+```bash
+npm run dist
+rm -rf "/Applications/Clipwave Term.app"
+cp -R "release/mac-arm64/Clipwave Term.app" /Applications/
+```
+
+The Dock entry points at `/Applications`, so it keeps working across rebuilds. The app is
+unsigned; a locally built copy carries no quarantine flag and opens normally, but a copy that
+has travelled through a download will need right-click → Open once.
+
+## Icon
+
+`build/icon.icns` is generated, not hand-drawn — re-run after changing the palette:
+
+```bash
+python3 scripts/make-icon.py   # needs Pillow
+```
 
 ## How the voice part works
 

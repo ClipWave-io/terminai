@@ -3,3 +3,8 @@ out/
 release/
 *.log
 .DS_Store
+
+# Intermediates from scripts/make-icon.py. icon.icns is committed so the app can
+# be built without Python/Pillow installed.
+build/icon.iconset/
+build/icon.png
