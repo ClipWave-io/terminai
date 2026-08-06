@@ -1,5 +1,17 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_PREFS, type Prefs, type ThemeName } from '../../shared/types'
+import { DEFAULT_PREFS, type Prefs, type ThemeName, type VoiceEngine } from '../../shared/types'
+
+/** Mirrors VOICES in src/main/tts/local.ts. */
+const LOCAL_VOICES = [
+  { id: 'af_heart', label: 'Heart — warm female' },
+  { id: 'af_bella', label: 'Bella — bright female' },
+  { id: 'af_nicole', label: 'Nicole — soft female' },
+  { id: 'af_sarah', label: 'Sarah — neutral female' },
+  { id: 'am_adam', label: 'Adam — deep male' },
+  { id: 'am_michael', label: 'Michael — neutral male' },
+  { id: 'bf_emma', label: 'Emma — British female' },
+  { id: 'bm_george', label: 'George — British male' },
+]
 import { THEMES } from '../../shared/themes'
 import type { JSX } from 'react'
 
@@ -7,6 +19,7 @@ interface Props {
   prefs: Prefs
   onChange: (patch: Partial<Prefs>) => void
   onClose: () => void
+  onCustomize: () => void
 }
 
 interface ElevenVoice {
@@ -16,13 +29,14 @@ interface ElevenVoice {
   description: string
 }
 
-export function SettingsSheet({ prefs, onChange, onClose }: Props): JSX.Element {
+export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props): JSX.Element {
   const [voices, setVoices] = useState<string[]>([])
   const [hasEleven, setHasEleven] = useState(false)
   const [elevenVoices, setElevenVoices] = useState<ElevenVoice[]>([])
   const [elevenError, setElevenError] = useState<string | null>(null)
   const [keyDraft, setKeyDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [hasLocal, setHasLocal] = useState(false)
 
   const loadEleven = (): void => {
     void window.term.voice.hasElevenKey().then((has) => {
@@ -44,6 +58,7 @@ export function SettingsSheet({ prefs, onChange, onClose }: Props): JSX.Element 
 
   useEffect(() => {
     void window.term.voice.voices().then(setVoices)
+    void window.term.voice.hasLocal().then(setHasLocal)
     loadEleven()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -144,16 +159,21 @@ export function SettingsSheet({ prefs, onChange, onClose }: Props): JSX.Element 
           <label>
             Engine
             <span className="hint">
-              {hasEleven
-                ? 'ElevenLabs sounds far better than the built-in voices'
-                : 'No ElevenLabs key saved — falling back to macOS say'}
+              {prefs.voice.engine === 'local' && !hasLocal
+                ? 'Not installed — run scripts/setup-local-tts.sh, falling back to say'
+                : prefs.voice.engine === 'local'
+                  ? 'Free, on-device, no API cost'
+                  : prefs.voice.engine === 'elevenlabs' && !hasEleven
+                    ? 'No key saved — falling back to macOS say'
+                    : 'Best quality, billed per character'}
             </span>
           </label>
           <select
             value={prefs.voice.engine}
-            onChange={(e) => patchVoice({ engine: e.target.value as 'say' | 'elevenlabs' })}
+            onChange={(e) => patchVoice({ engine: e.target.value as VoiceEngine })}
           >
-            <option value="elevenlabs">ElevenLabs</option>
+            <option value="local">Local (Kokoro){hasLocal ? '' : ' — not installed'}</option>
+            <option value="elevenlabs">ElevenLabs{hasEleven ? '' : ' — no key'}</option>
             <option value="say">macOS say</option>
           </select>
         </div>
@@ -176,6 +196,22 @@ export function SettingsSheet({ prefs, onChange, onClose }: Props): JSX.Element 
                 Save
               </button>
             </span>
+          </div>
+        )}
+
+        {prefs.voice.engine === 'local' && hasLocal && (
+          <div className="row">
+            <label>Voice</label>
+            <select
+              value={prefs.voice.localVoice}
+              onChange={(e) => patchVoice({ localVoice: e.target.value })}
+            >
+              {LOCAL_VOICES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -251,6 +287,18 @@ export function SettingsSheet({ prefs, onChange, onClose }: Props): JSX.Element 
             value={prefs.voice.volume}
             onChange={(e) => patchVoice({ volume: Number(e.target.value) })}
           />
+        </div>
+
+        <div className="row">
+          <label>
+            Customise the design
+            <span className="hint">
+              Opens Claude Code in this app's own source, then rebuilds and relaunches
+            </span>
+          </label>
+          <button className="chip on" onClick={onCustomize}>
+            Open Claude Code
+          </button>
         </div>
 
         <div className="row" style={{ paddingTop: 14 }}>

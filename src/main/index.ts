@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net } from 'electron'
 import { join, basename, resolve, sep } from 'node:path'
+import { existsSync } from 'node:fs'
 import { copyFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
@@ -13,12 +14,16 @@ import {
   forgetKey as forgetElevenKey,
   KEYCHAIN_SERVICE,
 } from './tts/elevenlabs'
+import * as localTts from './tts/local'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 import { getTheme } from '../shared/themes'
 import type { Prefs, VoicePrefs } from '../shared/types'
+
+/** Injected by electron-vite at build time; see electron.vite.config.ts. */
+declare const __REPO_ROOT__: string
 
 let win: BrowserWindow | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
@@ -153,6 +158,7 @@ function registerIpc(): void {
   })
   ipcMain.handle('voice:voices', () => availableVoices())
   ipcMain.handle('voice:hasElevenKey', () => hasElevenKey())
+  ipcMain.handle('voice:hasLocal', () => localTts.isAvailable())
   ipcMain.handle('voice:elevenVoices', async () => {
     try {
       return { ok: true as const, voices: await listElevenVoices() }
@@ -195,6 +201,12 @@ function registerIpc(): void {
     if (canceled || !filePath) return { saved: false }
     await copyFile(path, filePath)
     return { saved: true, filePath }
+  })
+
+  // ---- design customisation ---------------------------------------------
+  ipcMain.handle('design:repo', () => {
+    const root = typeof __REPO_ROOT__ === 'string' ? __REPO_ROOT__ : ''
+    return { path: root, exists: Boolean(root) && existsSync(join(root, 'DESIGN.md')) }
   })
 
   // ---- misc --------------------------------------------------------------

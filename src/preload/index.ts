@@ -43,6 +43,7 @@ const api = {
     speak: (text: string): Promise<VoiceClip> => ipcRenderer.invoke('voice:speak', { text }),
     voices: (): Promise<string[]> => ipcRenderer.invoke('voice:voices'),
     hasElevenKey: (): Promise<boolean> => ipcRenderer.invoke('voice:hasElevenKey'),
+    hasLocal: (): Promise<boolean> => ipcRenderer.invoke('voice:hasLocal'),
     elevenVoices: (): Promise<
       | { ok: true; voices: { id: string; name: string; category: string; description: string }[] }
       | { ok: false; error: string }
@@ -62,6 +63,10 @@ const api = {
       ipcRenderer.on('voice:error', h)
       return () => ipcRenderer.removeListener('voice:error', h)
     },
+  },
+
+  design: {
+    repo: (): Promise<{ path: string; exists: boolean }> => ipcRenderer.invoke('design:repo'),
   },
 
   dialog: {

@@ -45,6 +45,22 @@ export interface TabInfo {
   /** best-effort: the foreground process name reported by the PTY's shell */
   process: string
   exited: boolean
+  /** epoch ms the session was opened — drives the "age" column */
+  createdAt: number
+  /** cumulative ms this tab has been the focused one */
+  focusedMs: number
+  /** epoch ms it was last focused, for "last used" */
+  lastActiveAt: number
+  /** free-text scratch note the user keeps against this session */
+  notes: string
+}
+
+/** What survives a restart. Order in the array is the user's priority order. */
+export interface SavedTab {
+  cwd: string
+  title: string
+  notes: string
+  focusedMs: number
 }
 
 export interface VoiceClip {
@@ -54,18 +70,22 @@ export interface VoiceClip {
   url: string
   /** absolute path on disk, used by "save a copy" */
   path: string
-  engine: 'say' | 'elevenlabs'
+  engine: VoiceEngine
   createdAt: number
   /** id of the tab this clip is attributed to, best-effort; null when unknown */
   tabId: string | null
 }
 
+export type VoiceEngine = 'say' | 'elevenlabs' | 'local'
+
 export interface VoicePrefs {
   enabled: boolean
   autoplay: boolean
-  engine: 'say' | 'elevenlabs'
+  engine: VoiceEngine
   sayVoice: string
   elevenVoiceId: string
+  /** Kokoro speaker id, used by the free on-device engine */
+  localVoice: string
   /** 0..1, applied at playback time, not at synthesis time */
   volume: number
 }
@@ -76,8 +96,8 @@ export interface Prefs {
   /** width of the tab rail in px; drag its right edge to change */
   railWidth: number
   voice: VoicePrefs
-  /** restored on launch */
-  tabs: { cwd: string; title: string }[]
+  /** restored on launch, in the user's chosen priority order */
+  tabs: SavedTab[]
 }
 
 export const RAIL_MIN = 150
@@ -91,11 +111,12 @@ export const DEFAULT_PREFS: Prefs = {
   voice: {
     enabled: true,
     autoplay: true,
-    // Best available: synthesize() silently falls back to `say` when no
-    // ElevenLabs key is configured, so this is safe as a default.
-    engine: 'elevenlabs',
+    // Local first: free, on-device, and good. synthesize() walks down to
+    // ElevenLabs and then `say` when it is not installed.
+    engine: 'local',
     sayVoice: 'Samantha',
     elevenVoiceId: '21m00Tcm4TlvDq8ikWAM',
+    localVoice: 'af_heart',
     volume: 1,
   },
   tabs: [],

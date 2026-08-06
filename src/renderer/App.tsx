@@ -3,6 +3,7 @@ import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
+import { TabGrid } from './components/TabGrid'
 import { getTheme } from '../shared/themes'
 import {
   DEFAULT_PREFS,
@@ -10,6 +11,7 @@ import {
   RAIL_MAX,
   RAIL_DEFAULT,
   type Prefs,
+  type SavedTab,
   type TabInfo,
   type VoiceClip,
 } from '../shared/types'
@@ -46,6 +48,7 @@ export function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
+  const [showGrid, setShowGrid] = useState(false)
 
   // Kept in refs so the global key handler never closes over stale state.
   const tabsRef = useRef<TabInfo[]>([])
@@ -75,14 +78,20 @@ export function App(): JSX.Element {
   }, [])
 
   // ---- tabs --------------------------------------------------------------
-  const newTab = useCallback(async (cwd?: string) => {
+  const newTab = useCallback(async (cwd?: string, restore?: SavedTab) => {
     const { id, cwd: realCwd } = await window.term.pty.create({ cwd, cols: 80, rows: 24 })
+    const now = Date.now()
     const tab: TabInfo = {
       id,
-      title: realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
+      title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
       process: '',
       exited: false,
+      createdAt: now,
+      // Focus time carries across restarts; the session age deliberately does not.
+      focusedMs: restore?.focusedMs ?? 0,
+      lastActiveAt: now,
+      notes: restore?.notes ?? '',
     }
     setTabs((prev) => [...prev, tab])
     setActiveId(id)
@@ -109,7 +118,7 @@ export function App(): JSX.Element {
     bootstrapped.current = true
     void (async () => {
       if (prefs.tabs.length) {
-        for (const t of prefs.tabs) await newTab(t.cwd)
+        for (const t of prefs.tabs) await newTab(t.cwd, t)
       } else {
         await newTab()
       }
@@ -119,11 +128,35 @@ export function App(): JSX.Element {
   // Persist the tab set (not on every keystroke — only when it actually changes).
   useEffect(() => {
     if (!ready || !bootstrapped.current) return
-    void window.term.prefs.set({ tabs: tabs.map((t) => ({ cwd: t.cwd, title: t.title })) })
+    void window.term.prefs.set({
+      tabs: tabs.map((t) => ({
+        cwd: t.cwd,
+        title: t.title,
+        notes: t.notes,
+        focusedMs: t.focusedMs,
+      })),
+    })
   }, [tabs, ready])
 
   useEffect(() => {
     window.term.tabs.setActive(activeId)
+  }, [activeId])
+
+  // Bank the time the outgoing tab spent focused, and start the incoming one's
+  // clock. Doing it on switch rather than on a timer keeps it exact and cheap.
+  const prevActive = useRef<string | null>(null)
+  useEffect(() => {
+    const now = Date.now()
+    const leaving = prevActive.current
+    prevActive.current = activeId
+    if (leaving === activeId) return
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id === leaving) return { ...t, focusedMs: t.focusedMs + (now - t.lastActiveAt) }
+        if (t.id === activeId) return { ...t, lastActiveAt: now }
+        return t
+      }),
+    )
   }, [activeId])
 
   // A dead PTY marks its row rather than yanking it out from under the user.
@@ -185,6 +218,43 @@ export function App(): JSX.Element {
     setSpeakingId(clip?.tabId ?? null)
   }, [])
 
+  const reorderTabs = useCallback((from: number, to: number) => {
+    setTabs((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      if (moved) next.splice(to, 0, moved)
+      return next
+    })
+  }, [])
+
+  const setNotes = useCallback((id: string, notes: string) => {
+    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, notes } : t)))
+  }, [])
+
+  /**
+   * Opens a tab in this app's own source tree and starts Claude Code there,
+   * pointed at DESIGN.md. That file tells it what is safe to restyle, what must
+   * keep working, and to run scripts/apply.sh — which rebuilds, reinstalls and
+   * relaunches the app, ending this very session in the process.
+   */
+  const customizeDesign = useCallback(async () => {
+    const repo = await window.term.design.repo()
+    if (!repo.exists) {
+      setToast('Cannot find this app\'s source tree to edit')
+      setTimeout(() => setToast(null), 4500)
+      return
+    }
+    setShowSettings(false)
+    const id = await newTab(repo.path)
+    // Give the login shell a moment to print its prompt before typing at it.
+    setTimeout(() => {
+      window.term.pty.write(
+        id,
+        "claude 'Read DESIGN.md first, then help me restyle this terminal. Ask me what I want to change.'\r",
+      )
+    }, 700)
+  }, [newTab])
+
   // ---- rail resize -------------------------------------------------------
   // Pointer capture rather than window listeners, so the drag keeps tracking
   // once the cursor crosses into the terminal pane, which has its own handlers.
@@ -242,6 +312,11 @@ export function App(): JSX.Element {
         case ',':
           e.preventDefault()
           setShowSettings((s) => !s)
+          break
+        case 'g':
+        case 'G':
+          e.preventDefault()
+          setShowGrid((g) => !g)
           break
         case 'L':
         case 'l':
@@ -346,7 +421,28 @@ export function App(): JSX.Element {
       </main>
 
       {showSettings && (
-        <SettingsSheet prefs={prefs} onChange={patchPrefs} onClose={() => setShowSettings(false)} />
+        <SettingsSheet
+          prefs={prefs}
+          onChange={patchPrefs}
+          onClose={() => setShowSettings(false)}
+          onCustomize={() => void customizeDesign()}
+        />
+      )}
+
+      {showGrid && (
+        <TabGrid
+          tabs={tabs}
+          activeId={activeId}
+          onSelect={(id) => {
+            setActiveId(id)
+            setShowGrid(false)
+          }}
+          onClose={closeTab}
+          onReorder={reorderTabs}
+          onNotes={setNotes}
+          onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
+          onClose_={() => setShowGrid(false)}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}

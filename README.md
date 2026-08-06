@@ -8,6 +8,10 @@ A terminal that is easier on the eyes, and talks back.
   synthesized and played in a dock at the bottom of the window.
 - **A real terminal.** One PTY per tab running your login shell, so zsh, git, vim, ssh and
   Claude Code all behave exactly as they do anywhere else.
+- **A grid of every session** (`⌘G`) with a live text preview, how long each has been open and
+  focused, a note you can keep against it, and drag-to-reorder for your own priority order.
+- **Restyle it by asking.** Settings → *Customise the design* opens Claude Code in this app's
+  own source with `DESIGN.md` loaded, then rebuilds and relaunches.
 
 ## Running it
 
@@ -51,7 +55,14 @@ It reuses the setup already in `~/.claude` rather than replacing it:
 Nothing here writes to `~/.claude`. The existing hotkey keeps working whether or not this app
 is running, and the app keeps working if you delete the hotkey.
 
-Two engines, ElevenLabs by default and macOS `say` as the fallback. `say` only has Apple's
+Three engines, tried in order and degrading rather than losing the clip:
+
+1. **Local (Kokoro-82M on Apple MLX)** — the default. Free, on-device, no key, no per-character
+   cost, works offline. Install with `bash scripts/setup-local-tts.sh` (~2 GB, Apple Silicon
+   only). Related in spirit to LocalFlow, but the opposite direction: LocalFlow is speech-*to*-
+   text, this is text-*to*-speech.
+2. **ElevenLabs** — best quality, billed per character.
+3. **macOS `say`** — always available, always last. `say` only has Apple's
 *compact* voices unless premium ones are downloaded in System Settings → Accessibility → Spoken
 Content, which is why it sounds robotic; ElevenLabs is the reason this app has a voice worth
 listening to. It falls back to `say` on any network failure, so a dead connection degrades the
@@ -85,6 +96,7 @@ raw PTY byte stream mid-flight, which breaks on redraws and partial reads.
 | `⇧⌘L` | switch Dusk ↔ Paper |
 | `⇧⌘S` | play / replay the latest summary |
 | `⌘+` / `⌘−` | font size |
+| `⌘G` | grid of all sessions |
 | `⌘,` | settings |
 
 Drag the divider between the rail and the terminal to resize the sidebar; double-click it to
@@ -119,5 +131,11 @@ is the only trace that always survives.
 - The watcher **stat-polls** rather than using `fs.watch`. `fs.watch` on a single file misses
   events on macOS when the file is truncated and rewritten in place, which is exactly what
   `printf > spoken.txt` does.
+- The PTY environment **strips `CLAUDE_CODE_*` markers**. If the app is launched from inside a
+  Claude Code session it inherits them, every `claude` in a tab then believes it is a *child*
+  session, transcript saving is silently disabled — and with no transcript the Stop hook writes
+  nothing, so the voice goes quiet with no error anywhere.
+- Local TTS runs with `VIRTUAL_ENV` pointed at its venv. misaki shells out to `uv pip install`
+  for its spaCy model on first use and fails outright without an active virtualenv.
 - Prefs are written **write-then-rename**. Tabs save on every open and close, so a plain write
   leaves a window where a truncated file on disk resets every preference to its default.

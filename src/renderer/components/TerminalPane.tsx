@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { toXtermTheme } from '../../shared/themes'
+import * as snapshots from '../snapshots'
 import type { Theme } from '../../shared/types'
 import type { JSX } from 'react'
 
@@ -73,6 +74,19 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     termRef.current = term
     fitRef.current = fit
 
+    // Cheap text preview for the grid: read straight off the buffer rather than
+    // keeping a second renderer alive per tab.
+    snapshots.register(ptyId, (want) => {
+      const buf = term.buffer.active
+      const out: string[] = []
+      const end = buf.baseY + buf.cursorY
+      for (let y = Math.max(0, end - want + 1); y <= end; y++) {
+        const line = buf.getLine(y)
+        if (line) out.push(line.translateToString(true).trimEnd())
+      }
+      return out
+    })
+
     const offData = window.term.pty.onData((id, data) => {
       if (id === ptyId) term.write(data)
     })
@@ -105,6 +119,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     sync()
 
     return () => {
+      snapshots.unregister(ptyId)
       offData()
       offExit()
       ro.disconnect()

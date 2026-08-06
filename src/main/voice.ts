@@ -4,9 +4,10 @@ import { readFile, mkdir, access, stat, rm } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
-import type { VoiceClip, VoicePrefs } from '../shared/types'
+import type { VoiceClip, VoiceEngine, VoicePrefs } from '../shared/types'
 import * as say from './tts/say'
 import * as eleven from './tts/elevenlabs'
+import * as local from './tts/local'
 
 /**
  * The file `~/.claude/speak-summary.sh` (a Stop hook) writes the last
@@ -63,23 +64,34 @@ async function exists(p: string): Promise<boolean> {
  * switching voice re-synthesizes but replaying the same line is instant.
  */
 function cacheKey(text: string, prefs: VoicePrefs): string {
-  const voice = prefs.engine === 'elevenlabs' ? prefs.elevenVoiceId : prefs.sayVoice
+  const voice =
+    prefs.engine === 'elevenlabs'
+      ? prefs.elevenVoiceId
+      : prefs.engine === 'local'
+        ? prefs.localVoice
+        : prefs.sayVoice
   return createHash('sha1').update(`${prefs.engine}:${voice}:${text}`).digest('hex').slice(0, 16)
 }
 
+/**
+ * Engine ladder: whatever the user picked, then degrade rather than lose the
+ * clip. `say` is always last because it is the only one that cannot fail —
+ * no key, no model, no network.
+ */
 export async function synthesize(
   text: string,
   prefs: VoicePrefs,
-): Promise<{ path: string; engine: 'say' | 'elevenlabs' }> {
+): Promise<{ path: string; engine: VoiceEngine }> {
   await mkdir(cacheDir(), { recursive: true })
 
   const wantEleven = prefs.engine === 'elevenlabs' && (await eleven.hasKey())
+  const wantLocal = prefs.engine === 'local' && local.isAvailable()
   const key = cacheKey(text, prefs)
   const ext = wantEleven ? 'mp3' : 'wav'
   const out = join(cacheDir(), `${key}.${ext}`)
 
   if (await exists(out)) {
-    return { path: out, engine: wantEleven ? 'elevenlabs' : 'say' }
+    return { path: out, engine: wantEleven ? 'elevenlabs' : wantLocal ? 'local' : 'say' }
   }
 
   if (wantEleven) {
@@ -89,6 +101,16 @@ export async function synthesize(
     } catch (err) {
       // Degrade the voice, don't lose the clip.
       console.warn('[voice] ElevenLabs failed, falling back to say:', err)
+    }
+  }
+
+  if (wantLocal) {
+    try {
+      await local.synthesize(text, out, prefs.localVoice)
+      await assertHasAudio(out)
+      return { path: out, engine: 'local' }
+    } catch (err) {
+      console.warn('[voice] local Kokoro failed, falling back to say:', err)
     }
   }
 
@@ -115,7 +137,7 @@ async function assertHasAudio(path: string): Promise<void> {
 export function toClip(
   text: string,
   path: string,
-  engine: 'say' | 'elevenlabs',
+  engine: VoiceEngine,
   tabId: string | null,
 ): VoiceClip {
   return {

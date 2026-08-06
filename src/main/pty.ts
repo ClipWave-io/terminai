@@ -35,10 +35,24 @@ function ptyEnv(): Record<string, string> {
   env.TERM = 'xterm-256color'
   env.COLORTERM = 'truecolor'
   env.TERM_PROGRAM = 'clipwave-term'
+
   // Electron injects these into child processes; they confuse node tooling
   // launched from the shell, so strip them.
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_NO_ATTACH_CONSOLE
+
+  // If this app was itself launched from inside a Claude Code session, it
+  // inherited that session's markers. Passing them on makes every `claude` run
+  // in a tab believe it is a *child* session, which silently disables
+  // transcript saving — and with no transcript, the Stop hook has nothing to
+  // scrape, so spoken.txt is never written and the voice goes quiet.
+  // A terminal's job is to hand each tab a clean top-level session.
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('CLAUDE_CODE_') || key === 'CLAUDECODE' || key === 'CLAUDE_PID') {
+      delete env[key]
+    }
+  }
+
   return env
 }
 
