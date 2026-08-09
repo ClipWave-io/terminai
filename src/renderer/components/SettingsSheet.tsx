@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_PREFS, type Prefs, type ThemeName, type VoiceEngine } from '../../shared/types'
+import {
+  DEFAULT_PREFS,
+  type Prefs,
+  type RailSide,
+  type ThemeName,
+  type VoiceEngine,
+} from '../../shared/types'
 
 /** Mirrors VOICES in src/main/tts/local.ts. */
 const LOCAL_VOICES = [
@@ -21,6 +27,40 @@ interface Props {
   onClose: () => void
   onCustomize: () => void
 }
+
+/** Every binding registered in App.tsx's keydown handler, grouped for reading. */
+const SHORTCUTS: { group: string; items: [string, string][] }[] = [
+  {
+    group: 'Tabs',
+    items: [
+      ['⌘T', 'New tab'],
+      ['⇧⌘O', 'Open a folder in a new tab'],
+      ['⌘W', 'Close tab'],
+      ['⌃⇥ / ⌃⇧⇥', 'Cycle forward / back'],
+      ['⌘[ / ⌘]', 'Previous / next tab'],
+      ['⌘1–⌘9', 'Jump to tab by position'],
+    ],
+  },
+  {
+    group: 'View',
+    items: [
+      ['⌘G', 'All sessions grid'],
+      ['⌘S', 'Show or hide the sidebar'],
+      ['⌥⌘S', 'Move the sidebar to the other edge'],
+      ['⌘D', 'Show or hide the voice dock'],
+      ['⇧⌘L', 'Next theme'],
+      ['⌘+ / ⌘−', 'Font size'],
+      ['⌘,', 'Settings'],
+    ],
+  },
+  {
+    group: 'Voice',
+    items: [
+      ['⇧⌘S', 'Replay the latest summary'],
+      ['⇧⌘M', 'Mute or unmute spoken summaries'],
+    ],
+  },
+]
 
 interface ElevenVoice {
   id: string
@@ -97,7 +137,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
           <label>
             Theme
             <span className="hint">
-              Toggle any time with <span className="kbd">⇧⌘L</span>
+              Cycle all {Object.keys(THEMES).length} with <span className="kbd">⇧⌘L</span>
             </span>
           </label>
           <select
@@ -110,6 +150,34 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="row">
+          <label>
+            Sidebar
+            <span className="hint">
+              <span className="kbd">⌥⌘S</span> to flip · <span className="kbd">⌘S</span> to hide
+            </span>
+          </label>
+          <select
+            value={prefs.railSide}
+            onChange={(e) => onChange({ railSide: e.target.value as RailSide })}
+          >
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+
+        <div className="row">
+          <label>
+            Group by folder
+            <span className="hint">Sessions sit under the folder they are in</span>
+          </label>
+          <input
+            type="checkbox"
+            checked={prefs.groupByFolder}
+            onChange={(e) => onChange({ groupByFolder: e.target.checked })}
+          />
         </div>
 
         <div className="row">
@@ -301,12 +369,20 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
           </button>
         </div>
 
-        <div className="row" style={{ paddingTop: 14 }}>
-          <span className="hint">
-            <span className="kbd">⌘T</span> new · <span className="kbd">⌘W</span> close ·{' '}
-            <span className="kbd">⌘1–9</span> jump · <span className="kbd">⌃⇥</span> cycle ·{' '}
-            <span className="kbd">⇧⌘S</span> speak
-          </span>
+        <h3 className="sheet-section">Keyboard shortcuts</h3>
+        {SHORTCUTS.map((g) => (
+          <div key={g.group} className="keys-group">
+            <div className="keys-title">{g.group}</div>
+            {g.items.map(([keys, what]) => (
+              <div key={keys} className="keys-row">
+                <span className="keys-what">{what}</span>
+                <span className="kbd">{keys}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+
+        <div className="row" style={{ paddingTop: 14, justifyContent: 'flex-end' }}>
           <button className="btn" style={{ flex: '0 0 auto' }} onClick={onClose}>
             Done
           </button>

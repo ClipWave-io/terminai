@@ -3,8 +3,9 @@ import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
+import { WelcomeSheet } from './components/WelcomeSheet'
 import { TabGrid } from './components/TabGrid'
-import { getTheme } from '../shared/themes'
+import { getTheme, nextTheme } from '../shared/themes'
 import {
   DEFAULT_PREFS,
   RAIL_MIN,
@@ -34,6 +35,7 @@ function applyThemeVars(prefs: Prefs): void {
   root.setProperty('--ok', t.green)
   root.setProperty('--warn', t.yellow)
   root.setProperty('--danger', t.red)
+  root.setProperty('--info', t.blue)
   document.documentElement.style.colorScheme = t.dark ? 'dark' : 'light'
 }
 
@@ -70,7 +72,11 @@ export function App(): JSX.Element {
 
   const patchPrefs = useCallback((patch: Partial<Prefs>) => {
     setPrefs((prev) => {
-      const next = { ...prev, ...patch, voice: { ...prev.voice, ...(patch.voice ?? {}) } }
+      const next = {
+        ...prev,
+        ...patch,
+        voice: { ...prev.voice, ...(patch.voice ?? {}) },
+      }
       applyThemeVars(next)
       void window.term.prefs.set(patch)
       return next
@@ -79,22 +85,46 @@ export function App(): JSX.Element {
 
   // ---- tabs --------------------------------------------------------------
   const newTab = useCallback(async (cwd?: string, restore?: SavedTab) => {
-    const { id, cwd: realCwd } = await window.term.pty.create({ cwd, cols: 80, rows: 24 })
+    const { id, cwd: realCwd } = await window.term.pty.create({
+      cwd,
+      cols: 80,
+      rows: 24,
+    })
     const now = Date.now()
     const tab: TabInfo = {
       id,
       title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
       process: '',
+      status: 'ready',
+      usedClaude: false,
       exited: false,
       createdAt: now,
       // Focus time carries across restarts; the session age deliberately does not.
       focusedMs: restore?.focusedMs ?? 0,
       lastActiveAt: now,
       notes: restore?.notes ?? '',
+      claudeSession: '',
     }
     setTabs((prev) => [...prev, tab])
     setActiveId(id)
+
+    // The tab was mid-conversation when the app last closed. Resume it rather
+    // than leaving the session stranded behind a bare prompt.
+    if (restore?.claude) {
+      // Resume *this tab's* conversation by id. `--continue` picks the most
+      // recent conversation in the folder, so several tabs on one folder would
+      // all land on the same one and the rest would be lost. Fall back to it
+      // only when we never learned an id, or the transcript is gone.
+      const saved = restore.claudeSession
+      const cmd =
+        saved && (await window.term.pty.canResume(saved))
+          ? `claude --resume ${saved}`
+          : 'claude --continue'
+      // The delay lets the login shell finish printing its prompt first, so the
+      // command is not typed into a half-initialised line.
+      setTimeout(() => window.term.pty.write(id, `${cmd}\r`), 900)
+    }
     return id
   }, [])
 
@@ -125,18 +155,25 @@ export function App(): JSX.Element {
     })()
   }, [ready, prefs.tabs, newTab])
 
-  // Persist the tab set (not on every keystroke — only when it actually changes).
+  // Persist the tab set. Keyed on the saved fields alone: `tabs` also carries
+  // live status, which changes several times a second, and writing prefs.json
+  // at that rate would hammer the disk for no gain.
+  const saved = tabs.map((t) => ({
+    cwd: t.cwd,
+    title: t.title,
+    notes: t.notes,
+    focusedMs: t.focusedMs,
+    claude: t.usedClaude,
+    claudeSession: t.claudeSession,
+  }))
+  const savedKey = JSON.stringify(saved)
+  const lastSaved = useRef('')
   useEffect(() => {
     if (!ready || !bootstrapped.current) return
-    void window.term.prefs.set({
-      tabs: tabs.map((t) => ({
-        cwd: t.cwd,
-        title: t.title,
-        notes: t.notes,
-        focusedMs: t.focusedMs,
-      })),
-    })
-  }, [tabs, ready])
+    if (savedKey === lastSaved.current) return
+    lastSaved.current = savedKey
+    void window.term.prefs.set({ tabs: JSON.parse(savedKey) as SavedTab[] })
+  }, [savedKey, ready])
 
   useEffect(() => {
     window.term.tabs.setActive(activeId)
@@ -176,19 +213,39 @@ export function App(): JSX.Element {
           live.map(async (t) => ({
             id: t.id,
             process: await window.term.pty.process(t.id),
+            status: await window.term.pty.status(t.id),
+            usedClaude: await window.term.pty.usedClaude(t.id),
             cwd: await window.term.pty.cwd(t.id),
+            // Only worth a read once Claude has actually run here; before that
+            // there is no id file to find.
+            claudeSession: t.usedClaude ? await window.term.pty.claudeSession(t.id) : '',
           })),
         )
         setTabs((prev) =>
           prev.map((t) => {
             const s = seen.find((x) => x.id === t.id)
-            return s && (s.process !== t.process || s.cwd !== t.cwd)
-              ? { ...t, process: s.process, cwd: s.cwd }
+            if (!s) return t
+            const changed =
+              s.process !== t.process ||
+              s.cwd !== t.cwd ||
+              s.status !== t.status ||
+              s.usedClaude !== t.usedClaude ||
+              (s.claudeSession !== '' && s.claudeSession !== t.claudeSession)
+            return changed
+              ? {
+                  ...t,
+                  process: s.process,
+                  cwd: s.cwd,
+                  status: s.status,
+                  usedClaude: s.usedClaude,
+                  claudeSession: s.claudeSession || t.claudeSession,
+                }
               : t
           }),
         )
       })()
-    }, 1500)
+      // Fast enough that "working" turning into "wants you" reads as immediate.
+    }, 800)
     return () => clearInterval(iv)
   }, [])
 
@@ -240,7 +297,7 @@ export function App(): JSX.Element {
   const customizeDesign = useCallback(async () => {
     const repo = await window.term.design.repo()
     if (!repo.exists) {
-      setToast('Cannot find this app\'s source tree to edit')
+      setToast("Cannot find this app's source tree to edit")
       setTimeout(() => setToast(null), 4500)
       return
     }
@@ -269,8 +326,14 @@ export function App(): JSX.Element {
       const originW = railWidth
       let latest = railWidth
 
+      // With the rail on the right, dragging left is what widens it, so the
+      // delta is inverted on that side.
+      const sign = prefs.railSide === 'right' ? -1 : 1
       const move = (ev: PointerEvent): void => {
-        latest = Math.min(RAIL_MAX, Math.max(RAIL_MIN, Math.round(originW + ev.clientX - originX)))
+        latest = Math.min(
+          RAIL_MAX,
+          Math.max(RAIL_MIN, Math.round(originW + sign * (ev.clientX - originX))),
+        )
         setRailWidth(latest)
       }
       const up = (): void => {
@@ -281,8 +344,20 @@ export function App(): JSX.Element {
       handle.addEventListener('pointermove', move)
       handle.addEventListener('pointerup', up)
     },
-    [railWidth, patchPrefs],
+    [railWidth, patchPrefs, prefs.railSide],
   )
+
+  // A file dropped anywhere but a terminal would otherwise make the window
+  // navigate to it, replacing the whole app with the file's contents.
+  useEffect(() => {
+    const swallow = (e: DragEvent): void => e.preventDefault()
+    window.addEventListener('dragover', swallow)
+    window.addEventListener('drop', swallow)
+    return () => {
+      window.removeEventListener('dragover', swallow)
+      window.removeEventListener('drop', swallow)
+    }
+  }, [])
 
   // ---- keybindings -------------------------------------------------------
   useEffect(() => {
@@ -299,6 +374,15 @@ export function App(): JSX.Element {
       }
 
       if (!e.metaKey) return
+
+      // Terminal.app and iTerm both use ⌘⇧[ / ⌘⇧] to walk tabs. Shift turns the
+      // brackets into braces on a US layout, so both forms have to be accepted.
+      if (list.length && ['[', ']', '{', '}'].includes(e.key)) {
+        e.preventDefault()
+        const step = e.key === '[' || e.key === '{' ? -1 : 1
+        setActiveId(list[(cur + step + list.length) % list.length]!.id)
+        return
+      }
 
       switch (e.key) {
         case 't':
@@ -322,13 +406,34 @@ export function App(): JSX.Element {
         case 'l':
           if (!e.shiftKey) return
           e.preventDefault()
-          patchPrefs({ theme: prefs.theme === 'dusk' ? 'paper' : 'dusk' })
+          patchPrefs({ theme: nextTheme(prefs.theme) })
           break
         case 'S':
         case 's':
+        case 'ß': // ⌥S on a US layout reports as ß
+          e.preventDefault()
+          // ⇧⌘S replays the last summary, ⌥⌘S swaps the rail's edge, and plain
+          // ⌘S collapses it.
+          if (e.shiftKey) setPlayToken((n) => n + 1)
+          else if (e.altKey)
+            patchPrefs({
+              railSide: prefs.railSide === 'right' ? 'left' : 'right',
+            })
+          else patchPrefs({ railHidden: !prefs.railHidden })
+          break
+        case 'd':
+        case 'D':
+          e.preventDefault()
+          patchPrefs({ voiceDockHidden: !prefs.voiceDockHidden })
+          break
+        case 'm':
+        case 'M':
+          // Plain ⌘M is macOS's minimize, so mute takes the shifted form.
           if (!e.shiftKey) return
           e.preventDefault()
-          setPlayToken((n) => n + 1)
+          patchPrefs({
+            voice: { ...prefs.voice, enabled: !prefs.voice.enabled },
+          })
           break
         case 'o':
         case 'O':
@@ -357,41 +462,99 @@ export function App(): JSX.Element {
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [newTab, closeTab, patchPrefs, prefs.theme, prefs.fontSize])
+  }, [
+    newTab,
+    closeTab,
+    patchPrefs,
+    prefs.theme,
+    prefs.fontSize,
+    prefs.railHidden,
+    prefs.railSide,
+    prefs.voiceDockHidden,
+    prefs.voice,
+  ])
 
   return (
-    <div className="app">
-      <TabRail
-        tabs={tabs}
-        activeId={activeId}
-        speakingId={speakingId}
-        width={railWidth}
-        onSelect={setActiveId}
-        onClose={closeTab}
-        onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
-        onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
-        onSettings={() => setShowSettings(true)}
-      />
+    <div className={`app rail-${prefs.railSide}`}>
+      {!prefs.railHidden && (
+        <>
+          <TabRail
+            tabs={tabs}
+            activeId={activeId}
+            speakingId={speakingId}
+            width={railWidth}
+            onSelect={setActiveId}
+            onClose={closeTab}
+            onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
+            onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
+            onSettings={() => setShowSettings(true)}
+            onReorder={reorderTabs}
+            grouped={prefs.groupByFolder}
+          />
 
-      {/* Lives in the gutter rather than inside the rail: the rail clips its own
-          overflow, which would swallow half the grip's hit area. */}
-      <div
-        className="rail-grip"
-        style={{ left: railWidth + 7 }}
-        onPointerDown={startDrag}
-        onDoubleClick={() => {
-          setRailWidth(RAIL_DEFAULT)
-          patchPrefs({ railWidth: RAIL_DEFAULT })
-        }}
-        title="Drag to resize · double-click to reset"
-      />
+          {/* Lives in the gutter rather than inside the rail: the rail clips its
+              own overflow, which would swallow half the grip's hit area. */}
+          <div
+            className="rail-grip"
+            style={prefs.railSide === 'right' ? { right: railWidth + 7 } : { left: railWidth + 7 }}
+            onPointerDown={startDrag}
+            onDoubleClick={() => {
+              setRailWidth(RAIL_DEFAULT)
+              patchPrefs({ railWidth: RAIL_DEFAULT })
+            }}
+            title="Drag to resize · double-click to reset"
+          />
+        </>
+      )}
 
       <main className="stage">
+        {/* The traffic lights are pinned to the window's top-left by macOS, so
+            with the rail on the right this strip is what keeps them off the
+            terminal. It doubles as the window's drag handle. */}
+        <div className="topbar">
+          {/* Only reserve traffic-light room when they actually land on the
+              stage — with the rail visible on the left, it holds them instead. */}
+          {(prefs.railSide === 'right' || prefs.railHidden) && <span className="topbar-gap" />}
+          <span className="topbar-title">{tabs.find((t) => t.id === activeId)?.title ?? ''}</span>
+          <button
+            className="btn icon"
+            onClick={() => setShowGrid((g) => !g)}
+            title="All sessions  ⌘G"
+          >
+            ⊞
+          </button>
+          <button
+            className="btn icon"
+            onClick={() => patchPrefs({ railHidden: !prefs.railHidden })}
+            title={`${prefs.railHidden ? 'Show' : 'Hide'} sidebar  ⌘S`}
+          >
+            {prefs.railHidden ? '⇤' : '⇥'}
+          </button>
+          {prefs.voice.enabled && (
+            <button
+              className="btn icon"
+              onClick={() => patchPrefs({ voiceDockHidden: !prefs.voiceDockHidden })}
+              title={`${prefs.voiceDockHidden ? 'Show' : 'Hide'} voice dock  ⌘D`}
+            >
+              ∿
+            </button>
+          )}
+          {prefs.railHidden && (
+            <button className="btn icon" onClick={() => setShowSettings(true)} title="Settings  ⌘,">
+              ⚙
+            </button>
+          )}
+        </div>
+
         <div className="pane">
           {tabs.length === 0 && (
             <div className="pane-empty">
               <div>No sessions open</div>
-              <button className="btn primary" style={{ flex: '0 0 auto' }} onClick={() => void newTab()}>
+              <button
+                className="btn primary"
+                style={{ flex: '0 0 auto' }}
+                onClick={() => void newTab()}
+              >
                 New tab ⌘T
               </button>
             </div>
@@ -412,13 +575,36 @@ export function App(): JSX.Element {
           <VoiceDock
             clips={clips}
             autoplay={prefs.voice.autoplay}
+            enabled={prefs.voice.enabled}
             volume={prefs.voice.volume}
             playToken={playToken}
+            hidden={prefs.voiceDockHidden}
             onPlayingChange={onPlayingChange}
-            onToggleAutoplay={() => patchPrefs({ voice: { ...prefs.voice, autoplay: !prefs.voice.autoplay } })}
+            onToggleAutoplay={() =>
+              patchPrefs({
+                voice: { ...prefs.voice, autoplay: !prefs.voice.autoplay },
+              })
+            }
+            onToggleEnabled={() =>
+              patchPrefs({
+                voice: { ...prefs.voice, enabled: !prefs.voice.enabled },
+              })
+            }
           />
         )}
       </main>
+
+      {/* First run only. Waits for `ready` so it never flashes over an empty
+          window before prefs have loaded. */}
+      {ready && !prefs.seenWelcome && (
+        <WelcomeSheet
+          onDismiss={() => patchPrefs({ seenWelcome: true })}
+          onOpenSettings={() => {
+            patchPrefs({ seenWelcome: true })
+            setShowSettings(true)
+          }}
+        />
+      )}
 
       {showSettings && (
         <SettingsSheet

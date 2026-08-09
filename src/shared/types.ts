@@ -1,4 +1,16 @@
-export type ThemeName = 'dusk' | 'paper'
+export type ThemeName =
+  | 'dusk'
+  | 'paper'
+  | 'midnight'
+  | 'forest'
+  | 'ember'
+  | 'mono'
+  | 'nord'
+  | 'rose'
+  | 'phosphor'
+  | 'ocean'
+  | 'linen'
+  | 'mint'
 
 export interface AnsiRamp {
   black: string
@@ -38,12 +50,24 @@ export interface Theme extends AnsiRamp {
   shadow: string
 }
 
+export type RailSide = 'left' | 'right'
+
+/**
+ * What the tab's dot reports, in the terms that matter while you are running
+ * agents in several tabs at once: green you can use, yellow is busy, blue wants
+ * you.
+ */
+export type TabStatus = 'ready' | 'working' | 'waiting' | 'exited'
+
 export interface TabInfo {
   id: string
   title: string
   cwd: string
   /** best-effort: the foreground process name reported by the PTY's shell */
   process: string
+  status: TabStatus
+  /** Claude Code has run in this tab, so it is worth resuming on next launch */
+  usedClaude: boolean
   exited: boolean
   /** epoch ms the session was opened — drives the "age" column */
   createdAt: number
@@ -53,6 +77,8 @@ export interface TabInfo {
   lastActiveAt: number
   /** free-text scratch note the user keeps against this session */
   notes: string
+  /** Claude Code session id minted for this tab; '' until `claude` has run */
+  claudeSession: string
 }
 
 /** What survives a restart. Order in the array is the user's priority order. */
@@ -61,6 +87,18 @@ export interface SavedTab {
   title: string
   notes: string
   focusedMs: number
+  /**
+   * Claude Code was in the foreground when the app closed. On the next launch
+   * the tab picks the conversation back up rather than dropping you at a bare
+   * prompt with the session still sitting there unresumed.
+   */
+  claude?: boolean
+  /**
+   * The exact conversation this tab was in. Without it, several tabs open on
+   * one folder all resume the same "most recent" conversation and the rest are
+   * lost.
+   */
+  claudeSession?: string
 }
 
 export interface VoiceClip {
@@ -93,9 +131,19 @@ export interface VoicePrefs {
 export interface Prefs {
   theme: ThemeName
   fontSize: number
-  /** width of the tab rail in px; drag its right edge to change */
+  /** width of the tab rail in px; drag its inner edge to change */
   railWidth: number
+  /** rail collapsed out of view; toggled with ⌘S. Width is remembered. */
+  railHidden: boolean
+  /** which edge the rail sits on; toggled with ⌥⌘S */
+  railSide: RailSide
+  /** voice dock collapsed out of view; toggled with ⌘D. Voice still generates. */
+  voiceDockHidden: boolean
   voice: VoicePrefs
+  /** false until the first-run welcome has been dismissed */
+  seenWelcome: boolean
+  /** sidebar sessions bucketed under a heading per folder */
+  groupByFolder: boolean
   /** restored on launch, in the user's chosen priority order */
   tabs: SavedTab[]
 }
@@ -108,6 +156,9 @@ export const DEFAULT_PREFS: Prefs = {
   theme: 'dusk',
   fontSize: 13,
   railWidth: RAIL_DEFAULT,
+  railHidden: false,
+  railSide: 'right',
+  voiceDockHidden: false,
   voice: {
     enabled: true,
     autoplay: true,
@@ -119,5 +170,7 @@ export const DEFAULT_PREFS: Prefs = {
     localVoice: 'af_heart',
     volume: 1,
   },
+  seenWelcome: false,
+  groupByFolder: false,
   tabs: [],
 }

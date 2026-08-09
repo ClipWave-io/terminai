@@ -94,7 +94,7 @@ function createWindow(): void {
   voice.startWatching(
     win.webContents,
     () => store.load().voice,
-    () => activeTabId,
+    () => ptys.liveIds().map((id) => ({ id, cwd: ptys.cwdOf(id) })),
   )
 }
 
@@ -130,7 +130,13 @@ function registerIpc(): void {
   )
   ipcMain.on('pty:kill', (_e, { id }: { id: string }) => ptys.kill(id))
   ipcMain.handle('pty:process', (_e, { id }: { id: string }) => ptys.foregroundProcess(id))
+  ipcMain.handle('pty:status', (_e, { id }: { id: string }) => ptys.statusOf(id))
+  ipcMain.handle('pty:usedClaude', (_e, { id }: { id: string }) => ptys.usedClaude(id))
   ipcMain.handle('pty:cwd', (_e, { id }: { id: string }) => ptys.cwdOf(id))
+  ipcMain.handle('pty:claudeSession', (_e, { id }: { id: string }) => ptys.claudeSessionOf(id))
+  ipcMain.handle('pty:canResume', (_e, { sessionId }: { sessionId: string }) =>
+    ptys.claudeSessionExists(sessionId),
+  )
   ipcMain.on('tab:active', (_e, { id }: { id: string | null }) => {
     activeTabId = id
   })

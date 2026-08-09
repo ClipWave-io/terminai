@@ -19,7 +19,13 @@ function hydrate(raw: unknown): Prefs {
     // Clamped on read as well as on write: a stale or hand-edited prefs file
     // must never be able to leave the rail off-screen or at zero width.
     railWidth: Math.min(RAIL_MAX, Math.max(RAIL_MIN, p.railWidth ?? RAIL_DEFAULT)),
+    railHidden: p.railHidden === true,
+    railSide: p.railSide === 'left' ? 'left' : 'right',
     voice: { ...DEFAULT_PREFS.voice, ...(p.voice ?? {}) },
+    // Anything but an explicit true means the tour has not been dismissed, so
+    // an upgrade from a prefs file that predates this field shows it once.
+    seenWelcome: p.seenWelcome === true,
+    groupByFolder: p.groupByFolder === true,
     tabs: Array.isArray(p.tabs) ? p.tabs : [],
   }
 }

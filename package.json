@@ -37,7 +37,7 @@
   },
   "build": {
     "appId": "com.clipwave.term",
-    "productName": "Clipwave Term",
+    "productName": "TerminAI",
     "directories": {
       "output": "release"
     },

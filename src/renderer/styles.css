@@ -37,7 +37,18 @@ body {
   background: var(--bg);
 }
 
-/* ---------- left tab rail ---------- */
+/* row-reverse puts the rail on the right while leaving the DOM order alone, so
+   focus and tab order still run rail-first. Swapping sides is this one line —
+   Settings and ⌥⌘S just toggle which class is on .app. */
+.app.rail-right {
+  flex-direction: row-reverse;
+}
+
+.app.rail-left {
+  flex-direction: row;
+}
+
+/* ---------- tab rail ---------- */
 
 .rail {
   position: relative;
@@ -82,7 +93,8 @@ body {
   opacity: 0.55;
 }
 
-/* Space for the traffic lights, and a drag handle for the whole window. */
+/* Height matches .topbar + the 8px gutter, so the first tab row lines up with
+   the top of the terminal pane across the gap. Also drags the window. */
 .rail-top {
   height: 46px;
   flex: 0 0 46px;
@@ -109,6 +121,32 @@ body {
   background: var(--dim);
   opacity: 0.4;
   border-radius: 4px;
+}
+
+/* ---------- folder grouping ---------- */
+
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rail-group + .rail-group {
+  margin-top: 10px;
+}
+
+.rail-group-head {
+  padding: 2px 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* keep the deepest folder visible when it overflows */
+  text-align: left;
 }
 
 /* ---------- a tab row ---------- */
@@ -138,6 +176,16 @@ body {
   border-color: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
+.tab.dragging {
+  opacity: 0.45;
+}
+
+/* Where the tab will land if dropped here. */
+.tab.dropping {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
 /* The accent edge that marks the active row. */
 .tab.active::before {
   content: '';
@@ -158,14 +206,26 @@ body {
   background: var(--dim);
 }
 
-.tab-dot.busy {
+/* Green — nothing running, the tab is yours. */
+.tab-dot.ready {
   background: var(--ok);
 }
-.tab-dot.claude {
-  background: var(--accent);
-}
-.tab-dot.speaking {
+
+/* Yellow — a program is producing output. Pulsing so it reads as motion. */
+.tab-dot.working {
   background: var(--warn);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+/* Blue — it went quiet with something still in the foreground: it wants you.
+   Haloed rather than pulsing, so it draws the eye across a full rail. */
+.tab-dot.waiting {
+  background: var(--info);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 28%, transparent);
+}
+
+.tab-dot.speaking {
+  background: var(--info);
   animation: pulse 1.1s ease-in-out infinite;
 }
 .tab-dot.exited {
@@ -264,6 +324,12 @@ body {
   text-align: center;
 }
 
+/* Keeps a drawn icon optically centred against the text glyphs beside it. */
+.btn.icon svg {
+  display: block;
+  margin: 0 auto;
+}
+
 .btn.primary {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
@@ -277,6 +343,47 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Reserves the top-left for the traffic lights, which macOS pins to the window
+   regardless of where the rail is. The left gap is that reservation. */
+.topbar {
+  flex: 0 0 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  -webkit-app-region: drag;
+}
+
+.topbar-gap {
+  flex: 0 0 76px;
+}
+
+.topbar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--dim);
+  font-size: 12px;
+  text-align: center;
+  user-select: none;
+}
+
+.topbar .btn.icon {
+  -webkit-app-region: no-drag;
+  height: 26px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--dim);
+}
+
+.topbar .btn.icon:hover {
+  color: var(--fg);
 }
 
 .pane {
@@ -507,6 +614,95 @@ input[type='range'] {
   min-width: 132px;
 }
 
+/* ---------- first-run welcome ---------- */
+
+.sheet.welcome {
+  width: 470px;
+}
+
+.welcome-lead {
+  font-size: 12.5px;
+  color: var(--dim);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.welcome-step {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.welcome-step:last-of-type {
+  border-bottom: 0;
+}
+
+.welcome-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+
+.welcome-blurb {
+  font-size: 11.5px;
+  color: var(--dim);
+  line-height: 1.55;
+  margin-bottom: 8px;
+}
+
+/* Tells the user at a glance which engine actually answered on this machine. */
+.welcome-badge {
+  font-size: 10px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 20px;
+  padding: 1px 7px;
+}
+
+.welcome-badge.warn {
+  color: var(--dim);
+  border-color: var(--border);
+  background: transparent;
+}
+
+.welcome-foot {
+  font-size: 11.5px;
+  color: var(--dim);
+  padding-top: 12px;
+}
+
+.sheet-section {
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 18px 0 6px;
+}
+
+.keys-group {
+  margin-bottom: 10px;
+}
+
+.keys-title {
+  font-size: 11px;
+  color: var(--dim);
+  margin: 6px 0 3px;
+}
+
+.keys-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3.5px 0;
+}
+
+.keys-what {
+  font-size: 12px;
+}
+
 .kbd {
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 10.5px;
@@ -539,7 +735,9 @@ input[type='range'] {
   backdrop-filter: blur(10px);
   z-index: 55;
   display: flex;
-  padding: 26px;
+  /* Extra headroom so the "All sessions" row clears the traffic lights, which
+     macOS floats over the top-left of the window whatever is underneath. */
+  padding: 54px 26px 26px;
 }
 
 .grid-shell {
@@ -606,6 +804,13 @@ input[type='range'] {
 .card.active {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+}
+
+/* The arrow-key cursor. A ring rather than a fill, so it reads as separate
+   from .active — which marks the session you are actually attached to. */
+.card.cursor {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .card.dragging {

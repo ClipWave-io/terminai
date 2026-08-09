@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { Prefs, VoiceClip } from '../shared/types'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -15,7 +15,12 @@ const api = {
       ipcRenderer.send('pty:resize', { id, cols, rows }),
     kill: (id: string): void => ipcRenderer.send('pty:kill', { id }),
     process: (id: string): Promise<string> => ipcRenderer.invoke('pty:process', { id }),
+    status: (id: string): Promise<TabStatus> => ipcRenderer.invoke('pty:status', { id }),
+    usedClaude: (id: string): Promise<boolean> => ipcRenderer.invoke('pty:usedClaude', { id }),
     cwd: (id: string): Promise<string> => ipcRenderer.invoke('pty:cwd', { id }),
+    claudeSession: (id: string): Promise<string> => ipcRenderer.invoke('pty:claudeSession', { id }),
+    canResume: (sessionId: string): Promise<boolean> =>
+      ipcRenderer.invoke('pty:canResume', { sessionId }),
 
     onData: (cb: (id: string, data: string) => void): (() => void) => {
       const h = (_e: IpcRendererEvent, p: { id: string; data: string }): void => cb(p.id, p.data)
@@ -71,6 +76,21 @@ const api = {
 
   dialog: {
     pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
+  },
+
+  files: {
+    /**
+     * Electron 32 removed `File.path`, so a dropped file's real location is only
+     * reachable through webUtils — which lives on this side of the bridge.
+     * Returns '' for anything that is not a real on-disk file.
+     */
+    pathFor: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file)
+      } catch {
+        return ''
+      }
+    },
   },
 }
 

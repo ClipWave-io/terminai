@@ -1,9 +1,17 @@
-# Clipwave Term
+# TerminAI
 
-A terminal that is easier on the eyes, and talks back.
+A terminal that is easier on the eyes, and talks back. Built around long-running Claude Code
+sessions: several of them, side by side, each one worth coming back to.
+
+macOS on Apple Silicon only, and unsigned — see *Running it* below.
 
 - **Tabs are rows down the left**, not a strip across the top.
-- **Rounded, low-contrast surfaces** — two palettes, neither of them white-on-black.
+- **Sessions come back the way you left them.** Each tab gets its own Claude Code session id, so
+  reopening the app resumes *that tab's* conversation rather than whichever one happened to be
+  most recent in the folder.
+- **Optionally grouped by folder** — Settings → *Group by folder* buckets the sidebar under a
+  heading per directory.
+- **Rounded, low-contrast surfaces** — twelve palettes, none of them white-on-black.
 - **Spoken summaries.** When a Claude Code turn ends, the one-line `SPOKEN:` summary is
   synthesized and played in a dock at the bottom of the window.
 - **A real terminal.** One PTY per tab running your login shell, so zsh, git, vim, ssh and
@@ -16,22 +24,36 @@ A terminal that is easier on the eyes, and talks back.
 ## Running it
 
 ```bash
+git clone https://github.com/ilaiadaya/terminai.git
+cd terminai
 npm install     # approves the native install scripts electron + node-pty need
 npm run dev     # hot-reloading development window
-npm run dist    # builds release/mac-arm64/Clipwave Term.app
+```
+
+To build a real app:
+
+```bash
+npm run dist       # release/mac-arm64/TerminAI.app
+npm run dist:dmg   # a .dmg to drag into Applications
 ```
 
 To install a fresh build over the one in the Dock:
 
 ```bash
 npm run dist
-rm -rf "/Applications/Clipwave Term.app"
-cp -R "release/mac-arm64/Clipwave Term.app" /Applications/
+cp -R "release/mac-arm64/TerminAI.app" /Applications/
 ```
+
+Quit the app before copying over it. Deleting the bundle of a *running* copy leaves the process
+alive but unable to spawn new PTYs — node-pty execs `spawn-helper` out of the bundle, and new
+tabs then fail silently until you relaunch.
 
 The Dock entry points at `/Applications`, so it keeps working across rebuilds. The app is
 unsigned; a locally built copy carries no quarantine flag and opens normally, but a copy that
 has travelled through a download will need right-click → Open once.
+
+Nothing is required beyond `npm install` — the voice falls back to macOS `say` with no key and
+no setup, and Claude Code is only needed if you want the parts that talk to it.
 
 ## Icon
 
@@ -50,7 +72,7 @@ It reuses the setup already in `~/.claude` rather than replacing it:
 | `~/.claude/CLAUDE.md` | you | makes every response end with `SPOKEN: <one sentence>` |
 | `~/.claude/speak-summary.sh` | you (a `Stop` hook) | writes that line to `~/.claude/spoken.txt` |
 | `~/.claude/speak-file.sh` | you | speaks it on a global hotkey |
-| **Clipwave Term** | this repo | watches `spoken.txt`, synthesizes, and plays it in-window |
+| **TerminAI** | this repo | watches `spoken.txt`, synthesizes, and plays it in-window |
 
 Nothing here writes to `~/.claude`. The existing hotkey keeps working whether or not this app
 is running, and the app keeps working if you delete the hotkey.
@@ -93,7 +115,7 @@ raw PTY byte stream mid-flight, which breaks on redraws and partial reads.
 | `⇧⌘O` | new tab in a chosen folder |
 | `⌘1`–`⌘9` | jump to tab |
 | `⌃⇥` / `⌃⇧⇥` | cycle tabs |
-| `⇧⌘L` | switch Dusk ↔ Paper |
+| `⇧⌘L` | cycle to the next theme |
 | `⇧⌘S` | play / replay the latest summary |
 | `⌘+` / `⌘−` | font size |
 | `⌘G` | grid of all sessions |
@@ -110,8 +132,12 @@ Everything else falls through to the shell untouched, so Claude Code's own bindi
 src/main/       PTY sessions, prefs, the spoken.txt watcher, TTS engines
 src/preload/    the single contextBridge surface the renderer gets
 src/renderer/   React UI: tab rail, terminal panes, voice dock, settings
-src/shared/     types and the two palettes
+src/shared/     types and the palettes
 ```
+
+`~/Library/Application Support/clipwave-term/` holds prefs, saved tabs, the voice cache, the
+per-tab `claude` shim and the session ids. The directory keeps the old name because Electron
+keys it on package.json `name`, not the display name — renaming it would strand your prefs.
 
 ## Debugging
 
@@ -135,6 +161,16 @@ is the only trace that always survives.
   Claude Code session it inherits them, every `claude` in a tab then believes it is a *child*
   session, transcript saving is silently disabled — and with no transcript the Stop hook writes
   nothing, so the voice goes quiet with no error anywhere.
+- Per-tab conversation restore works through a **`claude` shim first on that tab's PATH**, which
+  mints a uuid and passes `--session-id`. `claude --continue` resumes the newest conversation *in
+  the folder*, so two tabs in one folder would otherwise fight over the same one. The shim takes
+  itself off PATH before `exec`, and stays out of the way when you pass `-r`/`-c`/`--session-id`
+  yourself. If `claude` is a shell function in your rc file the shim never runs and restore falls
+  back to `--continue`.
+- Session id files are **not** deleted on tab close — `killAll()` runs at quit and would destroy
+  the ids the next launch needs. A 14-day sweep cleans them up instead.
+- Folder labels come from a batched `lsof -a -w -d cwd` over every live pid on the existing 3s
+  sweep, not one spawn per tab.
 - Local TTS runs with `VIRTUAL_ENV` pointed at its venv. misaki shells out to `uv pip install`
   for its spaCy model on first use and fails outright without an active virtualenv.
 - Prefs are written **write-then-rename**. Tabs save on every open and close, so a plain write

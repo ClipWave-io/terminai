@@ -18,6 +18,15 @@ interface Props {
 }
 
 /**
+ * Quote a dropped path the way a shell needs it. Single quotes take everything
+ * literally, so only an embedded single quote needs the close-escape-reopen
+ * dance — which also covers spaces, $, and every other metacharacter.
+ */
+function shellQuote(path: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`
+}
+
+/**
  * One xterm bound to one PTY. Instances for inactive tabs stay mounted (hidden
  * via CSS) so background sessions keep drawing and scrollback survives a switch.
  */
@@ -162,5 +171,37 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     return () => cancelAnimationFrame(id)
   }, [active, ptyId])
 
-  return <div ref={hostRef} className={`term-host${active ? ' active' : ''}`} />
+  // ---- dropped files paste their path -------------------------------------
+  // xterm's own drop handling only understands text, so a Finder drag would
+  // otherwise do nothing here (and, without the preventDefault, would make the
+  // whole window navigate to the file).
+  const onDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    const dropped = Array.from(e.dataTransfer.files)
+      .map((f) => window.term.files.pathFor(f))
+      .filter(Boolean)
+
+    // A drag from a text editor or the browser carries no file, just a string.
+    const text = dropped.length
+      ? dropped.map(shellQuote).join(' ')
+      : e.dataTransfer.getData('text/uri-list').trim() || e.dataTransfer.getData('text/plain')
+    if (!text) return
+
+    // Trailing space so a second drop does not run into the first.
+    window.term.pty.write(ptyId, `${text} `)
+    termRef.current?.focus()
+  }
+
+  return (
+    <div
+      ref={hostRef}
+      className={`term-host${active ? ' active' : ''}`}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+      }}
+      onDrop={onDrop}
+    />
+  )
 }

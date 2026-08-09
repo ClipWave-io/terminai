@@ -1,5 +1,5 @@
 import { app, type WebContents } from 'electron'
-import { readFileSync, appendFileSync, watchFile, unwatchFile } from 'node:fs'
+import { appendFileSync } from 'node:fs'
 import { readFile, mkdir, access, stat, rm } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, basename } from 'node:path'
@@ -10,14 +10,36 @@ import * as eleven from './tts/elevenlabs'
 import * as local from './tts/local'
 
 /**
- * The file `~/.claude/speak-summary.sh` (a Stop hook) writes the last
- * `SPOKEN:` line into. We are a read-only consumer of it — the existing
- * hotkey in speak-file.sh keeps working whether or not this app is running.
+ * `~/.claude/speak-summary.sh` (a Stop hook) writes the last `SPOKEN:` line
+ * into `~/.claude/spoken.txt` unconditionally, so the pre-existing on-demand
+ * hotkey (speak-file.sh) keeps working whether or not this app is running.
+ * But that file is a single global path shared by every Claude Code session
+ * on the machine — an unrelated session finishing a turn elsewhere would
+ * clobber it and get narrated here instead. The hook also writes a copy keyed
+ * by a hash of the session's cwd into SPOKEN_DIR; this app only reacts to the
+ * ones matching a cwd it actually has a tab open on.
  */
-export const SPOKEN_FILE = join(homedir(), '.claude', 'spoken.txt')
+export const SPOKEN_DIR = join(homedir(), '.claude', 'spoken')
 
-let watching = false
-let lastText = ''
+/** Must match the hashing done in speak-summary.sh (`shasum -a 1 | cut -c1-16`). */
+export function hashCwd(cwd: string): string {
+  return createHash('sha1').update(cwd).digest('hex').slice(0, 16)
+}
+
+function pathForCwd(cwd: string): string {
+  return join(SPOKEN_DIR, `${hashCwd(cwd)}.txt`)
+}
+
+interface OpenTab {
+  id: string
+  cwd: string
+}
+
+let pollTimer: ReturnType<typeof setInterval> | null = null
+/** path -> last-seen stat, so a poll tick can tell a rewrite from a no-op. */
+const seenStat = new Map<string, { mtimeMs: number; size: number }>()
+/** path -> last text spoken from it, to dedupe the hook rewriting unchanged content. */
+const lastTextByPath = new Map<string, string>()
 
 /**
  * Set CLIPWAVE_TERM_DEBUG=1 to trace the summary pipeline to a file. The main
@@ -151,36 +173,33 @@ export function toClip(
   }
 }
 
-async function onSpokenChanged(
+async function speakFrom(
   wc: WebContents,
-  getPrefs: () => VoicePrefs,
-  getActiveTab: () => string | null,
+  prefs: VoicePrefs,
+  path: string,
+  tabId: string,
 ): Promise<void> {
-  const prefs = getPrefs()
-  if (!prefs.enabled) return
-
   let text = ''
   try {
-    text = (await readFile(SPOKEN_FILE, 'utf8')).trim()
+    text = (await readFile(path, 'utf8')).trim()
   } catch {
     return
   }
 
-  // fs.watch fires more than once per write on macOS, and the hook rewrites the
-  // file even when the summary is unchanged.
-  if (!text || text === lastText) return
-  lastText = text
+  // The hook rewrites the file even when the summary is unchanged.
+  if (!text || lastTextByPath.get(path) === text) return
+  lastTextByPath.set(path, text)
 
-  trace(`change detected: ${text.slice(0, 60)}`)
+  trace(`change detected (tab ${tabId}): ${text.slice(0, 60)}`)
 
   try {
-    const { path, engine } = await synthesize(text, prefs)
+    const { path: clipPath, engine } = await synthesize(text, prefs)
     if (wc.isDestroyed()) {
       trace('renderer gone, dropping clip')
       return
     }
-    wc.send('voice:clip', toClip(text, path, engine, getActiveTab()))
-    trace(`sent clip (${engine}) ${path}`)
+    wc.send('voice:clip', toClip(text, clipPath, engine, tabId))
+    trace(`sent clip (${engine}) ${clipPath}`)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     trace(`FAILED: ${message}`)
@@ -188,36 +207,61 @@ async function onSpokenChanged(
   }
 }
 
+/**
+ * One tick: for every currently open tab, check whether its per-cwd summary
+ * file changed since last tick, and if so speak it — attributed to that exact
+ * tab. Tabs whose cwd has no summary file yet, or whose file belongs to some
+ * other machine-wide Claude Code session, are silently untouched.
+ */
+async function poll(
+  wc: WebContents,
+  getPrefs: () => VoicePrefs,
+  getOpenTabs: () => OpenTab[],
+): Promise<void> {
+  const prefs = getPrefs()
+  const tabs = getOpenTabs()
+
+  const livePaths = new Set(tabs.map((t) => pathForCwd(t.cwd)))
+  for (const path of [...seenStat.keys()]) {
+    if (!livePaths.has(path)) {
+      seenStat.delete(path)
+      lastTextByPath.delete(path)
+    }
+  }
+
+  for (const tab of tabs) {
+    const path = pathForCwd(tab.cwd)
+    let s
+    try {
+      s = await stat(path)
+    } catch {
+      continue
+    }
+
+    const prev = seenStat.get(path)
+    seenStat.set(path, { mtimeMs: s.mtimeMs, size: s.size })
+
+    if (!prev) continue // first sighting: seed silently, don't replay old text
+    if (prev.mtimeMs === s.mtimeMs && prev.size === s.size) continue
+    if (!prefs.enabled) continue
+
+    await speakFrom(wc, prefs, path, tab.id)
+  }
+}
+
 export function startWatching(
   wc: WebContents,
   getPrefs: () => VoicePrefs,
-  getActiveTab: () => string | null,
+  getOpenTabs: () => OpenTab[],
 ): void {
   stopWatching()
-
-  // Seed with whatever is already there so the first real change is detected as
-  // a change, rather than replaying the previous session's last summary.
-  try {
-    lastText = readFileSync(SPOKEN_FILE, 'utf8').trim()
-  } catch {
-    lastText = ''
-  }
-
-  // Deliberately stat-polling rather than fs.watch. fs.watch on a single file is
-  // unreliable on macOS — it misses events when the file is truncated and
-  // rewritten in place, which is exactly what the `printf > spoken.txt` in
-  // speak-summary.sh does. watchFile also keeps working when the file does not
-  // exist yet, so a first-ever summary is picked up without special casing.
-  watchFile(SPOKEN_FILE, { interval: 700 }, (curr, prev) => {
-    if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return
-    void onSpokenChanged(wc, getPrefs, getActiveTab)
-  })
-
-  watching = true
-  trace(`watching ${SPOKEN_FILE}, seeded with ${lastText.length} chars`)
+  pollTimer = setInterval(() => void poll(wc, getPrefs, getOpenTabs), 700)
+  trace(`watching ${SPOKEN_DIR} for open tabs' cwds`)
 }
 
 export function stopWatching(): void {
-  if (watching) unwatchFile(SPOKEN_FILE)
-  watching = false
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = null
+  seenStat.clear()
+  lastTextByPath.clear()
 }

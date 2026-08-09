@@ -55,10 +55,78 @@ export function TabGrid({
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+
+  // Arrow-key cursor. Starts on the active session so the first keypress moves
+  // from where the user already is.
+  const [cursor, setCursor] = useState(() => Math.max(0, tabs.findIndex((t) => t.id === activeId)))
 
   useEffect(() => {
     if (editing) noteRef.current?.focus()
   }, [editing])
+
+  // Keep the cursor pointing at something real as tabs open and close.
+  useEffect(() => {
+    setCursor((c) => Math.min(Math.max(c, 0), Math.max(0, tabs.length - 1)))
+  }, [tabs.length])
+
+  // Scroll the cursor into view without yanking the page around when it is
+  // already visible.
+  useEffect(() => {
+    gridRef.current?.children[cursor]?.scrollIntoView({ block: 'nearest' })
+  }, [cursor])
+
+  /** Cards per row, read off the live layout rather than assumed. */
+  const columns = (): number => {
+    const grid = gridRef.current
+    if (!grid) return 1
+    const cards = Array.from(grid.children) as HTMLElement[]
+    if (!cards.length) return 1
+    const top = cards[0]!.offsetTop
+    const n = cards.filter((c) => c.offsetTop === top).length
+    return Math.max(1, n)
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      // A note being edited owns its own keys, arrows included.
+      if (editing) return
+      const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Escape', ' ']
+      if (!keys.includes(e.key) || e.metaKey || e.ctrlKey || e.altKey) return
+
+      // Capture phase + stopPropagation, because the focused xterm would
+      // otherwise forward these straight to the PTY behind the overlay.
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (e.key === 'Escape') return onClose_()
+      if (e.key === 'Enter' || e.key === ' ') {
+        const tab = tabs[cursor]
+        if (tab) onSelect(tab.id)
+        return
+      }
+      if (!tabs.length) return
+
+      const cols = columns()
+      setCursor((c) => {
+        switch (e.key) {
+          case 'ArrowLeft':
+            return (c - 1 + tabs.length) % tabs.length
+          case 'ArrowRight':
+            return (c + 1) % tabs.length
+          case 'ArrowUp':
+            return c - cols >= 0 ? c - cols : c
+          case 'ArrowDown':
+            return c + cols < tabs.length ? c + cols : c
+          default:
+            return c
+        }
+      })
+    }
+
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [tabs, cursor, editing, onSelect, onClose_])
 
   const now = Date.now()
 
@@ -68,15 +136,15 @@ export function TabGrid({
         <header className="grid-head">
           <h2>All sessions</h2>
           <span className="hint">
-            Drag a card to set your priority order · click to jump ·{' '}
-            <span className="kbd">⌘G</span> to close
+            <span className="kbd">↑↓←→</span> move · <span className="kbd">↵</span> jump · drag to
+            reorder · <span className="kbd">⌘G</span> to close
           </span>
           <button className="chip" onClick={onNew}>
             + New tab
           </button>
         </header>
 
-        <div className="grid">
+        <div className="grid" ref={gridRef}>
           {tabs.map((tab, i) => {
             const s = state(tab)
             const lines = snapshots.snapshot(tab.id, 7).filter((l) => l.length)
@@ -86,6 +154,7 @@ export function TabGrid({
                 className={[
                   'card',
                   tab.id === activeId ? 'active' : '',
+                  i === cursor ? 'cursor' : '',
                   dragOver === i && dragFrom !== null && dragFrom !== i ? 'dropping' : '',
                   dragFrom === i ? 'dragging' : '',
                 ]
@@ -107,6 +176,7 @@ export function TabGrid({
                   setDragFrom(null)
                   setDragOver(null)
                 }}
+                onMouseEnter={() => setCursor(i)}
                 onClick={() => onSelect(tab.id)}
               >
                 <div className="card-head">
