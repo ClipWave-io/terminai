@@ -10,6 +10,9 @@ const api = {
   pty: {
     create: (opts: { cwd?: string; cols?: number; rows?: number }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),
+    list: (): Promise<{ id: string; cwd: string; exited: boolean }[]> =>
+      ipcRenderer.invoke('pty:list'),
+    attach: (id: string): Promise<boolean> => ipcRenderer.invoke('pty:attach', { id }),
     write: (id: string, data: string): void => ipcRenderer.send('pty:write', { id, data }),
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('pty:resize', { id, cols, rows }),

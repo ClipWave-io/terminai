@@ -103,6 +103,11 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       if (id === ptyId) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n')
     })
 
+    // Only now, with both listeners live, does main start sending. Everything
+    // the shell printed before this point — including while the window was
+    // closed — arrives as one replayed chunk, exactly once.
+    void window.term.pty.attach(ptyId)
+
     term.onData((d) => window.term.pty.write(ptyId, d))
     // Honour OSC 0/2, which is how shells and TUIs announce what they're doing.
     term.onTitleChange((t) => onTitle(t))

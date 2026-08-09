@@ -1,6 +1,6 @@
 # Customising this terminal
 
-You are Claude Code, opened from inside **Clipwave Term** — the very terminal window you are
+You are Claude Code, opened from inside **TerminAI** — the very terminal window you are
 running in. The person talking to you wants to change how it looks or feels. Your job is to make
 that change, apply it, and relaunch the app so they see it immediately.
 
@@ -30,7 +30,8 @@ build from the Dock, not a dev server.
 |---|---|
 | Colours, both palettes, adding a new theme | `src/shared/themes.ts` |
 | Layout, spacing, radii, shadows, fonts, animation | `src/renderer/styles.css` |
-| **Sidebar to the right**, or top, or hidden | `.app { flex-direction: row-reverse }` in `styles.css` |
+| **Which side the sidebar sits on** | the `railSide` pref (`⌥⌘S`), not CSS — see `types.ts` |
+| Hiding the sidebar / voice dock | the `railHidden` / `voiceDockHidden` prefs (`⌘S` / `⌘D`) |
 | What a tab row shows | `src/renderer/components/TabRail.tsx` |
 | The grid view of tabs | `src/renderer/components/TabGrid.tsx` |
 | The audio player at the bottom | `src/renderer/components/VoiceDock.tsx` |
@@ -82,11 +83,20 @@ that does not.
 
 ---
 
-## 4. Working style
+## 4. Renaming the app
+
+`build.productName` in `package.json` is the app's name and therefore the bundle name
+(`TerminAI.app`). `scripts/apply.sh` reads it from there — never hardcode the bundle name
+anywhere, and if you change it, tell the user their Dock icon points at the old path and will
+need re-adding. Renaming without updating the installer once left `/Applications` with no app
+at all.
+
+## 5. Working style
 
 - Change the design, not the plumbing. If a request only needs CSS, only touch CSS.
 - Run `npx tsc --noEmit` before applying; it catches most mistakes for free.
-- Keep both themes working. If you add a colour, add it to Dusk *and* Paper.
+- Keep **every** theme working. `THEMES` in `themes.ts` currently has 12 entries; a new colour
+  needs a value in each, light ones included, or that theme silently loses it.
 - After `scripts/apply.sh`, the app reopens with the previous tabs restored.
 - The user's own version is just this git repo. Suggest they commit changes they like, so a
   later rebuild does not lose them.

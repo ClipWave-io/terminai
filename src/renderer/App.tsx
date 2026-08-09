@@ -128,6 +128,33 @@ export function App(): JSX.Element {
     return id
   }, [])
 
+  /**
+   * Take over a shell that is still running from before the window closed. No
+   * spawn, and deliberately no `claude --resume`: the conversation was never
+   * interrupted, so typing anything into it would land in a live prompt.
+   */
+  const adoptTab = useCallback((live: { id: string; cwd: string }, restore?: SavedTab) => {
+    const now = Date.now()
+    setTabs((prev) => [
+      ...prev,
+      {
+        id: live.id,
+        title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
+        cwd: live.cwd,
+        process: '',
+        status: 'ready',
+        usedClaude: false,
+        exited: false,
+        createdAt: now,
+        focusedMs: restore?.focusedMs ?? 0,
+        lastActiveAt: now,
+        notes: restore?.notes ?? '',
+        claudeSession: '',
+      },
+    ])
+    setActiveId(live.id)
+  }, [])
+
   const closeTab = useCallback((id: string) => {
     window.term.pty.kill(id)
     setTabs((prev) => {
@@ -147,18 +174,35 @@ export function App(): JSX.Element {
     if (!ready || bootstrapped.current) return
     bootstrapped.current = true
     void (async () => {
-      if (prefs.tabs.length) {
-        for (const t of prefs.tabs) await newTab(t.cwd, t)
-      } else {
-        await newTab()
+      // Shells outlive the window on macOS, so prefer adopting one over
+      // restarting it. After a real quit this list is empty and every tab
+      // takes the spawn-and-resume path below.
+      const live = new Map((await window.term.pty.list()).map((s) => [s.id, s]))
+      const taken = new Set<string>()
+
+      for (const t of prefs.tabs) {
+        const running = t.ptyId ? live.get(t.ptyId) : undefined
+        if (running) {
+          taken.add(running.id)
+          adoptTab(running, t)
+        } else {
+          await newTab(t.cwd, t)
+        }
       }
+
+      // A session with no saved tab: opened and then closed out of prefs, or
+      // prefs lost. Still a running shell, so surface it rather than orphan it.
+      for (const s of live.values()) if (!taken.has(s.id)) adoptTab(s)
+
+      if (!prefs.tabs.length && !live.size) await newTab()
     })()
-  }, [ready, prefs.tabs, newTab])
+  }, [ready, prefs.tabs, newTab, adoptTab])
 
   // Persist the tab set. Keyed on the saved fields alone: `tabs` also carries
   // live status, which changes several times a second, and writing prefs.json
   // at that rate would hammer the disk for no gain.
   const saved = tabs.map((t) => ({
+    ptyId: t.id,
     cwd: t.cwd,
     title: t.title,
     notes: t.notes,

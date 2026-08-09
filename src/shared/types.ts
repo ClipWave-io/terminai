@@ -88,6 +88,13 @@ export interface SavedTab {
   notes: string
   focusedMs: number
   /**
+   * The PTY this tab was showing. Only meaningful while the app is still
+   * running: closing the window on macOS leaves the shells alive, so reopening
+   * matches on this and adopts the same session instead of starting a new one.
+   * After a real quit no session matches and the tab restores from scratch.
+   */
+  ptyId?: string
+  /**
    * Claude Code was in the foreground when the app closed. On the next launch
    * the tab picks the conversation back up rather than dropping you at a bare
    * prompt with the session still sitting there unresumed.

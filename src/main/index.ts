@@ -110,8 +110,15 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   voice.stopWatching()
-  ptys.killAll()
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform !== 'darwin') {
+    ptys.killAll()
+    app.quit()
+    return
+  }
+  // On macOS closing the window is not quitting. Leave every shell running and
+  // only drop the window binding: reopening from the Dock then adopts the same
+  // sessions, mid-command and mid-conversation, instead of restarting them.
+  ptys.detachAll()
 })
 
 app.on('before-quit', () => {
@@ -121,9 +128,11 @@ app.on('before-quit', () => {
 
 function registerIpc(): void {
   // ---- terminal ----------------------------------------------------------
-  ipcMain.handle('pty:create', (e, opts: { cwd?: string; cols?: number; rows?: number }) =>
-    ptys.createSession(e.sender, opts ?? {}),
+  ipcMain.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
+    ptys.createSession(opts ?? {}),
   )
+  ipcMain.handle('pty:list', () => ptys.list())
+  ipcMain.handle('pty:attach', (e, { id }: { id: string }) => ptys.attach(e.sender, id))
   ipcMain.on('pty:write', (_e, { id, data }: { id: string; data: string }) => ptys.write(id, data))
   ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) =>
     ptys.resize(id, cols, rows),

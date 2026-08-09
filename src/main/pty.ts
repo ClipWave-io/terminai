@@ -21,6 +21,16 @@ interface Session {
   proc: pty.IPty
   cwd: string
   exited: boolean
+  /**
+   * The window currently showing this session, or null between one window
+   * closing and the next attaching. Output written while it is null is held in
+   * `buf` and flushed on attach, so closing the window loses nothing.
+   */
+  wc: WebContents | null
+  /** recent output, replayed into a newly attached window */
+  buf: string
+  /** exit code that arrived with no window to tell; delivered on attach */
+  pendingExit: number | null
   /** epoch ms of the last byte the process wrote — silence means it stopped working */
   lastDataAt: number
   /** the process rang the terminal bell, which Claude Code does when it wants you */
@@ -35,6 +45,15 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>()
+
+/**
+ * How much output to hold per tab for replay. 20k lines of scrollback would be
+ * truer to what xterm keeps, but this is measured against a window being closed
+ * and reopened, not against restarting: a screenful of context and whatever the
+ * session printed while it was hidden is what actually matters, and holding
+ * megabytes per tab for the rest of the process's life is not worth it.
+ */
+const BUF_LIMIT = 512 * 1024
 
 /**
  * The user's login shell, so .zshrc runs and PATH / ANTHROPIC_BASE_URL are what
@@ -156,10 +175,10 @@ function ptyEnv(tabId: string): Record<string, string> {
   return env
 }
 
-export function createSession(
-  wc: WebContents,
-  opts: { cwd?: string; cols?: number; rows?: number } = {},
-): { id: string; cwd: string } {
+export function createSession(opts: { cwd?: string; cols?: number; rows?: number } = {}): {
+  id: string
+  cwd: string
+} {
   const id = randomUUID()
   const cwd = opts.cwd && existsSync(opts.cwd) ? opts.cwd : homedir()
 
@@ -179,6 +198,11 @@ export function createSession(
     lastDataAt: Date.now(),
     belled: false,
     sawClaude: false,
+    // Bound by attach(), once the renderer has a terminal listening. Anything
+    // the shell prints before then is held rather than dropped on the floor.
+    wc: null,
+    buf: '',
+    pendingExit: null,
   }
   sessions.set(id, session)
   startSessionSweep()
@@ -186,16 +210,52 @@ export function createSession(
   proc.onData((data) => {
     session.lastDataAt = Date.now()
     if (data.includes('\x07')) session.belled = true
-    if (!wc.isDestroyed()) wc.send('pty:data', { id, data })
+    session.buf = (session.buf + data).slice(-BUF_LIMIT)
+    if (session.wc && !session.wc.isDestroyed()) session.wc.send('pty:data', { id, data })
   })
 
   proc.onExit(({ exitCode }) => {
     session.exited = true
-    if (!wc.isDestroyed()) wc.send('pty:exit', { id, exitCode })
-    sessions.delete(id)
+    if (session.wc && !session.wc.isDestroyed()) {
+      session.wc.send('pty:exit', { id, exitCode })
+      sessions.delete(id)
+    } else {
+      // Nobody to tell yet. Hold the session so the next window can adopt it,
+      // print the exit notice, and see what it left on screen.
+      session.pendingExit = exitCode
+    }
   })
 
   return { id, cwd }
+}
+
+/** Live sessions a newly opened window can adopt instead of spawning fresh ones. */
+export function list(): { id: string; cwd: string; exited: boolean }[] {
+  return [...sessions.values()].map((s) => ({ id: s.id, cwd: s.cwd, exited: s.exited }))
+}
+
+/**
+ * Point a session at the window now showing it and replay what it has printed.
+ *
+ * Called by every terminal pane on mount, new or adopted, which is what keeps
+ * the replay exactly-once: output goes to `buf` and nowhere else until the
+ * renderer is listening, and the flush and the rebind happen in the same tick.
+ */
+export function attach(wc: WebContents, id: string): boolean {
+  const s = sessions.get(id)
+  if (!s) return false
+  if (s.buf && !wc.isDestroyed()) wc.send('pty:data', { id, data: s.buf })
+  s.wc = wc
+  if (s.pendingExit !== null && !wc.isDestroyed()) {
+    wc.send('pty:exit', { id, exitCode: s.pendingExit })
+    sessions.delete(id)
+  }
+  return true
+}
+
+/** Drop the window binding without touching the shell, so output starts buffering again. */
+export function detachAll(): void {
+  for (const s of sessions.values()) s.wc = null
 }
 
 export function write(id: string, data: string): void {
