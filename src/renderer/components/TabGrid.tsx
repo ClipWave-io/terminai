@@ -25,13 +25,13 @@ function duration(ms: number): string {
   return `${Math.floor(hrs / 24)}d ${hrs % 24}h`
 }
 
-function state(tab: TabInfo): { label: string; cls: string } {
-  if (tab.exited) return { label: 'exited', cls: 'exited' }
-  if (tab.process === 'claude') return { label: 'claude', cls: 'claude' }
-  if (tab.process === '' || /^-?(zsh|bash|sh|fish)$/.test(tab.process)) {
-    return { label: 'idle', cls: '' }
-  }
-  return { label: tab.process, cls: 'busy' }
+/** The foreground-process name shown in the card stats. The dot colour comes
+    from tab.status now, so this only needs the label. */
+function processLabel(tab: TabInfo): string {
+  if (tab.exited) return 'exited'
+  if (tab.process === 'claude') return 'claude'
+  if (tab.process === '' || /^-?(zsh|bash|sh|fish)$/.test(tab.process)) return 'idle'
+  return tab.process
 }
 
 export function TabGrid({
@@ -146,7 +146,7 @@ export function TabGrid({
 
         <div className="grid" ref={gridRef}>
           {tabs.map((tab, i) => {
-            const s = state(tab)
+            const label = processLabel(tab)
             const lines = snapshots.snapshot(tab.id, 7).filter((l) => l.length)
             return (
               <article
@@ -181,7 +181,9 @@ export function TabGrid({
               >
                 <div className="card-head">
                   <span className="rank">{i + 1}</span>
-                  <span className={`tab-dot ${s.cls}`} />
+                  {/* Same live status dot as the sidebar — green/yellow/blue —
+                      not the process-name colour, which never had CSS here. */}
+                  <span className={`tab-dot ${tab.exited ? 'exited' : tab.status}`} />
                   <span className="card-title">{tab.title}</span>
                   <button
                     className="tab-close"
@@ -209,7 +211,7 @@ export function TabGrid({
                       )}
                     </b>
                   </span>
-                  <span title="Foreground process">{s.label}</span>
+                  <span title="Foreground process">{label}</span>
                 </div>
 
                 <pre className="card-preview">

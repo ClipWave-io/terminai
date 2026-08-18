@@ -22,6 +22,8 @@ const api = {
     usedClaude: (id: string): Promise<boolean> => ipcRenderer.invoke('pty:usedClaude', { id }),
     cwd: (id: string): Promise<string> => ipcRenderer.invoke('pty:cwd', { id }),
     claudeSession: (id: string): Promise<string> => ipcRenderer.invoke('pty:claudeSession', { id }),
+    recentSessions: (cwd: string, limit: number): Promise<string[]> =>
+      ipcRenderer.invoke('pty:recentSessions', { cwd, limit }),
     canResume: (sessionId: string): Promise<boolean> =>
       ipcRenderer.invoke('pty:canResume', { sessionId }),
 

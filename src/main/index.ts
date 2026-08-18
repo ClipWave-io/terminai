@@ -143,6 +143,10 @@ function registerIpc(): void {
   ipcMain.handle('pty:usedClaude', (_e, { id }: { id: string }) => ptys.usedClaude(id))
   ipcMain.handle('pty:cwd', (_e, { id }: { id: string }) => ptys.cwdOf(id))
   ipcMain.handle('pty:claudeSession', (_e, { id }: { id: string }) => ptys.claudeSessionOf(id))
+  ipcMain.handle(
+    'pty:recentSessions',
+    (_e, { cwd, limit }: { cwd: string; limit: number }) => ptys.recentClaudeSessions(cwd, limit),
+  )
   ipcMain.handle('pty:canResume', (_e, { sessionId }: { sessionId: string }) =>
     ptys.claudeSessionExists(sessionId),
   )

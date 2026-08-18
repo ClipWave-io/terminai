@@ -56,6 +56,24 @@ const sessions = new Map<string, Session>()
 const BUF_LIMIT = 512 * 1024
 
 /**
+ * Send to a window's renderer without ever letting a failure propagate. This is
+ * load-bearing on the PTY data path: those sends run inside node-pty's N-API
+ * callback, and an exception escaping there aborts the process rather than
+ * rejecting a promise. isDestroyed() catches the common case; the try/catch
+ * catches the race where the frame is disposed mid-send. Returns whether the
+ * payload was actually handed to a live window.
+ */
+function safeSend(wc: WebContents | null, channel: string, payload: unknown): boolean {
+  if (!wc || wc.isDestroyed()) return false
+  try {
+    wc.send(channel, payload)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * The user's login shell, so .zshrc runs and PATH / ANTHROPIC_BASE_URL are what
  * they are in any other terminal. Falling back to zsh rather than sh keeps
  * macOS defaults intact.
@@ -79,9 +97,46 @@ const SHIM = `#!/bin/sh
 PATH=\${PATH#"$CLIPWAVE_SHIM":}
 export PATH
 
-# You named a session yourself. Stay out of the way.
+# Resuming by id, or naming one yourself: that id *is* this tab's conversation
+# from here on, so record it and get out of the way.
+prev=
+for arg in "$@"; do
+  case $prev in
+    -r|--resume|--session-id)
+      case $arg in
+        -*) ;;
+        *) printf '%s\\n' "$arg" > "$CLIPWAVE_SESSION_FILE" ;;
+      esac
+      break ;;
+  esac
+  prev=$arg
+done
 case " $* " in
-  *" -r "*|*" --resume "*|*" -c "*|*" --continue "*|*" --session-id "*)
+  *" -r "*|*" --resume "*|*" --session-id "*) exec claude "$@" ;;
+esac
+
+# \`--continue\` means "the newest conversation in this folder" — it never tells
+# us which one that was, and a tab that only ever resumes would keep no id at
+# all. Resolve it to a concrete id here so the tab has one to come back to.
+case " $* " in
+  *" -c "*|*" --continue "*)
+    # printf, not \`pwd\`: the trailing newline would become a trailing dash and
+    # the folder would never match.
+    slug=$(printf '%s' "$PWD" | tr -c 'a-zA-Z0-9' '-')
+    newest=$(ls -t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -1)
+    if [ -n "$newest" ]; then
+      id=$(basename "$newest" .jsonl)
+      printf '%s\\n' "$id" > "$CLIPWAVE_SESSION_FILE"
+      # Drop the flag we are replacing; everything else the user typed stays.
+      rest=
+      for arg in "$@"; do
+        case $arg in
+          -c|--continue) ;;
+          *) rest="$rest \\"$arg\\"" ;;
+        esac
+      done
+      eval "exec claude --resume \\"$id\\"$rest"
+    fi
     exec claude "$@" ;;
 esac
 
@@ -211,17 +266,22 @@ export function createSession(opts: { cwd?: string; cols?: number; rows?: number
     session.lastDataAt = Date.now()
     if (data.includes('\x07')) session.belled = true
     session.buf = (session.buf + data).slice(-BUF_LIMIT)
-    if (session.wc && !session.wc.isDestroyed()) session.wc.send('pty:data', { id, data })
+    // If the send throws, it must never escape this callback: node-pty invokes
+    // it through an N-API ThreadSafeFunction and re-throws anything that comes
+    // back as a C++ exception, which is uncaught and aborts the whole process
+    // (SIGABRT). isDestroyed() is not enough — a frame can be disposed between
+    // the check and the send while a window is closing or reloading.
+    if (!safeSend(session.wc, 'pty:data', { id, data })) session.wc = null
   })
 
   proc.onExit(({ exitCode }) => {
     session.exited = true
-    if (session.wc && !session.wc.isDestroyed()) {
-      session.wc.send('pty:exit', { id, exitCode })
+    if (session.wc && safeSend(session.wc, 'pty:exit', { id, exitCode })) {
       sessions.delete(id)
     } else {
-      // Nobody to tell yet. Hold the session so the next window can adopt it,
-      // print the exit notice, and see what it left on screen.
+      // Nobody to tell yet (or the window just went away). Hold the session so
+      // the next window can adopt it, print the exit notice, and see what it
+      // left on screen.
       session.pendingExit = exitCode
     }
   })
@@ -244,10 +304,10 @@ export function list(): { id: string; cwd: string; exited: boolean }[] {
 export function attach(wc: WebContents, id: string): boolean {
   const s = sessions.get(id)
   if (!s) return false
-  if (s.buf && !wc.isDestroyed()) wc.send('pty:data', { id, data: s.buf })
+  if (s.buf) safeSend(wc, 'pty:data', { id, data: s.buf })
   s.wc = wc
-  if (s.pendingExit !== null && !wc.isDestroyed()) {
-    wc.send('pty:exit', { id, exitCode: s.pendingExit })
+  if (s.pendingExit !== null) {
+    safeSend(wc, 'pty:exit', { id, exitCode: s.pendingExit })
     sessions.delete(id)
   }
   return true
@@ -421,7 +481,11 @@ export function statusOf(id: string): TabStatus {
   if (!s || s.exited) return 'exited'
   if (isBareShell(foregroundProcess(id))) return 'ready'
   if (s.belled) return 'waiting'
-  return Date.now() - s.lastDataAt < 900 ? 'working' : 'waiting'
+  // Claude goes quiet for seconds mid-turn — a tool call, a bash step, a network
+  // wait — while still working. 900ms flipped those gaps to blue. The bell above
+  // already catches a genuine "waiting on you" instantly, so the quiet window can
+  // be generous without making true waiting laggy.
+  return Date.now() - s.lastDataAt < 2500 ? 'working' : 'waiting'
 }
 
 export function cwdOf(id: string): string {
@@ -457,6 +521,33 @@ export function claudeSessionExists(sessionId: string): boolean {
     /* no transcripts yet */
   }
   return false
+}
+
+/**
+ * The conversations that exist for a folder, newest first.
+ *
+ * Restoring several tabs on one folder used to type `claude --continue` into
+ * every one of them, and `--continue` means *the newest conversation here* — so
+ * all of them landed on the same one and the rest were left behind, still on
+ * disk, with nothing pointing at them. Handing out the nth id to the nth tab
+ * puts them back on different conversations, and gives each tab a real id to
+ * remember afterwards.
+ */
+export function recentClaudeSessions(cwd: string, limit: number): string[] {
+  // Claude Code names the project folder after the cwd with every character
+  // that isn't alphanumeric replaced by a dash.
+  const slug = cwd.replace(/[^a-zA-Z0-9]/g, '-')
+  const dir = join(homedir(), '.claude', 'projects', slug)
+  try {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ id: f.slice(0, -6), at: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.at - a.at)
+      .slice(0, limit)
+      .map((f) => f.id)
+  } catch {
+    return []
+  }
 }
 
 export function liveIds(): string[] {

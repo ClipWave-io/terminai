@@ -117,10 +117,16 @@ export function App(): JSX.Element {
       // all land on the same one and the rest would be lost. Fall back to it
       // only when we never learned an id, or the transcript is gone.
       const saved = restore.claudeSession
-      const cmd =
+      // Carry the skip-permissions mode across the restart too: the whole point
+      // of auto-resume is to drop you back exactly where you were, and a resumed
+      // conversation that suddenly starts prompting for permission it wasn't
+      // prompting for before is not where you were.
+      const base =
         saved && (await window.term.pty.canResume(saved))
           ? `claude --resume ${saved}`
           : 'claude --continue'
+      const cmd = `${base} --dangerously-skip-permissions`
+      if (saved) setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, claudeSession: saved } : t)))
       // The delay lets the login shell finish printing its prompt first, so the
       // command is not typed into a half-initialised line.
       setTimeout(() => window.term.pty.write(id, `${cmd}\r`), 900)
@@ -180,7 +186,20 @@ export function App(): JSX.Element {
       const live = new Map((await window.term.pty.list()).map((s) => [s.id, s]))
       const taken = new Set<string>()
 
-      for (const t of prefs.tabs) {
+      // Tabs saved before the app learned to mint session ids have none, and
+      // `--continue` would put every one of them on the newest conversation in
+      // the folder. Deal them the folder's conversations instead, newest to the
+      // tab nearest the top, so each comes back somewhere different.
+      const needIds = prefs.tabs.filter((t) => t.claude && !t.claudeSession)
+      const dealt = new Map<SavedTab, string>()
+      for (const cwd of new Set(needIds.map((t) => t.cwd))) {
+        const forCwd = needIds.filter((t) => t.cwd === cwd)
+        const ids = await window.term.pty.recentSessions(cwd, forCwd.length)
+        forCwd.forEach((t, i) => ids[i] && dealt.set(t, ids[i]))
+      }
+
+      for (const raw of prefs.tabs) {
+        const t = dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw
         const running = t.ptyId ? live.get(t.ptyId) : undefined
         if (running) {
           taken.add(running.id)
