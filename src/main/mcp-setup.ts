@@ -2,10 +2,10 @@ import { execFile } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, join, basename } from 'node:path'
+import { delimiter, join, basename, dirname } from 'node:path'
 
 export interface McpSetupResult { id: string; status: 'configured' | 'needs-setup' | 'error'; message: string }
-interface Server { name: string; enabled?: boolean; transport?: { command?: string; args?: string[] } }
+interface Server { name: string; enabled?: boolean; transport?: { command?: string; args?: string[]; env?: Record<string, string> } }
 interface SetupDependencies {
   home: string
   env: NodeJS.ProcessEnv
@@ -22,13 +22,37 @@ const ALLOWED = {
 /** Internal dependency seam for offline tests; never expose this factory through IPC. */
 export function createMcpSetup(deps: SetupDependencies) {
   let pending: Promise<unknown> = Promise.resolve()
+  const folders = [...new Set([join(deps.home, '.npm-global/bin'), join(deps.home, '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(deps.env.PATH || '').split(delimiter).filter(p => p.startsWith('/') && !/[\r\n\0]/.test(p))])]
   async function findExecutable(name: string): Promise<string | null> {
-    const folders = [join(deps.home, '.npm-global/bin'), join(deps.home, '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', ...(deps.env.PATH || '').split(delimiter).filter(p => p.startsWith('/'))]
-    for (const folder of [...new Set(folders)]) {
+    for (const folder of folders) {
       const path = join(folder, name)
       if (await deps.executable(path)) return path
     }
     return null
+  }
+  async function supportedNode(path: string): Promise<boolean> {
+    try {
+      const version = (await deps.run(path, ['--version'])).trim().match(/^v(\d+)\.(\d+)\.(\d+)$/)
+      return !!version && (Number(version[1]) > 22 || Number(version[1]) === 22 && Number(version[2]) >= 12)
+    } catch { return false }
+  }
+  async function findSupportedNode(): Promise<string | null> {
+    for (const folder of folders) {
+      const path = join(folder, 'node')
+      if (await deps.executable(path) && await supportedNode(path)) return path
+    }
+    return null
+  }
+  async function validSavedNodePath(value: string | undefined): Promise<boolean> {
+    if (!value) return false
+    const directories = value.split(delimiter)
+    if (directories.some(p => !p.startsWith('/') || /[\r\n\0]/.test(p))) return false
+    // /usr/bin/env node chooses the first executable, not the newest one later in PATH.
+    for (const folder of directories) {
+      const path = join(folder, 'node')
+      if (await deps.executable(path)) return supportedNode(path)
+    }
+    return false
   }
   async function setup(ids: string[]): Promise<McpSetupResult[]> {
     const requested = [...new Set(ids)].slice(0, 20)
@@ -57,7 +81,8 @@ export function createMcpSetup(deps: SetupDependencies) {
           const matchesOwned = existing.name === spec.name
             ? basename(existing.transport?.command || '') === spec.executable && JSON.stringify(existing.transport?.args) === JSON.stringify(spec.args)
             : (existing.transport?.args || []).some(arg => id === 'chrome-devtools' ? /^chrome-devtools-mcp(?:@|$)/.test(arg) : /(?:^|\/)google-ads-mcp(?:\.git|@|$)/.test(arg))
-          results.push({ id, status: !matchesOwned || existing.enabled === false || !credentialsPresent ? 'needs-setup' : 'configured', message: !matchesOwned ? 'An existing MCP name contains a different or unrecognized configuration. It was preserved; verify it in Codex settings.' : existing.enabled === false ? 'An existing MCP configuration is disabled. It was preserved; enable it in Codex if you want to use it.' : !credentialsPresent ? `Existing MCP configuration preserved. ${credentialsGuide}` : 'Existing MCP configuration preserved. Restart the Codex session to load it; connection health has not been tested.' })
+          const runtimeValid = id !== 'chrome-devtools' || existing.name !== spec.name || await validSavedNodePath(existing.transport?.env?.PATH)
+          results.push({ id, status: !matchesOwned || !runtimeValid || existing.enabled === false || !credentialsPresent ? 'needs-setup' : 'configured', message: !runtimeValid && matchesOwned ? 'The existing TerminAI Chrome configuration does not select Node.js 22.12 or newer in its PATH. It was preserved; update its PATH in Codex settings and retry.' : !matchesOwned ? 'An existing MCP name contains a different or unrecognized configuration. It was preserved; verify it in Codex settings.' : existing.enabled === false ? 'An existing MCP configuration is disabled. It was preserved; enable it in Codex if you want to use it.' : !credentialsPresent ? `Existing MCP configuration preserved. ${credentialsGuide}` : 'Existing MCP configuration preserved. Restart the Codex session to load it; connection health has not been tested.' })
           continue
         }
         const command = await findExecutable(spec.executable)
@@ -65,18 +90,20 @@ export function createMcpSetup(deps: SetupDependencies) {
           results.push({ id, status: 'needs-setup', message: id === 'google-ads' ? 'Install Python and pipx (https://pipx.pypa.io/stable/installation/), then retry setup. Google credentials must be configured on your own computer.' : 'Install Node.js 22 LTS or newer, including npx, then retry setup.' })
           continue
         }
+        let runtimePath: string | undefined
         if (id === 'chrome-devtools') {
-          const node = await findExecutable('node')
-          if (!node || Number((await deps.run(node, ['--version'])).match(/^v(\d+)/)?.[1] || 0) < 22) {
-            results.push({ id, status: 'needs-setup', message: 'Chrome DevTools MCP needs Node.js 22 LTS or newer. Install it and retry.' })
+          const node = await findSupportedNode()
+          if (!node) {
+            results.push({ id, status: 'needs-setup', message: 'Chrome DevTools MCP needs Node.js 22.12 or newer. Install it and retry.' })
             continue
           }
+          runtimePath = [...new Set([dirname(node), ...folders])].join(delimiter)
         }
         // The subprocess receives fixed argv only; never shell commands or copied credential env.
-        await deps.run(codex, ['mcp', 'add', spec.name, '--', command, ...spec.args])
+        await deps.run(codex, ['mcp', 'add', spec.name, ...(runtimePath ? ['--env', `PATH=${runtimePath}`] : []), '--', command, ...spec.args])
         servers = await readServers()
         const saved = servers.find(s => s.name === spec.name)
-        if (!saved || saved.enabled === false || saved.transport?.command !== command || JSON.stringify(saved.transport.args) !== JSON.stringify(spec.args)) throw new Error('Registration not verified')
+        if (!saved || saved.enabled === false || saved.transport?.command !== command || JSON.stringify(saved.transport.args) !== JSON.stringify(spec.args) || (runtimePath && saved.transport.env?.PATH !== runtimePath)) throw new Error('Registration not verified')
         results.push({ id, status: credentialsPresent ? 'configured' : 'needs-setup', message: !credentialsPresent ? `MCP command registered. ${credentialsGuide}` : 'MCP command registered. The pinned package installs on first launch; restart Codex to connect. Package startup and account access have not yet been tested.' })
       } catch {
         // CLI output may contain existing environment secrets. Never return it to the renderer/logs.

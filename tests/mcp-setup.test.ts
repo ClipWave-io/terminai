@@ -1,19 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createMcpSetup } from '../src/main/mcp-setup'
-function fixture(options: { servers?: any[]; absent?: string[]; credentials?: boolean; failure?: boolean } = {}) {
+function fixture(options: { servers?: any[]; absent?: string[]; credentials?: boolean; failure?: boolean; nodeVersions?: Record<string, string>; discardEnv?: boolean } = {}) {
   const calls: Array<{ command: string; args: string[] }> = []
   const servers = options.servers || []
   const setup = createMcpSetup({ home: '/test', env: { PATH: '/usr/bin' },
-    executable: async path => !(options.absent || []).some(n => path.endsWith('/' + n)),
+    executable: async path => !(options.absent || []).some(n => path.endsWith('/' + n)) && (!path.endsWith('/node') || !options.nodeVersions || path in options.nodeVersions),
     exists: async () => options.credentials ?? false,
     run: async (command, args) => {
       calls.push({ command, args })
       if (options.failure) throw new Error('SECRET-do-not-return')
-      if (args[0] === '--version') return 'v22.12.0'
+      if (args[0] === '--version') return options.nodeVersions?.[command] || 'v22.12.0'
       if (args[1] === 'list') return JSON.stringify(servers)
       assert.deepEqual(args.slice(0, 2), ['mcp', 'add'])
-      servers.push({ name: args[2], enabled: true, transport: { command: args[4], args: args.slice(5) } })
+      const separator = args.indexOf('--')
+      const env = args.includes('--env') && !options.discardEnv ? { PATH: args[args.indexOf('--env') + 1].slice(5) } : {}
+      servers.push({ name: args[2], enabled: true, transport: { command: args[separator + 1], args: args.slice(separator + 2), env } })
       return ''
     },
   })
@@ -27,7 +29,7 @@ test('only fixed allowlist commands are registered, duplicate requests are idemp
   await f.setup(['chrome-devtools'])
   const adds = f.calls.filter(c => c.args[1] === 'add')
   assert.equal(adds.length, 1)
-  assert.deepEqual(adds[0].args, ['mcp', 'add', 'terminai-chrome', '--', '/test/.npm-global/bin/npx', '-y', 'chrome-devtools-mcp@1.9.0', '--isolated', '--no-usage-statistics'])
+  assert.deepEqual(adds[0].args, ['mcp', 'add', 'terminai-chrome', '--env', 'PATH=/test/.npm-global/bin:/test/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', '--', '/test/.npm-global/bin/npx', '-y', 'chrome-devtools-mcp@1.9.0', '--isolated', '--no-usage-statistics'])
 })
 test('Google registers pinned official package but reports missing personal credentials', async () => {
   const f = fixture()
@@ -66,4 +68,31 @@ test('concurrent setup calls are serialized and do not double-register', async (
   const f = fixture()
   await Promise.all([f.setup(['chrome-devtools']), f.setup(['chrome-devtools'])])
   assert.equal(f.calls.filter(c => c.args[1] === 'add').length, 1)
+})
+
+test('selects supported Node later in candidate list and pins its directory first for npx', async () => {
+  const f = fixture({ nodeVersions: { '/opt/homebrew/bin/node': 'v21.6.1', '/usr/local/bin/node': 'v22.13.1' } })
+  assert.equal((await f.setup(['chrome-devtools']))[0].status, 'configured')
+  const add = f.calls.find(c => c.args[1] === 'add')!
+  assert.equal(add.args[add.args.indexOf('--env') + 1], 'PATH=/usr/local/bin:/test/.npm-global/bin:/test/.local/bin:/opt/homebrew/bin:/usr/bin:/bin')
+  assert.equal((await f.setup(['chrome-devtools']))[0].status, 'configured')
+  assert.equal(f.calls.filter(c => c.args[1] === 'add').length, 1)
+})
+test('22.11 does not meet the minimum, 22.12 and newer do', async () => {
+  for (const version of ['v20.20.0', 'v21.6.1', 'v22.11.0', 'v22.12.0-nightly']) {
+    const f = fixture({ nodeVersions: { '/usr/bin/node': version } })
+    assert.equal((await f.setup(['chrome-devtools']))[0].status, 'needs-setup')
+    assert.equal(f.calls.some(c => c.args[1] === 'add'), false)
+  }
+  assert.equal((await fixture({ nodeVersions: { '/usr/bin/node': 'v24.0.0' } }).setup(['chrome-devtools']))[0].status, 'configured')
+})
+test('does not report success if Codex did not persist the selected runtime PATH', async () => {
+  assert.equal((await fixture({ discardEnv: true }).setup(['chrome-devtools']))[0].status, 'error')
+})
+test('preserves managed configuration with missing or old-node-first PATH and asks for repair', async () => {
+  for (const env of [{}, { PATH: '/opt/homebrew/bin:/usr/local/bin' }]) {
+    const f = fixture({ nodeVersions: { '/opt/homebrew/bin/node': 'v21.6.1', '/usr/local/bin/node': 'v22.13.1' }, servers: [{ name: 'terminai-chrome', transport: { command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.9.0', '--isolated', '--no-usage-statistics'], env } }] })
+    assert.equal((await f.setup(['chrome-devtools']))[0].status, 'needs-setup')
+    assert.equal(f.calls.some(c => c.args[1] === 'add'), false)
+  }
 })
