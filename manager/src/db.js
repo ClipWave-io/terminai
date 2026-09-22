@@ -1,0 +1,83 @@
+import pg from 'pg';
+export function createPool(connectionString) {
+  if (!connectionString) throw new Error('DATABASE_URL is required.');
+  // pg honors sslmode in DATABASE_URL; never silently disable certificate validation.
+  return new pg.Pool({ connectionString, max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, statement_timeout: 10000 });
+}
+export async function transaction(pool, fn) {
+  const client = await pool.connect();
+  try { await client.query('BEGIN'); const result = await fn(client); await client.query('COMMIT'); return result; }
+  catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
+}
+export async function migrate(pool) {
+  await transaction(pool, async db => {
+    await db.query("SELECT pg_advisory_xact_lock(73920811)");
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS manager_users (
+        id uuid PRIMARY KEY, email text NOT NULL UNIQUE, name text NOT NULL,
+        password_hash text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS manager_companies (
+        id uuid PRIMARY KEY, name text NOT NULL,
+        default_visibility text NOT NULL DEFAULT 'owner' CHECK (default_visibility IN ('owner','company')),
+        allow_company_sharing boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS manager_memberships (
+        company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
+        user_id uuid REFERENCES manager_users ON DELETE CASCADE,
+        role text NOT NULL CHECK (role IN ('owner','admin','member','viewer')),
+        classification text NOT NULL DEFAULT 'general' CHECK (classification IN ('general','developer','analyst','marketing')),
+        created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (company_id,user_id)
+      );
+      CREATE TABLE IF NOT EXISTS manager_sessions (
+        id uuid PRIMARY KEY, token_hash text NOT NULL UNIQUE,
+        user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
+        client text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL, revoked_at timestamptz
+      );
+      CREATE INDEX IF NOT EXISTS manager_sessions_user ON manager_sessions(user_id);
+      CREATE TABLE IF NOT EXISTS manager_invites (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        email text NOT NULL, role text NOT NULL CHECK (role IN ('admin','member','viewer')),
+        classification text NOT NULL CHECK (classification IN ('general','developer','analyst','marketing')),
+        token_hash text NOT NULL UNIQUE, created_by uuid NOT NULL REFERENCES manager_users,
+        expires_at timestamptz NOT NULL, accepted_at timestamptz, revoked_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS manager_catalog_assignments (
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        catalog_id text NOT NULL, subject_type text NOT NULL CHECK(subject_type IN ('role','classification')),
+        subject text NOT NULL, PRIMARY KEY(company_id,catalog_id,subject_type,subject)
+      );
+      CREATE TABLE IF NOT EXISTS manager_conversations (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        owner_id uuid NOT NULL REFERENCES manager_users,
+        title text NOT NULL, visibility text NOT NULL CHECK(visibility IN ('owner','company')),
+        allowed_roles text[] NOT NULL DEFAULT ARRAY['owner','admin','member','viewer'],
+        created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE(id,company_id)
+      );
+      CREATE INDEX IF NOT EXISTS manager_conversations_company ON manager_conversations(company_id,updated_at DESC);
+      CREATE TABLE IF NOT EXISTS manager_messages (
+        id uuid PRIMARY KEY, conversation_id uuid NOT NULL, company_id uuid NOT NULL,
+        author_id uuid NOT NULL REFERENCES manager_users,
+        kind text NOT NULL CHECK(kind IN ('user','assistant','note')),
+        content text NOT NULL, client_message_id uuid,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        FOREIGN KEY(conversation_id,company_id) REFERENCES manager_conversations(id,company_id) ON DELETE CASCADE,
+        UNIQUE(conversation_id,author_id,client_message_id)
+      );
+      CREATE INDEX IF NOT EXISTS manager_messages_conversation ON manager_messages(conversation_id,created_at,id);
+      CREATE TABLE IF NOT EXISTS manager_rate_limits (
+        key text PRIMARY KEY, count integer NOT NULL, resets_at timestamptz NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS manager_audit (
+        id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
+        actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+    `);
+  });
+}
