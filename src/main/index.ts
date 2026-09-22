@@ -5,6 +5,9 @@ import { copyFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { ProjectFiles } from './project-files'
+import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } from './workspace'
+import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import * as ptys from './pty'
 import * as store from './store'
@@ -152,6 +155,17 @@ const appIpc = {
 }
 
 function registerIpc(): void {
+  appIpc.handle('workspace:open-manager', () => shell.openExternal(DEFAULT_WORKSPACE_URL))
+  appIpc.handle('workspace:state', () => workspaceState())
+  appIpc.handle('workspace:login', (_event, input) => workspaceLogin(input))
+  appIpc.handle('workspace:logout', () => workspaceLogout())
+  appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
+  appIpc.handle('workspace:setup-tools', async (_event, companyId: string) => {
+    if (typeof companyId !== 'string' || !/^[a-zA-Z0-9-]+$/.test(companyId)) throw new Error('Choose a company.')
+    const response = await workspaceRequest(`/api/companies/${companyId}/catalog`)
+    const catalog = Array.isArray(response) ? response : response.items ?? response.catalog ?? []
+    return setupAssignedMcps(catalog.filter((row: any) => row.assigned === true).map((row: any) => row.id))
+  })
   const projectFiles = new ProjectFiles()
   appIpc.handle('project:choose', async () => {
     const result = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose project folder to view' })

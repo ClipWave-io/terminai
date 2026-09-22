@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
+import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
 import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
 
@@ -9,6 +10,14 @@ import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
  * is hostile.
  */
 const api = {
+  workspace: {
+    openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),
+    state: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:state'),
+    login: (input: WorkspaceLogin): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:login', input),
+    logout: (): Promise<void> => ipcRenderer.invoke('workspace:logout'),
+    request: (path: string, method = 'GET', body?: unknown): Promise<any> => ipcRenderer.invoke('workspace:request', path, method, body),
+    setupTools: (companyId: string): Promise<McpSetupResult[]> => ipcRenderer.invoke('workspace:setup-tools', companyId),
+  },
   project: {
     choose: (): Promise<string | null> => ipcRenderer.invoke('project:choose'),
     list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),

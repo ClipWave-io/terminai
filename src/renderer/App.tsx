@@ -6,6 +6,7 @@ import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
 import { WelcomeSheet } from './components/WelcomeSheet'
+import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { TabGrid } from './components/TabGrid'
 import { getTheme, nextTheme } from '../shared/themes'
 import {
@@ -63,6 +64,7 @@ export function App(): JSX.Element {
   }, [])
   const [showBrowser, setShowBrowser] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showTeam, setShowTeam] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
   const [showGrid, setShowGrid] = useState(false)
@@ -595,6 +597,7 @@ export function App(): JSX.Element {
           {(prefs.railSide === 'right' || prefs.railHidden) && <span className="topbar-gap" />}
           <button className="btn" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => { setShowBrowser(value => !value); setCompactPane(showBrowser ? 'terminal' : 'browser') }}>Browser</button>
           <button className="btn no-drag" aria-pressed={showFiles} onClick={() => { setShowFiles(value => !value); setCompactPane(showFiles ? 'terminal' : 'files') }}>Files</button>
+          <button className="btn no-drag" onClick={() => setShowTeam(true)}>Team</button>
           <span className="topbar-title">{tabs.find((t) => t.id === activeId)?.title ?? ''}</span>
           <button
             className="btn icon"
@@ -658,7 +661,7 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`}><BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}`} visible={(!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`}><BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}`} visible={(!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
         </div>
 
         {prefs.voice.enabled && (
@@ -688,6 +691,7 @@ export function App(): JSX.Element {
           window before prefs have loaded. */}
       {ready && !prefs.seenWelcome && (
         <WelcomeSheet
+          onOpenWorkspace={() => { patchPrefs({ seenWelcome: true }); setShowTeam(true) }}
           onDismiss={() => patchPrefs({ seenWelcome: true })}
           onOpenSettings={() => {
             patchPrefs({ seenWelcome: true })
@@ -696,6 +700,7 @@ export function App(): JSX.Element {
         />
       )}
 
+      {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} onClose={() => setShowTeam(false)} />}
       {showSettings && (
         <SettingsSheet
           prefs={prefs}

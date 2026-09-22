@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 interface Props {
   onDismiss: () => void
   onOpenSettings: () => void
+  onOpenWorkspace: () => void
 }
 
 /** What the voice pipeline can actually do right now, so the tour never
@@ -32,7 +33,7 @@ const TOUR: { title: string; blurb: string; keys: [string, string][] }[] = [
   },
 ]
 
-export function WelcomeSheet({ onDismiss, onOpenSettings }: Props): JSX.Element {
+export function WelcomeSheet({ onDismiss, onOpenSettings, onOpenWorkspace }: Props): JSX.Element {
   const [voice, setVoice] = useState<VoiceState>('checking')
 
   useEffect(() => {
@@ -105,6 +106,12 @@ export function WelcomeSheet({ onDismiss, onOpenSettings }: Props): JSX.Element 
           ))}
         </div>
 
+        <div className="welcome-step">
+          <div className="welcome-title">Work with your team</div>
+          <p className="welcome-blurb">Sign in or use your company invitation to see shared conversations and the tools assigned to your role. Your terminal sessions stay private until you choose to share them.</p>
+          <button className="btn primary" onClick={onOpenWorkspace}>Sign in to your workspace</button>
+        </div>
+
         <p className="welcome-foot">
           The full shortcut list lives in Settings — <span className="kbd">⌘,</span> any time.
         </p>
@@ -114,7 +121,7 @@ export function WelcomeSheet({ onDismiss, onOpenSettings }: Props): JSX.Element 
             Open Settings
           </button>
           <button className="btn primary" style={{ flex: '0 0 auto' }} onClick={onDismiss}>
-            Get started
+            Continue locally
           </button>
         </div>
       </div>
