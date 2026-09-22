@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { copyFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
+import { createBrowserPane } from './browser'
 import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
@@ -26,6 +27,7 @@ import type { Prefs, VoicePrefs } from '../shared/types'
 declare const __REPO_ROOT__: string
 
 let win: BrowserWindow | null = null
+let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
 let activeTabId: string | null = null
 
@@ -77,6 +79,11 @@ function createWindow(): void {
     },
   })
 
+  // App shell must never navigate into remote content with its privileged preload.
+  win.webContents.on('will-navigate', event => event.preventDefault())
+  win.webContents.on('will-redirect', event => event.preventDefault())
+  browser = createBrowserPane(win)
+
   win.once('ready-to-show', () => win?.show())
 
   // Links in terminal output open in the real browser, never inside the app.
@@ -126,37 +133,58 @@ app.on('before-quit', () => {
   ptys.killAll()
 })
 
+// Every privileged channel accepts only the app shell's main frame, never a
+// remote browser view or a subframe. Keep this boundary when adding channels.
+function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
+  return !!win && !win.isDestroyed() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame
+}
+const appIpc = {
+  handle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any) {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!trusted(event)) throw new Error('Untrusted IPC sender')
+      return handler(event, ...args)
+    })
+  },
+  on(channel: string, handler: (event: Electron.IpcMainEvent, ...args: any[]) => void) {
+    ipcMain.on(channel, (event, ...args) => { if (trusted(event)) handler(event, ...args) })
+  },
+}
+
 function registerIpc(): void {
+  appIpc.handle('browser:state', () => browser?.state())
+  appIpc.handle('browser:navigate', (_event, url: unknown) => browser?.navigate(url))
+  appIpc.handle('browser:command', (_event, command: string) => browser?.command(command))
+  appIpc.handle('browser:layout', (_event, bounds) => browser?.layout(bounds))
   // ---- terminal ----------------------------------------------------------
-  ipcMain.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
+  appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
     ptys.createSession(opts ?? {}),
   )
-  ipcMain.handle('pty:list', () => ptys.list())
-  ipcMain.handle('pty:attach', (e, { id }: { id: string }) => ptys.attach(e.sender, id))
-  ipcMain.on('pty:write', (_e, { id, data }: { id: string; data: string }) => ptys.write(id, data))
-  ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) =>
+  appIpc.handle('pty:list', () => ptys.list())
+  appIpc.handle('pty:attach', (e, { id }: { id: string }) => ptys.attach(e.sender, id))
+  appIpc.on('pty:write', (_e, { id, data }: { id: string; data: string }) => ptys.write(id, data))
+  appIpc.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) =>
     ptys.resize(id, cols, rows),
   )
-  ipcMain.on('pty:kill', (_e, { id }: { id: string }) => ptys.kill(id))
-  ipcMain.handle('pty:process', (_e, { id }: { id: string }) => ptys.foregroundProcess(id))
-  ipcMain.handle('pty:status', (_e, { id }: { id: string }) => ptys.statusOf(id))
-  ipcMain.handle('pty:usedClaude', (_e, { id }: { id: string }) => ptys.usedClaude(id))
-  ipcMain.handle('pty:cwd', (_e, { id }: { id: string }) => ptys.cwdOf(id))
-  ipcMain.handle('pty:claudeSession', (_e, { id }: { id: string }) => ptys.claudeSessionOf(id))
-  ipcMain.handle(
+  appIpc.on('pty:kill', (_e, { id }: { id: string }) => ptys.kill(id))
+  appIpc.handle('pty:process', (_e, { id }: { id: string }) => ptys.foregroundProcess(id))
+  appIpc.handle('pty:status', (_e, { id }: { id: string }) => ptys.statusOf(id))
+  appIpc.handle('pty:usedClaude', (_e, { id }: { id: string }) => ptys.usedClaude(id))
+  appIpc.handle('pty:cwd', (_e, { id }: { id: string }) => ptys.cwdOf(id))
+  appIpc.handle('pty:claudeSession', (_e, { id }: { id: string }) => ptys.claudeSessionOf(id))
+  appIpc.handle(
     'pty:recentSessions',
     (_e, { cwd, limit }: { cwd: string; limit: number }) => ptys.recentClaudeSessions(cwd, limit),
   )
-  ipcMain.handle('pty:canResume', (_e, { sessionId }: { sessionId: string }) =>
+  appIpc.handle('pty:canResume', (_e, { sessionId }: { sessionId: string }) =>
     ptys.claudeSessionExists(sessionId),
   )
-  ipcMain.on('tab:active', (_e, { id }: { id: string | null }) => {
+  appIpc.on('tab:active', (_e, { id }: { id: string | null }) => {
     activeTabId = id
   })
 
   // ---- prefs -------------------------------------------------------------
-  ipcMain.handle('prefs:get', () => store.load())
-  ipcMain.handle('prefs:set', (_e, patch: Partial<Prefs>) => {
+  appIpc.handle('prefs:get', () => store.load())
+  appIpc.handle('prefs:set', (_e, patch: Partial<Prefs>) => {
     const next = store.save(patch)
     if (win && patch.theme) {
       const theme = getTheme(next.theme)
@@ -170,22 +198,22 @@ function registerIpc(): void {
   })
 
   // ---- voice -------------------------------------------------------------
-  ipcMain.handle('voice:speak', async (_e, { text }: { text: string }) => {
+  appIpc.handle('voice:speak', async (_e, { text }: { text: string }) => {
     const prefs = store.load().voice
     const { path, engine } = await voice.synthesize(text, prefs)
     return voice.toClip(text, path, engine, activeTabId)
   })
-  ipcMain.handle('voice:voices', () => availableVoices())
-  ipcMain.handle('voice:hasElevenKey', () => hasElevenKey())
-  ipcMain.handle('voice:hasLocal', () => localTts.isAvailable())
-  ipcMain.handle('voice:elevenVoices', async () => {
+  appIpc.handle('voice:voices', () => availableVoices())
+  appIpc.handle('voice:hasElevenKey', () => hasElevenKey())
+  appIpc.handle('voice:hasLocal', () => localTts.isAvailable())
+  appIpc.handle('voice:elevenVoices', async () => {
     try {
       return { ok: true as const, voices: await listElevenVoices() }
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  ipcMain.handle('voice:setElevenKey', async (_e, { key }: { key: string }) => {
+  appIpc.handle('voice:setElevenKey', async (_e, { key }: { key: string }) => {
     const trimmed = key.trim()
     try {
       if (trimmed) {
@@ -209,7 +237,7 @@ function registerIpc(): void {
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  ipcMain.handle('voice:save', async (_e, { path, text }: { path: string; text: string }) => {
+  appIpc.handle('voice:save', async (_e, { path, text }: { path: string; text: string }) => {
     if (!win) return { saved: false }
     const suggested = `${text.slice(0, 48).replace(/[^\w\s-]/g, '').trim() || 'summary'}${
       path.endsWith('.mp3') ? '.mp3' : '.wav'
@@ -223,13 +251,13 @@ function registerIpc(): void {
   })
 
   // ---- design customisation ---------------------------------------------
-  ipcMain.handle('design:repo', () => {
+  appIpc.handle('design:repo', () => {
     const root = typeof __REPO_ROOT__ === 'string' ? __REPO_ROOT__ : ''
     return { path: root, exists: Boolean(root) && existsSync(join(root, 'DESIGN.md')) }
   })
 
   // ---- misc --------------------------------------------------------------
-  ipcMain.handle('dialog:pickFolder', async () => {
+  appIpc.handle('dialog:pickFolder', async () => {
     if (!win) return null
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'createDirectory'],

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
@@ -47,6 +48,7 @@ export function App(): JSX.Element {
   const [clips, setClips] = useState<VoiceClip[]>([])
   const [playToken, setPlayToken] = useState(0)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const [showBrowser, setShowBrowser] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
@@ -578,6 +580,7 @@ export function App(): JSX.Element {
           {/* Only reserve traffic-light room when they actually land on the
               stage — with the rail visible on the left, it holds them instead. */}
           {(prefs.railSide === 'right' || prefs.railHidden) && <span className="topbar-gap" />}
+          <button className="btn" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => setShowBrowser(value => !value)}>Browser</button>
           <span className="topbar-title">{tabs.find((t) => t.id === activeId)?.title ?? ''}</span>
           <button
             className="btn icon"
@@ -609,6 +612,7 @@ export function App(): JSX.Element {
           )}
         </div>
 
+        <div className="workspace">
         <div className="pane">
           {tabs.length === 0 && (
             <div className="pane-empty">
@@ -632,6 +636,9 @@ export function App(): JSX.Element {
               onTitle={(title) => setTitle(tab.id, title)}
             />
           ))}
+        </div>
+
+        {showBrowser && <BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}`} visible={!showSettings && !showGrid && !(ready && !prefs.seenWelcome)} onClose={() => setShowBrowser(false)} />}
         </div>
 
         {prefs.voice.enabled && (

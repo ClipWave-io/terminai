@@ -930,3 +930,17 @@ textarea.card-notes {
 textarea.card-notes.editing {
   border-color: var(--accent);
 }
+
+/* Browser content is a sandboxed native view bounded to this empty viewport. */
+.workspace { display: flex; gap: 8px; flex: 1; min-height: 0; min-width: 0; }
+.workspace > .pane { min-width: 0; flex-basis: 50%; }
+.browser-pane { display: flex; flex-direction: column; flex: 1 1 50%; min-width: 0; background: var(--pane); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.browser-heading, .browser-toolbar, .browser-status { display: flex; align-items: center; gap: 5px; padding: 6px; }
+.browser-heading span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 10px; color: var(--dim); }
+.browser-toolbar input { width: 0; min-width: 40px; flex: 1; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+.browser-status { font-size: 11px; color: var(--dim); }
+.browser-status span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-status button { flex-shrink: 0; font-size: 10px; }
+.browser-viewport { flex: 1; min-height: 0; }
+.browser-pane button:disabled { opacity: .4; }
+@media (max-width: 900px) { .workspace { flex-direction: column; } .browser-pane { min-height: 230px; } }

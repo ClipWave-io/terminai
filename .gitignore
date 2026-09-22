@@ -8,3 +8,6 @@ release/
 # be built without Python/Pillow installed.
 build/icon.iconset/
 build/icon.png
+
+.browser-smoke.cjs
+.ui-smoke-bootstrap.cjs

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import type { BrowserState } from '../shared/browser'
 import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
 
 /**
@@ -7,6 +8,17 @@ import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
  * is hostile.
  */
 const api = {
+  browser: {
+    state: (): Promise<BrowserState> => ipcRenderer.invoke('browser:state'),
+    navigate: (url: string): Promise<void> => ipcRenderer.invoke('browser:navigate', url),
+    command: (action: 'back' | 'forward' | 'reload' | 'external'): Promise<void> => ipcRenderer.invoke('browser:command', action),
+    layout: (bounds: {x: number; y: number; width: number; height: number; visible: boolean}): Promise<void> => ipcRenderer.invoke('browser:layout', bounds),
+    onState: (cb: (state: BrowserState) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, state: BrowserState) => cb(state)
+      ipcRenderer.on('browser:state', handler)
+      return () => ipcRenderer.removeListener('browser:state', handler)
+    },
+  },
   pty: {
     create: (opts: { cwd?: string; cols?: number; rows?: number }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),
