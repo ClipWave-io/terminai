@@ -175,3 +175,25 @@ is the only trace that always survives.
   for its spaCy model on first use and fails outright without an active virtualenv.
 - Prefs are written **write-then-rename**. Tabs save on every open and close, so a plain write
   leaves a window where a truncated file on disk resets every preference to its default.
+
+## Browser and project previews (0.2 prototype)
+
+The Browser and Files buttons open optional panes alongside the terminal. Files can
+move to either side. When the workspace is narrow, pane selectors retain the
+terminal sessions while showing one pane at a time. Choose a folder in the native
+picker to grant read-only access: paths outside that project and symbolic links
+are rejected. UTF-8 text (including HTML/SVG source) is displayed literally;
+PNG/JPEG/GIF/WebP previews are inert images. Limits: 1 MB text, 8 MB images,
+500 entries per directory. There is no editor or file execution.
+
+Development requires Node 22.12+ for Electron 44. Tests use temporary profiles and
+never install or replace the running application:
+
+```bash
+npm run typecheck
+npm run build
+npm run test:browser
+npx esbuild tests/project-files.test.ts --bundle --platform=node --outfile=/tmp/terminai-files-test.cjs
+node --test /tmp/terminai-files-test.cjs
+npx electron tests/ui-smoke.cjs
+```

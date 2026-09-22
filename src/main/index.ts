@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { copyFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
+import { ProjectFiles } from './project-files'
 import { createBrowserPane } from './browser'
 import * as ptys from './pty'
 import * as store from './store'
@@ -151,6 +152,13 @@ const appIpc = {
 }
 
 function registerIpc(): void {
+  const projectFiles = new ProjectFiles()
+  appIpc.handle('project:choose', async () => {
+    const result = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose project folder to view' })
+    return result.canceled ? null : projectFiles.selectRoot(result.filePaths[0])
+  })
+  appIpc.handle('project:list', (_event, path: string) => projectFiles.list(path))
+  appIpc.handle('project:preview', (_event, path: string) => projectFiles.preview(path))
   appIpc.handle('browser:state', () => browser?.state())
   appIpc.handle('browser:navigate', (_event, url: unknown) => browser?.navigate(url))
   appIpc.handle('browser:command', (_event, command: string) => browser?.command(command))

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ProjectFilesPane } from './components/ProjectFilesPane'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
@@ -48,6 +49,18 @@ export function App(): JSX.Element {
   const [clips, setClips] = useState<VoiceClip[]>([])
   const [playToken, setPlayToken] = useState(0)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const workspace = useRef<HTMLDivElement>(null)
+  const [compactWorkspace, setCompactWorkspace] = useState(false)
+  const [compactPane, setCompactPane] = useState<'terminal' | 'browser' | 'files'>('terminal')
+  const [showFiles, setShowFiles] = useState(false)
+  const [filesSide, setFilesSide] = useState<'left' | 'right'>('left')
+  useEffect(() => {
+    const element = workspace.current
+    if (!element) return
+    const observer = new ResizeObserver(() => setCompactWorkspace(element.clientWidth < 850))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   const [showBrowser, setShowBrowser] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -580,7 +593,8 @@ export function App(): JSX.Element {
           {/* Only reserve traffic-light room when they actually land on the
               stage — with the rail visible on the left, it holds them instead. */}
           {(prefs.railSide === 'right' || prefs.railHidden) && <span className="topbar-gap" />}
-          <button className="btn" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => setShowBrowser(value => !value)}>Browser</button>
+          <button className="btn" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => { setShowBrowser(value => !value); setCompactPane(showBrowser ? 'terminal' : 'browser') }}>Browser</button>
+          <button className="btn no-drag" aria-pressed={showFiles} onClick={() => { setShowFiles(value => !value); setCompactPane(showFiles ? 'terminal' : 'files') }}>Files</button>
           <span className="topbar-title">{tabs.find((t) => t.id === activeId)?.title ?? ''}</span>
           <button
             className="btn icon"
@@ -612,8 +626,14 @@ export function App(): JSX.Element {
           )}
         </div>
 
-        <div className="workspace">
-        <div className="pane">
+        {compactWorkspace && (showBrowser || showFiles) && <div className="workspace-tabs" role="group" aria-label="Workspace panes">
+          <button className="btn" aria-pressed={compactPane === 'terminal'} onClick={() => setCompactPane('terminal')}>Terminal</button>
+          {showFiles && <button className="btn" aria-pressed={compactPane === 'files'} onClick={() => setCompactPane('files')}>Files</button>}
+          {showBrowser && <button className="btn" aria-pressed={compactPane === 'browser'} onClick={() => setCompactPane('browser')}>Browser</button>}
+        </div>}
+        <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
+        {showFiles && <div className={`files-slot ${compactWorkspace && compactPane !== 'files' ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2 }}><ProjectFilesPane side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} /></div>}
+        <div className={`pane ${compactWorkspace && compactPane !== 'terminal' ? 'workspace-hidden' : ''}`}>
           {tabs.length === 0 && (
             <div className="pane-empty">
               <div>No sessions open</div>
@@ -638,7 +658,7 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}`} visible={!showSettings && !showGrid && !(ready && !prefs.seenWelcome)} onClose={() => setShowBrowser(false)} />}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`}><BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}`} visible={(!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
         </div>
 
         {prefs.voice.enabled && (

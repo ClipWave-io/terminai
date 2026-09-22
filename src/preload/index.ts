@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { BrowserState } from '../shared/browser'
 import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
 
@@ -8,6 +9,11 @@ import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
  * is hostile.
  */
 const api = {
+  project: {
+    choose: (): Promise<string | null> => ipcRenderer.invoke('project:choose'),
+    list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),
+    preview: (path: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:preview', path),
+  },
   browser: {
     state: (): Promise<BrowserState> => ipcRenderer.invoke('browser:state'),
     navigate: (url: string): Promise<void> => ipcRenderer.invoke('browser:navigate', url),
