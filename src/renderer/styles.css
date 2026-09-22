@@ -401,8 +401,8 @@ body {
    background sessions keep rendering and scrollback survives a switch. */
 .term-host {
   position: absolute;
-  inset: 0;
-  padding: 12px 6px 12px 14px;
+  inset: 12px 6px 12px 14px;
+  padding: 0;
   visibility: hidden;
   z-index: 0;
 }
@@ -967,3 +967,30 @@ textarea.card-notes.editing {
 .topbar > .btn { flex: 0 0 auto; padding: 0 8px; font-size: 12px; }
 .browser-toolbar > .btn, .browser-heading > .btn { flex: 0 0 auto; padding: 4px 6px; }
 .browser-toolbar > input { min-width: 0; }
+
+/* Resizable workspace panes; the terminal remains mounted and receives ResizeObserver fits. */
+.pane-resize-handle { flex: 0 0 7px; align-self: stretch; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; border-radius: 4px; }
+.pane-resize-handle:hover, .pane-resize-handle:focus-visible { background: var(--accent); outline: none; }
+.files-slot, .browser-slot { max-width: 65%; }
+.compact-workspace > .files-slot, .compact-workspace > .browser-slot { max-width: none; }
+.topbar-title-input { flex: 1; min-width: 80px; color: var(--fg); background: var(--pane); border: 1px solid var(--accent); border-radius: 5px; padding: 4px; }
+.topbar-title { cursor: default; min-width: 70px; }
+
+.file-preview { display: flex; flex-direction: column; }
+.file-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.file-editor { flex: 1; width: 100%; min-height: 160px; box-sizing: border-box; resize: none; padding: 12px; border: 0; outline: none; font: 12px/1.6 ui-monospace, monospace; tab-size: 2; color: var(--fg); background: var(--pane); white-space: pre; overflow: auto; user-select: text; }
+
+.rail-filter { margin: 5px 8px; padding: 7px; min-width: 0; color: var(--fg); background: var(--pane); border: 1px solid var(--border); border-radius: 6px; }
+
+.code-editor { flex: 1; min-width: 0; min-height: 180px; }
+/* Full-window title strip, as in the newer archive; sidebar starts underneath. */
+.app { padding-top: 54px; }
+.topbar { position: absolute; top: 8px; left: 8px; right: 8px; height: 38px; flex-wrap: nowrap; z-index: 5; }
+.topbar-gap { flex: 0 0 78px; }
+.rail-top { display: none; }
+.rail-grip { top: 54px; }
+.topbar-title { text-align: center; }
+.sheet { max-height: calc(100vh - 32px); overflow: auto; }
+
+.topbar-spacer { flex: 1; }
+.tab-title-input { width: 100%; min-width: 0; border: 1px solid var(--accent); border-radius: 4px; color: var(--fg); background: var(--pane); font: inherit; padding: 3px; }

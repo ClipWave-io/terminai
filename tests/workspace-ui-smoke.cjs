@@ -15,7 +15,7 @@ mock('workspace:logout',()=>{throw new Error('Network unavailable')});
 mock('workspace:request',(_e,p,m,body)=>{if(m==='POST'){writes.push(body);return {}}return p.endsWith('/messages')?[{id:'m',kind:'user',content:'<script>window.executed=true</script>\nrm -rf example',authorName:'Teammate'}]:[{id:'thread',title:'Team test',ownerId:'owner',visibility:'company'}]});
 const js=code=>win.webContents.executeJavaScript(code);
 await js(`Array.from(document.querySelectorAll('.topbar button')).find(b=>b.textContent==='Browser').click()`);await delay(250);assert.equal(win.contentView.children[0].getVisible(),true);
-await js(`Array.from(document.querySelectorAll('.topbar button')).find(b=>b.textContent==='Team').click()`);await delay(250);assert.equal(win.contentView.children[0].getVisible(),false);
+await js(`Array.from(document.querySelectorAll('.topbar button')).find(b=>b.getAttribute('aria-label')==='Team').click()`);await delay(250);assert.equal(win.contentView.children[0].getVisible(),false);
 await js(`document.querySelector('.team-login').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);await delay(200);assert.match(await js(`document.querySelector('[role=alert]').textContent`),/Invalid credentials/);
 loginFails=false;await js(`document.querySelector('.team-login').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);await delay(350);assert.equal(setupCalls,1);
 await js(`document.querySelector('.team-conversation').click()`);await delay(250);

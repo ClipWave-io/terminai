@@ -3,6 +3,11 @@ import type { TabInfo, TabStatus } from '../../shared/types'
 import type { JSX } from 'react'
 
 interface Props {
+  filter: string
+  filterOpen: boolean
+  onFilter: (value: string) => void
+  onRename: (id: string, title: string) => void
+  onReorderGroups: (from: string, to: string) => void
   tabs: TabInfo[]
   activeId: string | null
   speakingId: string | null
@@ -41,7 +46,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
 }
 
 export function TabRail({
-  tabs,
+  tabs, filter, filterOpen, onFilter, onRename, onReorderGroups,
   activeId,
   speakingId,
   width,
@@ -53,6 +58,11 @@ export function TabRail({
   onReorder,
   grouped,
 }: Props): JSX.Element {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState('')
+  const commitTitle = (id: string) => { const title=draftTitle.trim(); if(title)onRename(id,title); setEditingId(null) }
+  const [dragGroup, setDragGroup] = useState<string | null>(null)
+  const matches = (tab: TabInfo) => !filter || `${tab.title} ${tab.cwd}`.toLowerCase().includes(filter.toLowerCase())
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
 
@@ -61,6 +71,7 @@ export function TabRail({
   const groups: { cwd: string; tabs: { tab: TabInfo; i: number }[] }[] = []
   if (grouped) {
     tabs.forEach((tab, i) => {
+      if (!matches(tab)) return
       const bucket = groups.find((g) => g.cwd === tab.cwd)
       if (bucket) bucket.tabs.push({ tab, i })
       else groups.push({ cwd: tab.cwd, tabs: [{ tab, i }] })
@@ -80,7 +91,7 @@ export function TabRail({
         .join(' ')}
       // Grouping *is* the order while it is on: a row dragged across
       // folders would snap straight back when the buckets re-form.
-      draggable={!grouped}
+      draggable
       onDragStart={(e) => {
         // Chromium refuses to start a drag whose dataTransfer is empty,
         // which is why `draggable` alone did nothing here.
@@ -108,6 +119,7 @@ export function TabRail({
         setDragOver(null)
       }}
       onMouseDown={() => onSelect(tab.id)}
+      onDoubleClick={() => { setEditingId(tab.id); setDraftTitle(tab.title) }}
       title={`${tab.title}\n${tab.cwd}`}
     >
       <span
@@ -115,7 +127,7 @@ export function TabRail({
         title={tab.id === speakingId ? 'Speaking its summary' : DOT_TITLE[tab.status]}
       />
       <span className="tab-body">
-        <div className="tab-title">{tab.title}</div>
+        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus maxLength={100} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>commitTitle(tab.id)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')commitTitle(tab.id);if(e.key==='Escape')setEditingId(null)}}/> : <div className="tab-title">{tab.title}</div>}
         <div className="tab-cwd">{shortCwd(tab.cwd)}</div>
       </span>
       <button
@@ -136,17 +148,18 @@ export function TabRail({
       {/* leaves room for the traffic lights and drags the window */}
       <div className="rail-top" />
 
+      {filterOpen && <input className="rail-filter no-drag" aria-label="Filter sessions" autoFocus value={filter} onChange={e=>onFilter(e.target.value)} placeholder="Find session or folder…"/>}
       <div className="rail-scroll">
         {grouped
           ? groups.map((g) => (
               <div key={g.cwd} className="rail-group">
-                <div className="rail-group-head" title={g.cwd}>
+                <div className="rail-group-head" title={g.cwd} draggable onDragStart={e=>{e.stopPropagation();setDragGroup(g.cwd);e.dataTransfer.setData('application/terminai-group',g.cwd)}} onDragOver={e=>{if(dragGroup)e.preventDefault()}} onDrop={e=>{e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData('application/terminai-group');if(from)onReorderGroups(from,g.cwd);setDragGroup(null)}} onDragEnd={()=>setDragGroup(null)}>
                   {shortCwd(g.cwd) || '/'}
                 </div>
                 {g.tabs.map(({ tab, i }) => row(tab, i))}
               </div>
             ))
-          : tabs.map((tab, i) => row(tab, i))}
+          : tabs.map((tab, i) => matches(tab) ? row(tab, i) : null)}
       </div>
 
       <div className="rail-actions">

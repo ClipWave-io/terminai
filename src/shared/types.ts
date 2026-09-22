@@ -62,6 +62,11 @@ export type TabStatus = 'ready' | 'working' | 'waiting' | 'exited'
 export interface TabInfo {
   id: string
   title: string
+  customTitle?: string
+  name?: string
+  agent?: string
+  agentSession?: string
+  agentArgs?: string[]
   cwd: string
   /** best-effort: the foreground process name reported by the PTY's shell */
   process: string
@@ -84,6 +89,11 @@ export interface TabInfo {
 /** What survives a restart. Order in the array is the user's priority order. */
 export interface SavedTab {
   cwd: string
+  customTitle?: string
+  name?: string
+  agent?: string
+  agentSession?: string
+  agentArgs?: string[]
   title: string
   notes: string
   focusedMs: number
@@ -160,11 +170,11 @@ export const RAIL_MAX = 460
 export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
-  theme: 'dusk',
+  theme: 'linen',
   fontSize: 13,
   railWidth: RAIL_DEFAULT,
   railHidden: false,
-  railSide: 'right',
+  railSide: 'left',
   voiceDockHidden: false,
   voice: {
     enabled: true,

@@ -1,6 +1,7 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, open, readdir, realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { lstat, open, readdir, realpath, rename, unlink, readFile } from 'node:fs/promises'
+import { isAbsolute, relative, resolve, sep, dirname, join } from 'node:path'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 
 /** A capability granted by the native folder picker, never by renderer paths. */
@@ -21,7 +22,7 @@ export class ProjectFiles {
     let part = this.root
     for (const segment of rel.split(sep).filter(Boolean)) {
       part = resolve(part, segment)
-      if ((await lstat(part)).isSymbolicLink()) throw new Error('Symbolic links are not opened in the file viewer.')
+      if ((await lstat(part)).isSymbolicLink()) throw new Error('Symbolic links are not opened in the editor.')
     }
     const canonical = await realpath(target)
     if (canonical !== this.root && !canonical.startsWith(this.root + sep)) throw new Error('Path is outside the selected project.')
@@ -32,6 +33,28 @@ export class ProjectFiles {
     const all = (await readdir(directory, { withFileTypes: true })).filter(entry => !entry.isSymbolicLink() && (entry.isDirectory() || entry.isFile()))
       .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
     return { root: this.root, path, truncated: all.length > 500, entries: all.slice(0, 500).map(entry => ({ name: entry.name, path: relative(this.root, resolve(directory, entry.name)), directory: entry.isDirectory() })) }
+  }
+  async save(path: string, content: string, version: string): Promise<ProjectPreview> {
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 1024 * 1024 || typeof version !== 'string') throw new Error('Text files must be smaller than 1 MB.')
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(content)) throw new Error('Only text files can be saved.')
+    const target = await this.scoped(path)
+    const current = await this.preview(path)
+    if (current.type !== 'text' || current.version !== version) throw new Error('This file changed on disk. Reload it before saving; your edits have been kept.')
+    const stat = await lstat(target)
+    const bytes = await readFile(target)
+    if (createHash('sha256').update(bytes).digest('hex') !== version) throw new Error('This file changed on disk. Reload it before saving.')
+    // Preserve UTF-8 BOM and CRLF line endings when editing an existing file.
+    const text = bytes.includes(Buffer.from('\r\n')) ? content.replace(/\r?\n/g, '\r\n') : content
+    const data = Buffer.concat([bytes.subarray(0,3).equals(Buffer.from([239,187,191])) ? Buffer.from([239,187,191]) : Buffer.alloc(0), Buffer.from(text)])
+    const temp = join(dirname(target), `.terminai-save-${randomUUID()}`)
+    let file
+    try {
+      file = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, stat.mode & 0o777)
+      await file.writeFile(data); await file.sync(); await file.close(); file = undefined
+      if (await this.scoped(path) !== target || (await this.preview(path)).version !== version) throw new Error('This file changed on disk. Your edits have been kept.')
+      await rename(temp, target)
+      return await this.preview(path)
+    } finally { await file?.close(); await unlink(temp).catch(()=>{}) }
   }
   async preview(path: string): Promise<ProjectPreview> {
     const target = await this.scoped(path)
@@ -56,7 +79,7 @@ export class ProjectFiles {
       let content: string
       try { content = new TextDecoder('utf-8', { fatal: true }).decode(data) } catch { throw new Error('This binary file cannot be previewed.') }
       if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(content)) throw new Error('This binary file cannot be previewed.')
-      return { path, type: 'text', content }
+      return { path, type: 'text', content, version: createHash('sha256').update(data).digest('hex') }
     } finally { await handle.close() }
   }
 }

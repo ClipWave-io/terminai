@@ -4,17 +4,17 @@ const project=path.join(dir,'demo-project');fs.mkdirSync(project);fs.writeFileSy
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
 await delay(1600); win.setSize(1500,900); await delay(300);
-await win.webContents.executeJavaScript(`for(const b of document.querySelectorAll('.topbar button')) if(['Files','Browser'].includes(b.textContent)) b.click()`);await delay(500);
-await win.webContents.executeJavaScript(`document.querySelector('.files-toolbar button').click()`);await delay(300);await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.files-tree button')).find(b=>b.textContent.includes('README.md')).click()`);await delay(300);assert.equal(await win.webContents.executeJavaScript(`typeof window.fileExecuted`),'undefined');assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.file-preview pre').textContent.includes('<script>')`),true);
+await win.webContents.executeJavaScript(`for(const b of document.querySelectorAll('.topbar button')) if(['Files','Browser'].includes(b.getAttribute('aria-label'))) b.click()`);await delay(500);
+await win.webContents.executeJavaScript(`document.querySelector('.files-toolbar button').click()`);await delay(300);await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.files-tree button')).find(b=>b.textContent.includes('README.md')).click()`);await delay(1800);assert.equal(await win.webContents.executeJavaScript(`typeof window.fileExecuted`),'undefined');assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.monaco-editor .view-lines').textContent.includes('<script>')`),true);
 fs.writeFileSync('/tmp/terminai-three-pane-wide.png',(await win.capturePage()).toPNG());
 assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.term-host').length>0`),true);
 win.setSize(720,420);await delay(700);
 assert.equal(await win.webContents.executeJavaScript(`document.documentElement.scrollWidth<=innerWidth`),true);
 assert.equal(await win.webContents.executeJavaScript(`!!document.querySelector('.compact-workspace')`),true);
-await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.workspace-tabs button')).find(b=>b.textContent==='Files').click()`);await delay(300);
+await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.workspace-tabs button')).find(b=>b.getAttribute('aria-label')==='Files').click()`);await delay(300);
 assert.equal(win.contentView.children[0].getVisible(),false);
 fs.writeFileSync('/tmp/terminai-files-narrow.png',(await win.capturePage()).toPNG());
-await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.workspace-tabs button')).find(b=>b.textContent==='Terminal').click()`);await delay(100);
+await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.workspace-tabs button')).find(b=>b.getAttribute('aria-label')==='Terminal').click()`);await delay(100);
 assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.term-host').length>0`),true);
 console.log('PASS native UI: three panes,720x420 with460rail no overflow, files hides nativebrowser, terminals remain mounted');app.quit();
 })().catch(e=>{console.error(e);app.exit(1)})}));

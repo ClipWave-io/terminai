@@ -10,6 +10,8 @@ import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
  * is hostile.
  */
 const api = {
+  app: { launch: (): Promise<{crashed: boolean}> => ipcRenderer.invoke('app:launch') },
+  window: { toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize') },
   workspace: {
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),
     state: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:state'),
@@ -21,6 +23,7 @@ const api = {
   project: {
     choose: (): Promise<string | null> => ipcRenderer.invoke('project:choose'),
     list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),
+    save: (path: string, content: string, version: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:save', path, content, version),
     preview: (path: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:preview', path),
   },
   browser: {
@@ -35,6 +38,11 @@ const api = {
     },
   },
   pty: {
+    close: (id: string): void => ipcRenderer.send('pty:close', { id }),
+    unclose: (id: string): Promise<{id: string; cwd: string; exited: boolean} | null> => ipcRenderer.invoke('pty:unclose', { id }),
+    agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),
+    resumeCommand: (desc: {kind: string; sessionId?: string; args?: string[]}): Promise<string> => ipcRenderer.invoke('pty:resumeCommand', desc),
+    exec: (id: string, cmd: string): void => ipcRenderer.send('pty:exec', { id, cmd }),
     create: (opts: { cwd?: string; cols?: number; rows?: number }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),
     list: (): Promise<{ id: string; cwd: string; exited: boolean }[]> =>
@@ -111,6 +119,7 @@ const api = {
   },
 
   files: {
+    stageImage: (path: string): Promise<boolean> => ipcRenderer.invoke('clip:image', path),
     /**
      * Electron 32 removed `File.path`, so a dropped file's real location is only
      * reachable through webUtils — which lives on this side of the bridge.

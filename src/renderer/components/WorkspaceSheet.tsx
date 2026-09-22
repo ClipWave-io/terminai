@@ -117,7 +117,7 @@ export function WorkspaceSheet({ activeTab, onClose }: { activeTab?: { id: strin
     } catch (err) { fail(err) } finally { setBusy(false) }
   }
   return <div className="workspace-overlay" role="presentation"><section className="team-sheet" role="dialog" aria-modal="true" aria-labelledby="team-title">
-    <header><div><h2 id="team-title">Your team workspace</h2><p>Conversations, shared work, and tools for your role.</p></div><button className="btn" onClick={onClose} aria-label="Close team workspace">Close</button></header>
+    <header><div><h2 id="team-title">Your team workspace</h2><p>Conversations, shared work, and tools for your role. Drag the bottom-right corner to resize.</p></div><button className="btn" onClick={onClose} aria-label="Close team workspace">Close</button></header>
     {error && <p className="team-error" role="alert">{error}</p>}
     {!state.signedIn ? <form className="team-login" onSubmit={signIn}>
       <label>Workspace address<input required type="url" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://your-manager.up.railway.app" /></label>

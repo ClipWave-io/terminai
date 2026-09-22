@@ -176,15 +176,29 @@ is the only trace that always survives.
 - Prefs are written **write-then-rename**. Tabs save on every open and close, so a plain write
   leaves a window where a truncated file on disk resets every preference to its default.
 
-## Browser and project previews (0.2 prototype)
+## Browser and project editor (0.2.2)
 
-The Browser and Files buttons open optional panes alongside the terminal. Files can
+The Browser and Files icons open optional panes alongside the terminal. Files can
 move to either side. When the workspace is narrow, pane selectors retain the
 terminal sessions while showing one pane at a time. Choose a folder in the native
-picker to grant read-only access: paths outside that project and symbolic links
+picker to grant editing access: paths outside that project and symbolic links
 are rejected. UTF-8 text (including HTML/SVG source) is displayed literally;
 PNG/JPEG/GIF/WebP previews are inert images. Limits: 1 MB text, 8 MB images,
-500 entries per directory. There is no editor or file execution.
+500 entries per directory. Monaco (the editor engine used by VS Code) provides
+syntax highlighting, line numbers, find/replace, undo/redo and Cmd+S. Saves preserve
+UTF-8 BOM and line endings and refuse to overwrite a file changed on disk. Unsaved
+changes prompt before closing or switching files; file content is never executed.
+Drag the separators to resize Files and Browser; Team resizes from its bottom
+corner. Double-click the top bar or use its maximize button to maximize/restore.
+
+This version merges the newer Downloads archive `TerminAI-2026-09-07.zip` with
+the browser, project and company workspace implementation. The archive contained
+compiled patches rather than source: `src/main/pty-recovered.js` preserves its
+session detection and recovery, with a typed boundary. The top bar uses icons with hover labels; double-click a sidebar title to rename it.
+Session names persist,
+Cmd+Shift+T reopens a recently closed terminal (process retained for 60 seconds),
+and startup offers recovery after an unclean exit. Recorded agent launch options
+are preserved; missing options do not enable permission bypasses.
 
 Development requires Node 22.12+ for Electron 44. Tests use temporary profiles and
 never install or replace the running application:
@@ -196,4 +210,6 @@ npm run test:browser
 npx esbuild tests/project-files.test.ts --bundle --platform=node --outfile=/tmp/terminai-files-test.cjs
 node --test /tmp/terminai-files-test.cjs
 npx electron tests/ui-smoke.cjs
+npx electron tests/editor-ui-smoke.cjs
+node tests/codex-restart-smoke.cjs
 ```

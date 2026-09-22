@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem } from 'electron'
 import { join, basename, resolve, sep } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { copyFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
@@ -88,6 +88,10 @@ function createWindow(): void {
   win.webContents.on('will-redirect', event => event.preventDefault())
   browser = createBrowserPane(win)
 
+  win.webContents.on('will-prevent-unload', event => {
+    const choice = dialog.showMessageBoxSync(win!, { type: 'warning', buttons: ['Keep editing', 'Discard changes'], defaultId: 0, cancelId: 0, message: 'You have unsaved file changes.' })
+    if (choice === 1) event.preventDefault()
+  })
   win.once('ready-to-show', () => win?.show())
 
   // Links in terminal output open in the real browser, never inside the app.
@@ -109,7 +113,12 @@ function createWindow(): void {
   )
 }
 
+let crashedLastRun = false
+const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
 app.whenReady().then(() => {
+  crashedLastRun = existsSync(aliveMarker())
+  mkdirSync(app.getPath('userData'), { recursive: true })
+  writeFileSync(aliveMarker(), String(process.pid))
   registerAudioProtocol()
   registerIpc()
   createWindow()
@@ -133,6 +142,14 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  // Persist the last main-process identity before killing PTYs. Renderer polling
+  // may not have saved the latest /new or /resume yet.
+  const prefs = store.load()
+  store.save({ tabs: prefs.tabs.map(tab => {
+    if (!tab.ptyId) return tab
+    const agent = ptys.agentOf(tab.ptyId)
+    return agent.kind ? { ...tab, agent: agent.kind, agentSession: agent.sessionId || tab.agentSession, agentArgs: agent.args } : tab
+  }) })
   voice.stopWatching()
   ptys.killAll()
 })
@@ -172,7 +189,12 @@ function registerIpc(): void {
     return result.canceled ? null : projectFiles.selectRoot(result.filePaths[0])
   })
   appIpc.handle('project:list', (_event, path: string) => projectFiles.list(path))
+  appIpc.handle('project:save', (_event, path: string, content: string, version: string) => projectFiles.save(path, content, version))
   appIpc.handle('project:preview', (_event, path: string) => projectFiles.preview(path))
+  appIpc.handle('window:toggle-maximize', () => {
+    if (!win) return
+    if (win.isMaximized()) win.unmaximize(); else win.maximize()
+  })
   appIpc.handle('browser:state', () => browser?.state())
   appIpc.handle('browser:navigate', (_event, url: unknown) => browser?.navigate(url))
   appIpc.handle('browser:command', (_event, command: string) => browser?.command(command))
@@ -181,6 +203,18 @@ function registerIpc(): void {
   appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
     ptys.createSession(opts ?? {}),
   )
+  appIpc.on('pty:close', (_event, { id }: {id: string}) => ptys.closeSession(id))
+  appIpc.handle('pty:unclose', (_event, { id }: {id: string}) => ptys.uncloseSession(id))
+  appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
+  appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))
+  appIpc.on('pty:exec', (_event, { id, cmd }: {id: string; cmd: string}) => ptys.execWhenReady(id, String(cmd || '')))
+  appIpc.handle('clip:image', async (_event, path: string) => {
+    if (typeof path !== 'string') return false
+    const image = nativeImage.createFromPath(path)
+    if (image.isEmpty()) return false
+    await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }) })]); return true
+  })
+  appIpc.handle('app:launch', () => ({ crashed: crashedLastRun }))
   appIpc.handle('pty:list', () => ptys.list())
   appIpc.handle('pty:attach', (e, { id }: { id: string }) => ptys.attach(e.sender, id))
   appIpc.on('pty:write', (_e, { id, data }: { id: string; data: string }) => ptys.write(id, data))
@@ -289,3 +323,5 @@ function registerIpc(): void {
 }
 
 export type { VoicePrefs }
+
+app.on('will-quit', () => { try { rmSync(aliveMarker(), { force: true }) } catch {} })

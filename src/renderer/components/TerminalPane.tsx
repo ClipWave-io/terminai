@@ -26,6 +26,22 @@ function shellQuote(path: string): string {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`
 }
 
+let lastLink = { uri: '', at: 0 }
+function openLink(uri: string) {
+  if (!/^(https?|mailto):/i.test(uri)) return
+  if (uri === lastLink.uri && Date.now() - lastLink.at < 500) return
+  lastLink = { uri, at: Date.now() }; window.open(uri)
+}
+function urlAtCell(term: Terminal, col: number, row: number): string {
+  const buf = term.buffer.active, y = buf.viewportY + row
+  let start = y
+  while (start > 0 && buf.getLine(start)?.isWrapped) start--
+  let text = ''
+  for (let i = start; ; i++) { const line=buf.getLine(i); if(!line || (i>start && !line.isWrapped))break; text+=line.translateToString(false).padEnd(term.cols) }
+  const idx=(y-start)*term.cols+col
+  for(const match of text.matchAll(/https?:\/\/[^\s"'<>`]+/g)) if(idx>=match.index! && idx<match.index!+match[0].length)return match[0].replace(/[.,;:!?)\]]+$/, '')
+  return ''
+}
 /**
  * One xterm bound to one PTY. Instances for inactive tabs stay mounted (hidden
  * via CSS) so background sessions keep drawing and scrollback survives a switch.
@@ -58,11 +74,12 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       // Claude Code and every other TUI rely on these; do not turn them off.
       convertEol: false,
       screenReaderMode: false,
+      linkHandler: { activate: (_event, uri) => { if (!term.hasSelection()) openLink(uri) } },
     })
 
     const fit = new FitAddon()
     term.loadAddon(fit)
-    term.loadAddon(new WebLinksAddon())
+    term.loadAddon(new WebLinksAddon((_event, uri) => { if (!term.hasSelection()) openLink(uri) }))
 
     const unicode = new Unicode11Addon()
     term.loadAddon(unicode)
@@ -194,10 +211,22 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     if (!text) return
 
     // Trailing space so a second drop does not run into the first.
-    window.term.pty.write(ptyId, `${text} `)
-    termRef.current?.focus()
+    const pasteText = () => { window.term.pty.write(ptyId, `${text} `); termRef.current?.focus() }
+    if (dropped.length === 1 && e.dataTransfer.files.length === 1 && e.dataTransfer.files[0].type.startsWith('image/')) {
+      void window.term.pty.agent(ptyId).then(async agent => {
+        if (agent.kind === 'claude' && agent.alive && await window.term.files.stageImage(dropped[0])) window.term.pty.write(ptyId, '\x16')
+        else pasteText()
+      }).catch(pasteText)
+    } else pasteText()
   }
 
+  const downCell = useRef<{col:number;row:number} | null>(null)
+  function cellAt(e: React.MouseEvent) {
+    const term=termRef.current, screen=hostRef.current?.querySelector('.xterm-screen')
+    if(!term||!screen)return null
+    const r=screen.getBoundingClientRect(),col=Math.floor((e.clientX-r.left)/r.width*term.cols),row=Math.floor((e.clientY-r.top)/r.height*term.rows)
+    return col>=0&&row>=0&&col<term.cols&&row<term.rows?{col,row}:null
+  }
   return (
     <div
       ref={hostRef}
@@ -206,6 +235,9 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
         e.preventDefault()
         e.dataTransfer.dropEffect = 'copy'
       }}
+      onMouseDownCapture={e=>{downCell.current=e.button===0?cellAt(e):null}}
+      onMouseUpCapture={e=>{const down=downCell.current,up=cellAt(e),term=termRef.current;downCell.current=null;if(e.button===0&&down&&up&&down.col===up.col&&down.row===up.row&&term&&!term.hasSelection()){const url=urlAtCell(term,up.col,up.row);if(url)openLink(url)}}}
+      onPasteCapture={e=>{if(e.clipboardData.getData('text/plain')||!Array.from(e.clipboardData.items).some(i=>i.type.startsWith('image/')))return;e.preventDefault();e.stopPropagation();void window.term.pty.agent(ptyId).then(a=>{if(a.kind==='claude'&&a.alive)window.term.pty.write(ptyId,'\x16')})}}
       onDrop={onDrop}
     />
   )

@@ -1,3 +1,4 @@
+import { PaneResizeHandle } from './components/PaneResizeHandle'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ProjectFilesPane } from './components/ProjectFilesPane'
 import { BrowserPane } from './components/BrowserPane'
@@ -20,6 +21,12 @@ import {
   type VoiceClip,
 } from '../shared/types'
 import type { JSX } from 'react'
+
+function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal'}) {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
+  </svg>
+}
 
 const MAX_CLIPS = 12
 
@@ -45,6 +52,7 @@ function applyThemeVars(prefs: Prefs): void {
 export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const [ready, setReady] = useState(false)
+  const [restored, setRestored] = useState(false)
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [clips, setClips] = useState<VoiceClip[]>([])
@@ -53,6 +61,10 @@ export function App(): JSX.Element {
   const workspace = useRef<HTMLDivElement>(null)
   const [compactWorkspace, setCompactWorkspace] = useState(false)
   const [compactPane, setCompactPane] = useState<'terminal' | 'browser' | 'files'>('terminal')
+  const [filesDirty, setFilesDirty] = useState(false)
+  const [filesWidth, setFilesWidth] = useState(280)
+  const [browserWidth, setBrowserWidth] = useState(360)
+  const [resizingPane, setResizingPane] = useState(false)
   const [showFiles, setShowFiles] = useState(false)
   const [filesSide, setFilesSide] = useState<'left' | 'right'>('left')
   useEffect(() => {
@@ -67,6 +79,9 @@ export function App(): JSX.Element {
   const [showTeam, setShowTeam] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
+  const closedTabs = useRef<SavedTab[]>([])
+  const [filter, setFilter] = useState('')
+  const [filterOpen, setFilterOpen] = useState(false)
   const [showGrid, setShowGrid] = useState(false)
 
   // Kept in refs so the global key handler never closes over stale state.
@@ -110,7 +125,9 @@ export function App(): JSX.Element {
     const now = Date.now()
     const tab: TabInfo = {
       id,
-      title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
+      customTitle: restore?.customTitle || restore?.name,
+      agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
+      title: restore?.customTitle || restore?.name || restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
       process: '',
       status: 'ready',
@@ -126,27 +143,12 @@ export function App(): JSX.Element {
     setTabs((prev) => [...prev, tab])
     setActiveId(id)
 
-    // The tab was mid-conversation when the app last closed. Resume it rather
-    // than leaving the session stranded behind a bare prompt.
-    if (restore?.claude) {
-      // Resume *this tab's* conversation by id. `--continue` picks the most
-      // recent conversation in the folder, so several tabs on one folder would
-      // all land on the same one and the rest would be lost. Fall back to it
-      // only when we never learned an id, or the transcript is gone.
-      const saved = restore.claudeSession
-      // Carry the skip-permissions mode across the restart too: the whole point
-      // of auto-resume is to drop you back exactly where you were, and a resumed
-      // conversation that suddenly starts prompting for permission it wasn't
-      // prompting for before is not where you were.
-      const base =
-        saved && (await window.term.pty.canResume(saved))
-          ? `claude --resume ${saved}`
-          : 'claude --continue'
-      const cmd = `${base} --dangerously-skip-permissions`
-      if (saved) setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, claudeSession: saved } : t)))
-      // The delay lets the login shell finish printing its prompt first, so the
-      // command is not typed into a half-initialised line.
-      setTimeout(() => window.term.pty.write(id, `${cmd}\r`), 900)
+    const kind = restore?.agent || (restore?.claude ? 'claude' : '')
+    if (kind && restore) {
+      const sessionId = restore.agentSession || restore.claudeSession || ''
+      const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs })
+      setTabs(prev => prev.map(t=>t.id===id?{...t, agent:kind, agentSession:sessionId, agentArgs:restore.agentArgs||[]}:t))
+      window.term.pty.exec(id, cmd)
     }
     return id
   }, [])
@@ -162,7 +164,9 @@ export function App(): JSX.Element {
       ...prev,
       {
         id: live.id,
-        title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
+        customTitle: restore?.customTitle || restore?.name,
+      agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
+      title: restore?.customTitle || restore?.name || restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
         cwd: live.cwd,
         process: '',
         status: 'ready',
@@ -178,8 +182,12 @@ export function App(): JSX.Element {
     setActiveId(live.id)
   }, [])
 
-  const closeTab = useCallback((id: string) => {
-    window.term.pty.kill(id)
+  const closeTab = useCallback(async (id: string) => {
+    const agent = await window.term.pty.agent(id)
+    if (agent.alive && !window.confirm('An agent is still running in this tab. Close it? You can reopen it with ⇧⌘T.')) return
+    const tab = tabsRef.current.find(t=>t.id===id)
+    if (tab) closedTabs.current = [{...tab, ptyId: tab.id, claude: tab.usedClaude}, ...closedTabs.current].slice(0,10)
+    window.term.pty.close(id)
     setTabs((prev) => {
       const next = prev.filter((t) => t.id !== id)
       setActiveId((cur) => {
@@ -192,6 +200,13 @@ export function App(): JSX.Element {
   }, [])
 
   // Restore the previous session's tabs, or open one in $HOME on a first run.
+  const reopenTab = useCallback(async () => {
+    const saved = closedTabs.current.shift()
+    if (!saved) return
+    const live = saved.ptyId ? await window.term.pty.unclose(saved.ptyId) : null
+    if (live) adoptTab(live, saved); else await newTab(saved.cwd, saved)
+  }, [adoptTab, newTab])
+
   const bootstrapped = useRef(false)
   useEffect(() => {
     if (!ready || bootstrapped.current) return
@@ -201,6 +216,8 @@ export function App(): JSX.Element {
       // restarting it. After a real quit this list is empty and every tab
       // takes the spawn-and-resume path below.
       const live = new Map((await window.term.pty.list()).map((s) => [s.id, s]))
+      const launch = await window.term.app.launch()
+      if (launch.crashed && prefs.tabs.length && !live.size && !window.confirm('TerminAI did not quit cleanly. Restore your saved sessions? Choose Cancel to start a fresh shell.')) { await newTab(); setRestored(true); return }
       const taken = new Set<string>()
 
       // Tabs saved before the app learned to mint session ids have none, and
@@ -231,6 +248,7 @@ export function App(): JSX.Element {
       for (const s of live.values()) if (!taken.has(s.id)) adoptTab(s)
 
       if (!prefs.tabs.length && !live.size) await newTab()
+      setRestored(true)
     })()
   }, [ready, prefs.tabs, newTab, adoptTab])
 
@@ -241,6 +259,8 @@ export function App(): JSX.Element {
     ptyId: t.id,
     cwd: t.cwd,
     title: t.title,
+    customTitle: t.customTitle,
+    agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
     notes: t.notes,
     focusedMs: t.focusedMs,
     claude: t.usedClaude,
@@ -249,11 +269,11 @@ export function App(): JSX.Element {
   const savedKey = JSON.stringify(saved)
   const lastSaved = useRef('')
   useEffect(() => {
-    if (!ready || !bootstrapped.current) return
+    if (!ready || !restored || !bootstrapped.current) return
     if (savedKey === lastSaved.current) return
     lastSaved.current = savedKey
     void window.term.prefs.set({ tabs: JSON.parse(savedKey) as SavedTab[] })
-  }, [savedKey, ready])
+  }, [savedKey, ready, restored])
 
   useEffect(() => {
     window.term.tabs.setActive(activeId)
@@ -294,6 +314,7 @@ export function App(): JSX.Element {
             id: t.id,
             process: await window.term.pty.process(t.id),
             status: await window.term.pty.status(t.id),
+            agent: await window.term.pty.agent(t.id),
             usedClaude: await window.term.pty.usedClaude(t.id),
             cwd: await window.term.pty.cwd(t.id),
             // Only worth a read once Claude has actually run here; before that
@@ -305,7 +326,7 @@ export function App(): JSX.Element {
           prev.map((t) => {
             const s = seen.find((x) => x.id === t.id)
             if (!s) return t
-            const changed =
+            const changed = !!s.agent.kind ||
               s.process !== t.process ||
               s.cwd !== t.cwd ||
               s.status !== t.status ||
@@ -317,6 +338,7 @@ export function App(): JSX.Element {
                   process: s.process,
                   cwd: s.cwd,
                   status: s.status,
+                  agent: s.agent.kind || t.agent, agentSession: s.agent.sessionId || t.agentSession, agentArgs: s.agent.kind ? s.agent.args : t.agentArgs,
                   usedClaude: s.usedClaude,
                   claudeSession: s.claudeSession || t.claudeSession,
                 }
@@ -332,7 +354,7 @@ export function App(): JSX.Element {
   const setTitle = useCallback((id: string, title: string) => {
     const clean = title.trim()
     if (!clean) return
-    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title: clean } : t)))
+    setTabs((prev) => prev.map((t) => (t.id === id && !t.customTitle ? { ...t, title: clean } : t)))
   }, [])
 
   // ---- voice -------------------------------------------------------------
@@ -464,6 +486,8 @@ export function App(): JSX.Element {
         return
       }
 
+      if (e.key.toLowerCase() === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); return }
+      if (e.key.toLowerCase() === 'f') { e.preventDefault(); setFilterOpen(v=>!v); return }
       switch (e.key) {
         case 't':
           e.preventDefault()
@@ -545,6 +569,7 @@ export function App(): JSX.Element {
   }, [
     newTab,
     closeTab,
+    reopenTab,
     patchPrefs,
     prefs.theme,
     prefs.fontSize,
@@ -560,6 +585,9 @@ export function App(): JSX.Element {
         <>
           <TabRail
             tabs={tabs}
+            filter={filterOpen ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
+            onRename={(id,title)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,title,customTitle:title}:t))}
+            onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(t=>t.cwd))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(cwd=>prev.filter(t=>t.cwd===cwd))})}
             activeId={activeId}
             speakingId={speakingId}
             width={railWidth}
@@ -568,7 +596,7 @@ export function App(): JSX.Element {
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
             onSettings={() => setShowSettings(true)}
-            onReorder={reorderTabs}
+            onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(prev[from]?.cwd!==prev[to]?.cwd)return prev;const slots=prev.map((t,i)=>t.cwd===prev[from]?.cwd?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}
             grouped={prefs.groupByFolder}
           />
 
@@ -591,14 +619,15 @@ export function App(): JSX.Element {
         {/* The traffic lights are pinned to the window's top-left by macOS, so
             with the rail on the right this strip is what keeps them off the
             terminal. It doubles as the window's drag handle. */}
-        <div className="topbar">
+        <div className="topbar" onDoubleClick={event => { if (!(event.target as HTMLElement).closest('button,input')) void window.term.window.toggleMaximize() }}>
           {/* Only reserve traffic-light room when they actually land on the
               stage — with the rail visible on the left, it holds them instead. */}
-          {(prefs.railSide === 'right' || prefs.railHidden) && <span className="topbar-gap" />}
-          <button className="btn" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => { setShowBrowser(value => !value); setCompactPane(showBrowser ? 'terminal' : 'browser') }}>Browser</button>
-          <button className="btn no-drag" aria-pressed={showFiles} onClick={() => { setShowFiles(value => !value); setCompactPane(showFiles ? 'terminal' : 'files') }}>Files</button>
-          <button className="btn no-drag" onClick={() => setShowTeam(true)}>Team</button>
-          <span className="topbar-title">{tabs.find((t) => t.id === activeId)?.title ?? ''}</span>
+          <span className="topbar-gap" />
+          <button className="btn icon" aria-label="Browser" title="Browser" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => { setShowBrowser(value => !value); setCompactPane(showBrowser ? 'terminal' : 'browser') }}><PaneIcon kind="browser" /></button>
+          <button className="btn icon no-drag" aria-label="Files" title="Files" aria-pressed={showFiles} onClick={() => { if (showFiles && filesDirty && !window.confirm('Discard unsaved file changes?')) return; setShowFiles(value => !value); setCompactPane(showFiles ? 'terminal' : 'files') }}><PaneIcon kind="files" /></button>
+          <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
+          <span className="topbar-spacer" />
+          <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>
           <button
             className="btn icon"
             onClick={() => setShowGrid((g) => !g)}
@@ -630,12 +659,12 @@ export function App(): JSX.Element {
         </div>
 
         {compactWorkspace && (showBrowser || showFiles) && <div className="workspace-tabs" role="group" aria-label="Workspace panes">
-          <button className="btn" aria-pressed={compactPane === 'terminal'} onClick={() => setCompactPane('terminal')}>Terminal</button>
-          {showFiles && <button className="btn" aria-pressed={compactPane === 'files'} onClick={() => setCompactPane('files')}>Files</button>}
-          {showBrowser && <button className="btn" aria-pressed={compactPane === 'browser'} onClick={() => setCompactPane('browser')}>Browser</button>}
+          <button className="btn" aria-pressed={compactPane === 'terminal'} onClick={() => setCompactPane('terminal')} title="Terminal" aria-label="Terminal"><PaneIcon kind="terminal" /></button>
+          {showFiles && <button className="btn" aria-pressed={compactPane === 'files'} onClick={() => setCompactPane('files')} title="Files" aria-label="Files"><PaneIcon kind="files" /></button>}
+          {showBrowser && <button className="btn" aria-pressed={compactPane === 'browser'} onClick={() => setCompactPane('browser')} title="Browser" aria-label="Browser"><PaneIcon kind="browser" /></button>}
         </div>}
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
-        {showFiles && <div className={`files-slot ${compactWorkspace && compactPane !== 'files' ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2 }}><ProjectFilesPane side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} /></div>}
+        {showFiles && <div className={`files-slot ${compactWorkspace && compactPane !== 'files' ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2, width: compactWorkspace ? undefined : filesWidth, flex: compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane onDirty={setFilesDirty} side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{!compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
         <div className={`pane ${compactWorkspace && compactPane !== 'terminal' ? 'workspace-hidden' : ''}`}>
           {tabs.length === 0 && (
             <div className="pane-empty">
@@ -661,7 +690,7 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`}><BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}`} visible={(!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}`} visible={!resizingPane && (!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
         </div>
 
         {prefs.voice.enabled && (

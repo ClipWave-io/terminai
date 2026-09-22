@@ -1,0 +1,24 @@
+import type { WebContents } from 'electron';
+import type { TabStatus } from '../shared/types';
+export interface AgentSession { kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean }
+export function createSession(opts?: {cwd?: string; cols?: number; rows?: number}): {id: string; cwd: string};
+export function list(): {id: string; cwd: string; exited: boolean}[];
+export function attach(wc: WebContents, id: string): boolean;
+export function detachAll(): void;
+export function write(id: string, data: string): void;
+export function resize(id: string, cols: number, rows: number): void;
+export function kill(id: string): void;
+export function closeSession(id: string): void;
+export function uncloseSession(id: string): {id: string; cwd: string; exited: boolean} | null;
+export function killAll(): void;
+export function foregroundProcess(id: string): string;
+export function usedClaude(id: string): boolean;
+export function statusOf(id: string): TabStatus;
+export function cwdOf(id: string): string;
+export function claudeSessionOf(id: string): string;
+export function claudeSessionExists(id: string): boolean;
+export function recentClaudeSessions(cwd: string, limit: number): string[];
+export function liveIds(): string[];
+export function agentOf(id: string): AgentSession;
+export function resumeCommandFor(desc: {kind: string; sessionId?: string; args?: string[]}): Promise<string>;
+export function execWhenReady(id: string, cmd: string): void;

@@ -1,6 +1,6 @@
 {
   "name": "clipwave-term",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "A terminal that is easier on the eyes, and talks back.",
   "main": "out/main/index.js",
   "author": "ilaiadaya",
@@ -31,6 +31,7 @@
     "electron": "^44.4.4",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "monaco-editor": "0.56.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.2",
