@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type JSX } from 'react'
 import type { ProjectListing, ProjectPreview } from '../../shared/project-files'
 const CodeEditor = lazy(()=>import('./CodeEditor'))
 
-export function ProjectFilesPane({ side, onSide, onClose, onDirty }: { side: 'left' | 'right'; onSide: () => void; onClose: () => void; onDirty: (dirty: boolean) => void }): JSX.Element {
+export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }: { openRequest?: string | null; side: 'left' | 'right'; onSide: () => void; onClose: () => void; onDirty: (dirty: boolean) => void }): JSX.Element {
   const [listing, setListing] = useState<ProjectListing | null>(null)
   const [preview, setPreview] = useState<ProjectPreview | null>(null)
   const [draft, setDraft] = useState('')
@@ -23,6 +23,14 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty }: { side: 'le
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const request = useRef(0)
+  const handledOpen = useRef<string | null>(null)
+  useEffect(()=>{
+    if(!openRequest || handledOpen.current===openRequest || busy)return
+    if(!discard()){handledOpen.current=openRequest;return}
+    handledOpen.current=openRequest
+    setBusy(true);setError('');setPreview(null);setListing(null)
+    void window.term.project.open(openRequest).then(result=>{setListing(result.listing);setPreview(result.preview);setDraft(result.preview.content)}).catch(e=>setError(String(e))).finally(()=>setBusy(false))
+  },[openRequest,busy])
   const load = async (path: string, confirmed = false) => {
     if (busy || (!confirmed && !discard())) return
     const id = ++request.current; setBusy(true); setError('')

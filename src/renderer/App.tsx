@@ -66,6 +66,8 @@ export function App(): JSX.Element {
   const [browserWidth, setBrowserWidth] = useState(360)
   const [resizingPane, setResizingPane] = useState(false)
   const [showFiles, setShowFiles] = useState(false)
+  const [openFileRequest, setOpenFileRequest] = useState<string | null>(null)
+  useEffect(()=>{const open=(id:string)=>{setOpenFileRequest(id);setShowFiles(true);setBrowserOnly(false);setCompactPane('files')};void window.term.project.pending().then(id=>{if(id)open(id)});return window.term.project.onOpen(open)},[])
   const [filesSide, setFilesSide] = useState<'left' | 'right'>('left')
   useEffect(() => {
     const element = workspace.current
@@ -75,6 +77,9 @@ export function App(): JSX.Element {
     return () => observer.disconnect()
   }, [])
   const [showBrowser, setShowBrowser] = useState(false)
+  const [browserOnly, setBrowserOnly] = useState(false)
+  useEffect(()=>window.term.browser.onReveal(()=>{setShowBrowser(true);setCompactPane('browser')}),[])
+  useEffect(()=>{const tab=tabs.find(t=>t.id===activeId);if(tab)void window.term.browser.action('session',{owner:tab.browserKey||tab.id}).then(state=>{setShowBrowser(Boolean(state.tabs?.length));if(state.tabs?.length)setCompactPane('browser');else{setBrowserOnly(false);setCompactPane('terminal')}})},[activeId])
   const [showSettings, setShowSettings] = useState(false)
   const [showTeam, setShowTeam] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -117,14 +122,15 @@ export function App(): JSX.Element {
 
   // ---- tabs --------------------------------------------------------------
   const newTab = useCallback(async (cwd?: string, restore?: SavedTab) => {
+    const browserKey = restore?.browserKey || crypto.randomUUID()
     const { id, cwd: realCwd } = await window.term.pty.create({
-      cwd,
+      cwd, browserKey,
       cols: 80,
       rows: 24,
     })
     const now = Date.now()
     const tab: TabInfo = {
-      id,
+      id, browserKey,
       customTitle: restore?.customTitle || restore?.name,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.customTitle || restore?.name || restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
@@ -165,6 +171,7 @@ export function App(): JSX.Element {
       {
         id: live.id,
         customTitle: restore?.customTitle || restore?.name,
+      browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.customTitle || restore?.name || restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
         cwd: live.cwd,
@@ -260,6 +267,7 @@ export function App(): JSX.Element {
     cwd: t.cwd,
     title: t.title,
     customTitle: t.customTitle,
+    browserKey: t.browserKey || t.id,
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
     notes: t.notes,
     focusedMs: t.focusedMs,
@@ -591,7 +599,7 @@ export function App(): JSX.Element {
             activeId={activeId}
             speakingId={speakingId}
             width={railWidth}
-            onSelect={setActiveId}
+            onSelect={id=>{if(id===activeId)setShowBrowser(value=>!value);else setActiveId(id)}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
@@ -664,8 +672,8 @@ export function App(): JSX.Element {
           {showBrowser && <button className="btn" aria-pressed={compactPane === 'browser'} onClick={() => setCompactPane('browser')} title="Browser" aria-label="Browser"><PaneIcon kind="browser" /></button>}
         </div>}
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
-        {showFiles && <div className={`files-slot ${compactWorkspace && compactPane !== 'files' ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2, width: compactWorkspace ? undefined : filesWidth, flex: compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane onDirty={setFilesDirty} side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{!compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
-        <div className={`pane ${compactWorkspace && compactPane !== 'terminal' ? 'workspace-hidden' : ''}`}>
+        {showFiles && <div className={`${browserOnly && showBrowser ? 'workspace-hidden' : ''} files-slot ${compactWorkspace && compactPane !== 'files' ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2, width: compactWorkspace ? undefined : filesWidth, flex: compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{!compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
+        <div className={`pane ${browserOnly && showBrowser ? 'workspace-hidden' : ''} ${compactWorkspace && compactPane !== 'terminal' ? 'workspace-hidden' : ''}`}>
           {tabs.length === 0 && (
             <div className="pane-empty">
               <div>No sessions open</div>
@@ -690,7 +698,7 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}`} visible={!resizingPane && (!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ width: browserOnly ? '100%' : compactWorkspace ? undefined : browserWidth, flex: browserOnly ? '1 1 auto' : compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && !browserOnly && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={()=>setBrowserOnly(value=>!value)} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}-${browserOnly}`} visible={!resizingPane && (!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
         </div>
 
         {prefs.voice.enabled && (

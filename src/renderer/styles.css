@@ -994,3 +994,13 @@ textarea.card-notes.editing {
 
 .topbar-spacer { flex: 1; }
 .tab-title-input { width: 100%; min-width: 0; border: 1px solid var(--accent); border-radius: 4px; color: var(--fg); background: var(--pane); font: inherit; padding: 3px; }
+
+.browser-heading { flex-wrap: wrap; }
+.browser-heading select { max-width: 130px; color: var(--fg); background: var(--pane); border: 1px solid var(--border); border-radius: 5px; padding: 3px; }
+.browser-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; max-height: 160px; overflow: auto; }
+.browser-tab-group { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-width: 0; max-width: 100%; }
+.browser-tab { display: flex; max-width: 230px; min-width: 0; border: 1px solid var(--border); border-radius: 5px; }
+.browser-tab button, .browser-group-label { background: transparent; color: var(--dim); border: 0; cursor: pointer; padding: 5px; }
+.browser-tab [role=tab] { max-width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.browser-tab [aria-selected=true] { color: var(--accent); background: var(--selection); }
+.browser-group-label { border-bottom: 2px solid var(--accent); color: var(--accent); }

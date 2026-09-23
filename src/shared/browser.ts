@@ -1,13 +1,9 @@
+export interface BrowserTab { id: string; url: string; title: string; profileId: string; group: string; owner: string }
+export interface BrowserProfile { id: string; name: string }
 export interface BrowserState {
-  url: string
-  title: string
-  loading: boolean
-  canGoBack: boolean
-  canGoForward: boolean
-  error: string
+  url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; error: string
+  tabs?: BrowserTab[]; profiles?: BrowserProfile[]; activeId?: string; profileId?: string; owner?: string
 }
-
-/** Both the address bar and every remote navigation use this protocol boundary. */
 export function browserUrl(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 8192) throw new Error('Enter a web address.')
   const input = value.trim()

@@ -21,6 +21,9 @@ const api = {
     setupTools: (companyId: string): Promise<McpSetupResult[]> => ipcRenderer.invoke('workspace:setup-tools', companyId),
   },
   project: {
+    pending: (): Promise<string | null> => ipcRenderer.invoke('project:pending'),
+    open: (id: string): Promise<{listing: ProjectListing; preview: ProjectPreview}> => ipcRenderer.invoke('project:open', id),
+    onOpen: (cb: (id: string) => void): (() => void) => { const handler=(_e:IpcRendererEvent,id:string)=>cb(id); ipcRenderer.on('project:open-request',handler); return ()=>{ipcRenderer.removeListener('project:open-request',handler)} },
     choose: (): Promise<string | null> => ipcRenderer.invoke('project:choose'),
     list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),
     save: (path: string, content: string, version: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:save', path, content, version),
@@ -28,6 +31,8 @@ const api = {
   },
   browser: {
     state: (): Promise<BrowserState> => ipcRenderer.invoke('browser:state'),
+    action: (type: string, input: Record<string, unknown> = {}): Promise<any> => ipcRenderer.invoke('browser:action', type, input),
+    onReveal: (cb: () => void): (() => void) => { ipcRenderer.on('browser:reveal', cb); return () => { ipcRenderer.removeListener('browser:reveal', cb) } },
     navigate: (url: string): Promise<void> => ipcRenderer.invoke('browser:navigate', url),
     command: (action: 'back' | 'forward' | 'reload' | 'external'): Promise<void> => ipcRenderer.invoke('browser:command', action),
     layout: (bounds: {x: number; y: number; width: number; height: number; visible: boolean}): Promise<void> => ipcRenderer.invoke('browser:layout', bounds),
@@ -43,7 +48,7 @@ const api = {
     agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),
     resumeCommand: (desc: {kind: string; sessionId?: string; args?: string[]}): Promise<string> => ipcRenderer.invoke('pty:resumeCommand', desc),
     exec: (id: string, cmd: string): void => ipcRenderer.send('pty:exec', { id, cmd }),
-    create: (opts: { cwd?: string; cols?: number; rows?: number }): Promise<{ id: string; cwd: string }> =>
+    create: (opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),
     list: (): Promise<{ id: string; cwd: string; exited: boolean }[]> =>
       ipcRenderer.invoke('pty:list'),

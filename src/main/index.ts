@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem } from 'electron'
-import { join, basename, resolve, sep } from 'node:path'
+import { join, basename, resolve, sep, dirname } from 'node:path'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { copyFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -9,6 +9,7 @@ import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
+import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
 import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
@@ -30,6 +31,13 @@ import type { Prefs, VoicePrefs } from '../shared/types'
 /** Injected by electron-vite at build time; see electron.vite.config.ts. */
 declare const __REPO_ROOT__: string
 
+const openFiles = new Map<string,string>()
+function queueOpenFile(path: string) {
+  const id = crypto.randomUUID(); openFiles.set(id, resolve(path))
+  if (app.isReady() && (!win || win.isDestroyed())) createWindow()
+  if (win && !win.isDestroyed()) { win.webContents.send('project:open-request', id); win.show(); win.focus() }
+}
+app.on('open-file', (event, path) => { event.preventDefault(); queueOpenFile(path) })
 let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
@@ -122,6 +130,18 @@ app.whenReady().then(() => {
   registerAudioProtocol()
   registerIpc()
   createWindow()
+  void (async()=>{
+    const directory=app.getPath('userData'),script=join(directory,'browser-mcp.cjs')
+    await copyFile(app.isPackaged?join(app.getAppPath(),'resources/browser-mcp.cjs'):join(__dirname,'../../resources/browser-mcp.cjs'),script)
+    const bridge=await startBrowserBridge(directory,async(command,args,owner)=>{
+      if(!browser||!win||win.isDestroyed())throw Error('Open the TerminAI window to browse.')
+      const known=store.load().tabs.some(tab=>(tab.browserKey||tab.ptyId)===owner)
+      if(!known)throw Error('Unknown TerminAI coding session. Reopen the terminal tab.')
+      return browser.automate(command,args,owner)
+    })
+    app.once('will-quit',bridge.close)
+    registerBrowserMcp(join(process.env.CODEX_HOME||join(homedir(),'.codex'),'config.toml'),process.execPath,script,join(directory,'browser-bridge.json'))
+  })().catch(()=>{console.error('Embedded browser MCP setup needs attention. See the browser setup guide.')})
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -188,6 +208,13 @@ function registerIpc(): void {
     const result = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose project folder to view' })
     return result.canceled ? null : projectFiles.selectRoot(result.filePaths[0])
   })
+  appIpc.handle('project:pending', () => [...openFiles.keys()][0] || null)
+  appIpc.handle('project:open', async (_event, id: string) => {
+    const path = openFiles.get(id); if (!path) throw Error('File request expired.')
+    await projectFiles.selectRoot(dirname(path))
+    const listing = await projectFiles.list(''), preview = await projectFiles.preview(basename(path))
+    openFiles.delete(id); return { listing, preview }
+  })
   appIpc.handle('project:list', (_event, path: string) => projectFiles.list(path))
   appIpc.handle('project:save', (_event, path: string, content: string, version: string) => projectFiles.save(path, content, version))
   appIpc.handle('project:preview', (_event, path: string) => projectFiles.preview(path))
@@ -196,11 +223,12 @@ function registerIpc(): void {
     if (win.isMaximized()) win.unmaximize(); else win.maximize()
   })
   appIpc.handle('browser:state', () => browser?.state())
+  appIpc.handle('browser:action', (_event, type: string, input) => browser?.action(type, input))
   appIpc.handle('browser:navigate', (_event, url: unknown) => browser?.navigate(url))
   appIpc.handle('browser:command', (_event, command: string) => browser?.command(command))
   appIpc.handle('browser:layout', (_event, bounds) => browser?.layout(bounds))
   // ---- terminal ----------------------------------------------------------
-  appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number }) =>
+  appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }) =>
     ptys.createSession(opts ?? {}),
   )
   appIpc.on('pty:close', (_event, { id }: {id: string}) => ptys.closeSession(id))

@@ -1,6 +1,6 @@
 {
   "name": "clipwave-term",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A terminal that is easier on the eyes, and talks back.",
   "main": "out/main/index.js",
   "author": "ilaiadaya",
@@ -54,7 +54,40 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "identity": null
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "txt",
+          "md",
+          "json",
+          "js",
+          "jsx",
+          "ts",
+          "tsx",
+          "py",
+          "html",
+          "css",
+          "scss",
+          "yaml",
+          "yml",
+          "toml",
+          "sh",
+          "c",
+          "h",
+          "cpp",
+          "rs",
+          "go",
+          "xml",
+          "csv",
+          "log",
+          "sql"
+        ],
+        "name": "Source code and text",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ]
   },
   "allowScripts": {
     "electron@44.4.4": true,

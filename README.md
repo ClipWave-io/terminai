@@ -213,3 +213,37 @@ npx electron tests/ui-smoke.cjs
 npx electron tests/editor-ui-smoke.cjs
 node tests/codex-restart-smoke.cjs
 ```
+
+
+## Browser workspaces (0.2.3)
+
+Use **+** in Browser for another tab. Create named profiles with the profile button;
+each has its own cookies and logins. Group tabs with their **…** button and collapse
+or expand the group label. Browser tabs, groups and profiles survive restarting.
+Each coding session has its own tab selection. Selecting a coding session reveals
+its browser tabs; selecting the current session again toggles the browser pane.
+Use the browser-only button to hide terminal/editor content; Cmd+S hides the sidebar.
+
+The embedded `terminai_browser` MCP is installed automatically in Codex's config
+on app launch. Restart/resume Codex inside TerminAI to pick up new tools. Ask the
+agent to use **terminai_browser** to keep browsing in this window. Existing external
+Chrome tools are preserved and still open external Chrome when selected. The
+embedded tool only exposes tabs for its coding session. Profiles deliberately share
+cookies across sessions using the same profile; create separate profiles for separate
+accounts. MCP tools are unavailable outside a TerminAI terminal.
+
+The app installs a managed config section, preserving other servers and existing
+user-owned entries. CODEX_HOME is respected. Runtime files stay in the app's local
+user-data directory; the loopback bridge uses a private rotating credential and
+rejects web-page origins. No local file or JavaScript URL can be opened as a page.
+If setup fails, check that Codex config and the application support directory are
+writable; an existing user-owned terminai_browser entry must be reconciled manually.
+
+Finder **Open With → TerminAI** opens supported text/source files in the editable
+Monaco pane. Use Finder **Get Info → Open with → Change All** if you want TerminAI
+as the default editor for a file type. Defaults are not changed automatically.
+
+For company login, invitations, role visibility and managed Chrome/Google Ads setup,
+see [the manager guide](manager/README.md). Google Ads still needs each user's own
+Google authorization. Shared conversation messages are not automatically executed
+as agent instructions.

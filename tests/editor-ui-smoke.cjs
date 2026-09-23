@@ -4,7 +4,7 @@ const project=path.join(dir,'project');fs.mkdirSync(project);fs.writeFileSync(pa
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
  const js=code=>win.webContents.executeJavaScript(code);await delay(1600);win.setSize(1500,900);await delay(400);
- await js(`for(const b of document.querySelectorAll('.topbar button'))if(['Files','Browser'].includes(b.getAttribute('aria-label')))b.click()`);await delay(500);
+ await js(`for(const b of document.querySelectorAll('.topbar button'))if(['Files','Browser'].includes(b.getAttribute('aria-label')))b.click()`);await delay(500);await win.webContents.executeJavaScript(`document.querySelector('[aria-label="New browser tab"]').click()`);await delay(200);
  await js(`document.querySelector('.files-toolbar button').click()`);await delay(300);await js(`Array.from(document.querySelectorAll('.files-tree button')).find(b=>b.textContent.includes('README.md')).click()`);
  for(let i=0;i<50&&!await js(`!!document.querySelector('.monaco-editor textarea')`);i++)await delay(150);
  assert.equal(await js(`!!document.querySelector('.monaco-editor')`),true);

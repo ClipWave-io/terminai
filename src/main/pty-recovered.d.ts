@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron';
 import type { TabStatus } from '../shared/types';
 export interface AgentSession { kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean }
-export function createSession(opts?: {cwd?: string; cols?: number; rows?: number}): {id: string; cwd: string};
+export function createSession(opts?: {browserKey?: string; cwd?: string; cols?: number; rows?: number}): {id: string; cwd: string};
 export function list(): {id: string; cwd: string; exited: boolean}[];
 export function attach(wc: WebContents, id: string): boolean;
 export function detachAll(): void;

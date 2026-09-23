@@ -137,7 +137,7 @@ function createSession(opts = {}) {
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
     cwd,
-    env: ptyEnv(id)
+    env: { ...ptyEnv(id), TERMINAI_WORKSPACE_ID: typeof opts.browserKey === "string" ? opts.browserKey : id }
   });
   const session = {
     id,

@@ -38,16 +38,44 @@ void app.whenReady().then(async () => {
     await browser.command('reload'); await waitFor(() => !browser.state().loading)
     await browser.navigate('file:///etc/passwd'); assert.match(browser.state().error, /HTTP/); assert.equal(wc.getURL(), `${origin}/two`)
     await wc.executeJavaScript(`window.open('${origin}/popup')`)
-    assert.match(browser.state().error, /new window/); assert.equal(BrowserWindow.getAllWindows().length, 1)
+    await waitFor(()=>browser.state().tabs?.length===2); assert.equal(BrowserWindow.getAllWindows().length, 1)
+    const popup=browser.state().activeId!;await browser.action('close',{id:popup})
     assert.equal(await wc.executeJavaScript('Notification.requestPermission()'), 'denied')
     browser.layout({ x: 0, y: 0, width: 200, height: 200, visible: true }); assert.equal(view.getVisible(), true)
     browser.layout({ x: 0, y: 0, width: 0, height: 0, visible: false }); assert.equal(view.getVisible(), false)
+    browser.selectSession('session-one')
+    const first=await browser.action('new',{url:`${origin}/one`}) as any
+    await waitFor(()=>!browser.state().loading)
+    await browser.action('group',{id:first.id,name:'Research'})
+    const second=await browser.action('new',{url:`${origin}/two`}) as any
+    await browser.action('close',{id:first.id})
+    assert.equal(browser.state().activeId,second.id,'closing another tab preserves the active tab')
+    const personalView=win.contentView.children.at(-1) as WebContentsView
+    await personalView.webContents.session.cookies.set({url:origin,name:'isolation',value:'personal'})
+    const profile=await browser.action('profile',{name:'Work'}) as any
+    await browser.action('use-profile',{id:profile.id})
+    await browser.navigate(`${origin}/work`)
+    const workView=win.contentView.children.at(-1) as WebContentsView
+    assert.equal((await workView.webContents.session.cookies.get({url:origin,name:'isolation'})).length,0)
+    const oneActive=browser.state().activeId
+    browser.selectSession('session-two')
+    assert.equal(browser.state().tabs?.length,0)
+    await assert.rejects(()=>browser.automate('snapshot',{tabId:oneActive},'session-two'),/does not belong/)
+    const automated=await browser.automate('open',{url:`${origin}/agent`},'session-two') as any
+    await waitFor(()=>!browser.state().loading)
+    const snapshot=await browser.automate('snapshot',{tabId:automated.id},'session-two') as any
+    assert.match(snapshot.text,/Browser smoke/)
+    browser.selectSession('session-one');assert.equal(browser.state().activeId,oneActive)
+    const restoredWin=new BrowserWindow({show:false,webPreferences:{sandbox:true}})
+    const restored=createBrowserPane(restoredWin);restored.selectSession('session-one')
+    assert.equal(restored.state().tabs?.length,2);assert.equal(restored.state().profileId,profile.id)
+    restoredWin.destroy()
     let terminalOutput = ''
     const terminal = pty.spawn('/bin/zsh', ['-l'], { name: 'xterm-256color', cols: 80, rows: 24, env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' } })
     terminal.onData(data => { terminalOutput += data })
     terminal.write("printf 'PTY_SMOKE_%s\\n' 'OK'\r")
     await waitFor(() => terminalOutput.includes('PTY_SMOKE_OK'))
     terminal.resize(100, 30); terminal.kill()
-    console.log('PASS: sandbox, denied permissions/popups/schemes, navigation history, layout, native login-shell PTY on Electron ' + process.versions.electron)
+    console.log('PASS: sandbox, denied permissions/schemes, sandboxed popup tabs, navigation, profiles/cookie isolation, session ownership, restore, layout, native login-shell PTY on Electron ' + process.versions.electron)
   } finally { win.destroy(); server.close(); app.quit() }
 }).catch(error => { console.error(error); app.exit(1) })

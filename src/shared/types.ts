@@ -65,6 +65,7 @@ export interface TabInfo {
   customTitle?: string
   name?: string
   agent?: string
+  browserKey?: string
   agentSession?: string
   agentArgs?: string[]
   cwd: string
@@ -92,6 +93,7 @@ export interface SavedTab {
   customTitle?: string
   name?: string
   agent?: string
+  browserKey?: string
   agentSession?: string
   agentArgs?: string[]
   title: string
