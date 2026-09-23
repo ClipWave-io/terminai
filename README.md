@@ -183,7 +183,7 @@ move to either side. When the workspace is narrow, pane selectors retain the
 terminal sessions while showing one pane at a time. Choose a folder in the native
 picker to grant editing access: paths outside that project and symbolic links
 are rejected. UTF-8 text (including HTML/SVG source) is displayed literally;
-PNG/JPEG/GIF/WebP previews are inert images. Limits: 1 MB text, 8 MB images,
+PNG/JPEG/GIF/WebP previews are inert images. Limits: 20 MB editable UTF-8 text, 8 MB images,
 500 entries per directory. Monaco (the editor engine used by VS Code) provides
 syntax highlighting, line numbers, find/replace, undo/redo and Cmd+S. Saves preserve
 UTF-8 BOM and line endings and refuse to overwrite a file changed on disk. Unsaved
@@ -222,7 +222,7 @@ each has its own cookies and logins. Group tabs with their **…** button and co
 or expand the group label. Browser tabs, groups and profiles survive restarting.
 Each coding session has its own tab selection. Selecting a coding session reveals
 its browser tabs; selecting the current session again shows or hides the coding pane.
-The Terminal/Browser/Files pane controls stay visible at every window size.
+The Terminal/Browser/Files icons stay in the top bar at every window size. Drag the icons to rearrange panes (or focus an icon and press Option–Left/Right); the order is saved across restarts. A single visible pane fills the workspace.
 Use the browser-only button to hide terminal/editor content; Cmd+S hides the sidebar.
 
 The embedded `terminai_browser` MCP is installed automatically in Codex's config

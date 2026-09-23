@@ -4,6 +4,9 @@ import { lstat, open, readdir, realpath, rename, unlink, readFile } from 'node:f
 import { isAbsolute, relative, resolve, sep, dirname, join } from 'node:path'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 
+const TEXT_LIMIT = 20 * 1024 * 1024
+const IMAGE_LIMIT = 8 * 1024 * 1024
+
 /** A capability granted by the native folder picker, never by renderer paths. */
 export class ProjectFiles {
   private root = ''
@@ -35,7 +38,7 @@ export class ProjectFiles {
     return { root: this.root, path, truncated: all.length > 500, entries: all.slice(0, 500).map(entry => ({ name: entry.name, path: relative(this.root, resolve(directory, entry.name)), directory: entry.isDirectory() })) }
   }
   async save(path: string, content: string, version: string): Promise<ProjectPreview> {
-    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 1024 * 1024 || typeof version !== 'string') throw new Error('Text files must be smaller than 1 MB.')
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > TEXT_LIMIT || typeof version !== 'string') throw new Error('This text file exceeds the 20 MB editor limit.')
     if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(content)) throw new Error('Only text files can be saved.')
     const target = await this.scoped(path)
     const current = await this.preview(path)
@@ -46,6 +49,7 @@ export class ProjectFiles {
     // Preserve UTF-8 BOM and CRLF line endings when editing an existing file.
     const text = bytes.includes(Buffer.from('\r\n')) ? content.replace(/\r?\n/g, '\r\n') : content
     const data = Buffer.concat([bytes.subarray(0,3).equals(Buffer.from([239,187,191])) ? Buffer.from([239,187,191]) : Buffer.alloc(0), Buffer.from(text)])
+    if (data.length > TEXT_LIMIT) throw new Error('This text file exceeds the 20 MB editor limit after preserving its line endings.')
     const temp = join(dirname(target), `.terminai-save-${randomUUID()}`)
     let file
     try {
@@ -62,20 +66,27 @@ export class ProjectFiles {
     try {
       const info = await handle.stat()
       if (!info.isFile()) throw new Error('Only regular files can be previewed.')
-      if (info.size > 8 * 1024 * 1024) throw new Error('Preview limit is 8 MB for images and 1 MB for text.')
+      if (info.size > TEXT_LIMIT) throw new Error('This file exceeds the editor limit: 20 MB for text, 8 MB for images.')
       const verified = await this.scoped(path)
       const current = await lstat(verified)
       if (current.dev !== info.dev || current.ino !== info.ino) throw new Error('The file changed while opening. Try again.')
-      const bytes = Buffer.alloc(Math.min(info.size + 1, 8 * 1024 * 1024 + 1))
-      const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0)
+      const bytes = Buffer.alloc(info.size + 1)
+      let bytesRead = 0
+      while (bytesRead < bytes.length) {
+        const chunk = await handle.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead)
+        if (!chunk.bytesRead) break
+        bytesRead += chunk.bytesRead
+      }
+      const after = await handle.stat()
+      if (bytesRead !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs) throw new Error('The file changed while opening. Try again.')
       const data = bytes.subarray(0, bytesRead)
       let mime = ''
       if (data.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) mime = 'image/png'
       else if (data[0] === 255 && data[1] === 216 && data[2] === 255) mime = 'image/jpeg'
       else if (/^GIF8[79]a/.test(data.subarray(0, 6).toString())) mime = 'image/gif'
       else if (data.subarray(0,4).toString() === 'RIFF' && data.subarray(8,12).toString() === 'WEBP') mime = 'image/webp'
+      if (mime && bytesRead > IMAGE_LIMIT) throw new Error('This image exceeds the 8 MB preview limit.')
       if (mime) return { path, type: 'image', content: `data:${mime};base64,${data.toString('base64')}` }
-      if (bytesRead > 1024 * 1024) throw new Error('Text preview limit is 1 MB.')
       let content: string
       try { content = new TextDecoder('utf-8', { fatal: true }).decode(data) } catch { throw new Error('This binary file cannot be previewed.') }
       if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(content)) throw new Error('This binary file cannot be previewed.')

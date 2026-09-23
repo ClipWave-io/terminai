@@ -50,6 +50,12 @@ export interface Theme extends AnsiRamp {
   shadow: string
 }
 
+export type WorkspacePane = 'files' | 'terminal' | 'browser'
+export function normalizePaneOrder(value: unknown): WorkspacePane[] {
+  const defaults: WorkspacePane[] = ['files', 'terminal', 'browser']
+  return [...new Set([...(Array.isArray(value) ? value.filter((item): item is WorkspacePane => defaults.includes(item)) : []), ...defaults])]
+}
+
 export type RailSide = 'left' | 'right'
 
 /**
@@ -148,6 +154,7 @@ export interface VoicePrefs {
 }
 
 export interface Prefs {
+  paneOrder: WorkspacePane[]
   theme: ThemeName
   fontSize: number
   /** width of the tab rail in px; drag its inner edge to change */
@@ -172,6 +179,7 @@ export const RAIL_MAX = 460
 export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
+  paneOrder: ['files', 'terminal', 'browser'],
   theme: 'linen',
   fontSize: 13,
   railWidth: RAIL_DEFAULT,

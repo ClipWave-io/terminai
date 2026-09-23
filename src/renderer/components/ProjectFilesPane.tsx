@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type JSX } from 'react'
 import type { ProjectListing, ProjectPreview } from '../../shared/project-files'
+const errorMessage = (error: unknown) => String(error).replace(/^Error: Error invoking remote method '[^']+': Error: /, '').replace(/^Error: /, '')
 const CodeEditor = lazy(()=>import('./CodeEditor'))
 
 export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }: { openRequest?: string | null; side: 'left' | 'right'; onSide: () => void; onClose: () => void; onDirty: (dirty: boolean) => void }): JSX.Element {
@@ -17,7 +18,7 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }
     if (!preview?.version || !dirty || busy) return
     setBusy(true); setError('')
     try { const result = await window.term.project.save(preview.path, draft, preview.version); setPreview(result); setDraft(result.content) }
-    catch (e) { setError(String(e)) }
+    catch (e) { setError(errorMessage(e)) }
     finally { setBusy(false) }
   }
   const [error, setError] = useState('')
@@ -29,24 +30,24 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }
     if(!discard()){handledOpen.current=openRequest;return}
     handledOpen.current=openRequest
     setBusy(true);setError('');setPreview(null);setListing(null)
-    void window.term.project.open(openRequest).then(result=>{setListing(result.listing);setPreview(result.preview);setDraft(result.preview.content)}).catch(e=>setError(String(e))).finally(()=>setBusy(false))
+    void window.term.project.open(openRequest).then(result=>{setListing(result.listing);setPreview(result.preview);setDraft(result.preview.content)}).catch(e=>setError(errorMessage(e))).finally(()=>setBusy(false))
   },[openRequest,busy])
   const load = async (path: string, confirmed = false) => {
     if (busy || (!confirmed && !discard())) return
     const id = ++request.current; setBusy(true); setError('')
     try { const result = await window.term.project.list(path); if (request.current === id) { setListing(result); setPreview(null) } }
-    catch (e) { if (request.current === id) setError(String(e)) }
+    catch (e) { if (request.current === id) setError(errorMessage(e)) }
     finally { if (request.current === id) setBusy(false) }
   }
   const choose = async () => {
     if (busy || !discard()) return
-    try { if (await window.term.project.choose()) { setPreview(null); setListing(null); setDraft(''); await load('', true) } } catch (e) { setError(String(e)) }
+    try { if (await window.term.project.choose()) { setPreview(null); setListing(null); setDraft(''); await load('', true) } } catch (e) { setError(errorMessage(e)) }
   }
   const open = async (path: string) => {
     if (busy || !discard()) return
     const id = ++request.current; setBusy(true); setError(''); setPreview(null)
     try { const result = await window.term.project.preview(path); if (request.current === id) { setPreview(result); setDraft(result.content) } }
-    catch (e) { if (request.current === id) setError(String(e)) }
+    catch (e) { if (request.current === id) setError(errorMessage(e)) }
     finally { if (request.current === id) setBusy(false) }
   }
   return <aside className="project-files-pane" aria-label="Project files">

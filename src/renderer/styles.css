@@ -973,7 +973,7 @@ textarea.card-notes.editing {
 /* Resizable workspace panes; the terminal remains mounted and receives ResizeObserver fits. */
 .pane-resize-handle { flex: 0 0 7px; align-self: stretch; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; border-radius: 4px; }
 .pane-resize-handle:hover, .pane-resize-handle:focus-visible { background: var(--accent); outline: none; }
-.files-slot, .browser-slot { max-width: 65%; }
+.files-slot, .browser-slot { max-width: 100%; }
 .compact-workspace > .files-slot, .compact-workspace > .browser-slot { max-width: none; }
 .topbar-title-input { flex: 1; min-width: 80px; color: var(--fg); background: var(--pane); border: 1px solid var(--accent); border-radius: 5px; padding: 4px; }
 .topbar-title { cursor: default; min-width: 70px; }
@@ -1006,3 +1006,22 @@ textarea.card-notes.editing {
 .browser-tab [role=tab] { max-width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .browser-tab [aria-selected=true] { color: var(--accent); background: var(--selection); }
 .browser-group-label { border-bottom: 2px solid var(--accent); color: var(--accent); }
+
+/* Workspace controls live in the title bar; native window dragging stays in the gaps. */
+.topbar .workspace-tabs { -webkit-app-region: no-drag; gap: 4px; padding: 2px 6px; border-right: 1px solid var(--border); }
+.topbar .btn.icon { flex: 0 0 30px; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; }
+.topbar .workspace-tabs .btn.icon { cursor: grab; }
+.topbar .workspace-tabs .btn.icon:active { cursor: grabbing; }
+.browser-heading, .files-toolbar { min-height: 46px; padding: 9px 14px; gap: 8px; }
+.browser-heading strong, .files-toolbar strong { margin-right: auto; }
+.browser-heading .btn, .files-toolbar .btn { flex: 0 0 auto; min-width: 28px; min-height: 28px; }
+.browser-toolbar, .browser-status { padding: 7px 14px; }
+.browser-tabs { padding: 5px 14px; }
+.files-path, .files-status { padding: 5px 14px; }
+.browser-tabs > .btn, .browser-status > .btn, .file-preview-title > .btn { flex: 0 0 auto; }
+.project-files-pane { container-type: inline-size; }
+.file-preview { min-width: 0; }
+@container (min-width: 640px) {
+  .files-body { flex-direction: row; }
+  .files-tree { flex: 0 0 auto; width: 200px; min-width: 120px; max-width: 45%; max-height: none; resize: horizontal; border-bottom: 0; border-right: 1px solid var(--border); }
+}
