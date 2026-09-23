@@ -1,7 +1,7 @@
 import { app, BrowserWindow, WebContentsView } from 'electron'
 import { createServer } from 'node:http'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createBrowserPane } from '../src/main/browser'
@@ -70,6 +70,23 @@ void app.whenReady().then(async () => {
     const restored=createBrowserPane(restoredWin);restored.selectSession('session-one')
     assert.equal(restored.state().tabs?.length,2);assert.equal(restored.state().profileId,profile.id)
     restoredWin.destroy()
+    const privateTab = await browser.action('private') as any
+    await browser.navigate(`${origin}/private-secret`)
+    const privateView = win.contentView.children.at(-1) as WebContentsView
+    assert.equal(privateView.webContents.session.storagePath, null)
+    assert.equal((await privateView.webContents.session.cookies.get({url:origin,name:'isolation'})).length,0)
+    await privateView.webContents.session.cookies.set({url:origin,name:'private-cookie',value:'secret'})
+    const privateSession = privateView.webContents.session
+    const sibling = await browser.action('new') as any
+    assert.equal(sibling.profileId, privateTab.profileId)
+    const persisted = readFileSync(join(app.getPath('userData'),'browser-workspace.json'),'utf8')
+    assert.equal(persisted.includes('private-secret'), false)
+    assert.equal(persisted.includes(privateTab.profileId), false)
+    await browser.action('close',{id:privateTab.id})
+    assert.equal((await privateSession.cookies.get({url:origin,name:'private-cookie'})).length,1)
+    await browser.action('close',{id:sibling.id})
+    assert.equal((await privateSession.cookies.get({url:origin,name:'private-cookie'})).length,0)
+    assert.equal(browser.state().profiles?.some(p=>p.id===privateTab.profileId), false)
     let terminalOutput = ''
     const terminal = pty.spawn('/bin/zsh', ['-l'], { name: 'xterm-256color', cols: 80, rows: 24, env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' } })
     terminal.onData(data => { terminalOutput += data })

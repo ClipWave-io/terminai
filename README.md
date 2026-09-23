@@ -248,3 +248,19 @@ For company login, invitations, role visibility and managed Chrome/Google Ads se
 see [the manager guide](manager/README.md). Google Ads still needs each user's own
 Google authorization. Shared conversation messages are not automatically executed
 as agent instructions.
+
+
+The top bar’s **⋯ → Customize toolbar** menu lets you hide or restore icons.
+Pane icons move left in macOS full-screen mode; voice remains available through
+Settings and its keyboard shortcut. Returning to a coding pane scrolls to the
+latest terminal output.
+
+Files supports PDF viewing (up to 20 MB), with page navigation, zoom and fit-width
+controls. PDFs open inside TerminAI from the file tree or Finder’s Open With menu.
+Text files remain editable; PDF files are displayed without running document scripts.
+
+Use the browser’s **New private tab** icon for an isolated, in-memory session.
+Private tabs and their addresses are excluded from workspace restoration; closing
+that session’s last tab clears its cookies and cache. Normal profiles still retain
+their tabs and cookies. Private browsing does not hide traffic from websites or
+network providers.

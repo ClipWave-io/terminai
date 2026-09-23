@@ -100,6 +100,8 @@ function createWindow(): void {
     const choice = dialog.showMessageBoxSync(win!, { type: 'warning', buttons: ['Keep editing', 'Discard changes'], defaultId: 0, cancelId: 0, message: 'You have unsaved file changes.' })
     if (choice === 1) event.preventDefault()
   })
+  win.on('enter-full-screen', () => win?.webContents.send('window:fullscreen', true))
+  win.on('leave-full-screen', () => win?.webContents.send('window:fullscreen', false))
   win.once('ready-to-show', () => win?.show())
 
   // Links in terminal output open in the real browser, never inside the app.
@@ -218,6 +220,7 @@ function registerIpc(): void {
   appIpc.handle('project:list', (_event, path: string) => projectFiles.list(path))
   appIpc.handle('project:save', (_event, path: string, content: string, version: string) => projectFiles.save(path, content, version))
   appIpc.handle('project:preview', (_event, path: string) => projectFiles.preview(path))
+  appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {
     if (!win) return
     if (win.isMaximized()) win.unmaximize(); else win.maximize()

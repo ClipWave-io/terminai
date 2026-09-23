@@ -66,7 +66,7 @@ export class ProjectFiles {
     try {
       const info = await handle.stat()
       if (!info.isFile()) throw new Error('Only regular files can be previewed.')
-      if (info.size > TEXT_LIMIT) throw new Error('This file exceeds the editor limit: 20 MB for text, 8 MB for images.')
+      if (info.size > TEXT_LIMIT) throw new Error('This file exceeds the editor limit: 20 MB for text/PDF, 8 MB for images.')
       const verified = await this.scoped(path)
       const current = await lstat(verified)
       if (current.dev !== info.dev || current.ino !== info.ino) throw new Error('The file changed while opening. Try again.')
@@ -80,6 +80,7 @@ export class ProjectFiles {
       const after = await handle.stat()
       if (bytesRead !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs) throw new Error('The file changed while opening. Try again.')
       const data = bytes.subarray(0, bytesRead)
+      if (data.subarray(0, 5).toString() === '%PDF-') return { path, type: 'pdf', content: data.toString('base64') }
       let mime = ''
       if (data.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) mime = 'image/png'
       else if (data[0] === 255 && data[1] === 216 && data[2] === 255) mime = 'image/jpeg'

@@ -188,10 +188,19 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     const id = requestAnimationFrame(() => {
       fitRef.current?.fit()
       window.term.pty.resize(ptyId, term.cols, term.rows)
+      term.scrollToBottom()
       term.focus()
     })
     return () => cancelAnimationFrame(id)
   }, [active, ptyId])
+
+  useEffect(() => {
+    if (!active) return
+    const follow = () => { if (document.visibilityState === 'visible') termRef.current?.scrollToBottom() }
+    window.addEventListener('focus', follow)
+    document.addEventListener('visibilitychange', follow)
+    return () => { window.removeEventListener('focus', follow); document.removeEventListener('visibilitychange', follow) }
+  }, [active])
 
   // ---- dropped files paste their path -------------------------------------
   // xterm's own drop handling only understands text, so a Finder drag would

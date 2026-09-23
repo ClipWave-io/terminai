@@ -11,7 +11,10 @@ import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
  */
 const api = {
   app: { launch: (): Promise<{crashed: boolean}> => ipcRenderer.invoke('app:launch') },
-  window: { toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize') },
+  window: {
+    fullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:fullscreen'),
+    onFullscreen: (cb: (value: boolean) => void): (() => void) => { const handler = (_event: Electron.IpcRendererEvent, value: boolean) => cb(value); ipcRenderer.on('window:fullscreen', handler); return () => { ipcRenderer.removeListener('window:fullscreen', handler) } },
+    toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize') },
   workspace: {
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),
     state: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:state'),

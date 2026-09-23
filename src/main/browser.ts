@@ -14,20 +14,22 @@ export function createBrowserPane(win: BrowserWindow) {
   const views=new Map<string,WebContentsView>(), configured=new Set<string>()
   try {
     const saved=JSON.parse(readFileSync(file,'utf8'))
-    if(Array.isArray(saved.profiles)) profiles=saved.profiles.filter((p:BrowserProfile)=>/^[a-z0-9-]+$/i.test(p.id)&&typeof p.name==='string').slice(0,30)
+    if(Array.isArray(saved.profiles)) profiles=saved.profiles.filter((p:BrowserProfile)=>!p.private&&/^[a-z0-9-]+$/i.test(p.id)&&typeof p.name==='string').slice(0,30)
     if(!profiles.length)profiles=[{id:'default',name:'Personal'}]
     profileId=profiles.some(p=>p.id===saved.profileId)?saved.profileId:profiles[0].id
     if(Array.isArray(saved.tabs)) tabs=saved.tabs.filter((t:BrowserTab)=>typeof t.id==='string'&&profiles.some(p=>p.id===t.profileId)&&typeof t.owner==='string'&&(!t.url||!!browserUrl(t.url))).slice(0,100)
     selected=saved.selected&&typeof saved.selected==='object'?saved.selected:{}
   } catch { /* A damaged workspace never stops the terminal from opening. */ }
-  const persist=()=>{try{mkdirSync(app.getPath('userData'),{recursive:true});writeFileSync(file+'.tmp',JSON.stringify({profiles,tabs,selected,profileId}),{mode:0o600});renameSync(file+'.tmp',file)}catch{error='Could not save browser workspace.'}}
+  const isPrivate=(id:string)=>profiles.some(p=>p.id===id&&p.private)
+  const partition=(id:string)=>(isPrivate(id)?'':'persist:')+'terminai-profile-'+id
+  const persist=()=>{try{mkdirSync(app.getPath('userData'),{recursive:true});writeFileSync(file+'.tmp',JSON.stringify({profiles:profiles.filter(p=>!p.private),tabs:tabs.filter(t=>!isPrivate(t.profileId)),selected:Object.fromEntries(Object.entries(selected).filter(([,id])=>tabs.some(t=>t.id===id&&!isPrivate(t.profileId)))),profileId:isPrivate(profileId)?profiles.find(p=>!p.private)?.id:profileId}),{mode:0o600});renameSync(file+'.tmp',file)}catch{error='Could not save browser workspace.'}}
   const active=()=>tabs.find(t=>t.id===activeId)
   const state=():BrowserState=>{const t=active(),c=t?views.get(t.id)?.webContents:undefined;return {url:t?.url||'',title:t?.title||'',loading:c?.isLoading()||false,canGoBack:c?.navigationHistory.canGoBack()||false,canGoForward:c?.navigationHistory.canGoForward()||false,error,tabs:tabs.filter(t=>t.owner===owner).map(t=>({...t})),profiles,activeId,profileId,owner}}
   const publish=()=>{if(!win.isDestroyed())win.webContents.send('browser:state',state())}
   const applyBounds=()=>{for(const [id,view]of views){view.setBounds({x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height});view.setVisible(id===activeId&&bounds.visible&&bounds.width>0&&bounds.height>0)}}
   const ensureView=(tab:BrowserTab,load=true):WebContentsView=>{
     const existing=views.get(tab.id);if(existing)return existing
-    const isolated=session.fromPartition('persist:terminai-profile-'+tab.profileId)
+    const isolated=session.fromPartition(partition(tab.profileId))
     if(!configured.has(tab.profileId)){
       isolated.setPermissionRequestHandler((_c,_p,callback)=>callback(false));isolated.setPermissionCheckHandler(()=>false)
       isolated.on('will-download',event=>event.preventDefault());configured.add(tab.profileId)
@@ -57,8 +59,9 @@ export function createBrowserPane(win: BrowserWindow) {
     if(type==='session')return selectSession(input.owner)
     if(type==='new')return newTab({...input,owner})
     if(type==='select')return select(input.id)
-    if(type==='close'){const tab=tabs.find(t=>t.id===input.id&&t.owner===owner);if(!tab)throw Error('Tab not found.');const view=views.get(tab.id);if(view){views.delete(tab.id);win.contentView.removeChildView(view);view.webContents.close()}tabs=tabs.filter(t=>t.id!==tab.id);if(activeId===tab.id){delete selected[owner];selectSession(owner)}persist();publish();return state()}
+    if(type==='close'){const tab=tabs.find(t=>t.id===input.id&&t.owner===owner);if(!tab)throw Error('Tab not found.');const view=views.get(tab.id);if(view){views.delete(tab.id);win.contentView.removeChildView(view);view.webContents.close()}tabs=tabs.filter(t=>t.id!==tab.id);if(isPrivate(tab.profileId)&&!tabs.some(t=>t.profileId===tab.profileId)){const isolated=session.fromPartition(partition(tab.profileId));await isolated.clearStorageData();await isolated.clearCache();profiles=profiles.filter(p=>p.id!==tab.profileId);configured.delete(tab.profileId);if(profileId===tab.profileId)profileId=profiles[0].id}if(activeId===tab.id){delete selected[owner];selectSession(owner)}persist();publish();return state()}
     if(type==='group'){const tab=tabs.find(t=>t.id===input.id&&t.owner===owner);if(!tab)throw Error('Tab not found.');tab.group=String(input.name||'').trim().slice(0,60);persist();publish();return state()}
+    if(type==='private'){if(profiles.length>=30)throw Error('Close a private session before opening another.');const p={id:'private-'+randomUUID(),name:'Private',private:true};profiles.push(p);return newTab({profileId:p.id,owner})}
     if(type==='profile'){if(typeof input.name!=='string'||!input.name.trim()||profiles.length>=30)throw Error('Enter a profile name (maximum 30 profiles).');const p={id:randomUUID(),name:input.name.trim().slice(0,60)};profiles.push(p);profileId=p.id;newTab({profileId:p.id});return p}
     if(type==='use-profile'){if(!profiles.some(p=>p.id===input.id))throw Error('Profile not found.');profileId=input.id;const existing=tabs.find(t=>t.owner===owner&&t.profileId===profileId);if(existing)return select(existing.id);newTab({profileId});return state()}
     throw Error('Unknown browser action.')

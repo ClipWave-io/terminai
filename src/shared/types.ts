@@ -154,6 +154,7 @@ export interface VoicePrefs {
 }
 
 export interface Prefs {
+  hiddenToolbarItems: string[]
   paneOrder: WorkspacePane[]
   theme: ThemeName
   fontSize: number
@@ -179,6 +180,7 @@ export const RAIL_MAX = 460
 export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
+  hiddenToolbarItems: [],
   paneOrder: ['files', 'terminal', 'browser'],
   theme: 'linen',
   fontSize: 13,

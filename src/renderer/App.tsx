@@ -111,6 +111,9 @@ export function App(): JSX.Element {
     setCompactPane(filesVisible ? showTerminal ? 'terminal' : showBrowser ? 'browser' : 'files' : 'files')
   }
 
+  const [showToolbar, setShowToolbar] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => { void window.term.window.fullscreen().then(setFullscreen); return window.term.window.onFullscreen(setFullscreen) }, [])
   const [showSettings, setShowSettings] = useState(false)
   const [showTeam, setShowTeam] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -634,7 +637,7 @@ export function App(): JSX.Element {
   ])
 
   return (
-    <div className={`app rail-${prefs.railSide}`}>
+    <div className={`app rail-${prefs.railSide}${fullscreen ? ' window-fullscreen' : ''}`}>
       {!prefs.railHidden && (
         <>
           <TabRail
@@ -673,12 +676,12 @@ export function App(): JSX.Element {
         {/* The traffic lights are pinned to the window's top-left by macOS, so
             with the rail on the right this strip is what keeps them off the
             terminal. It doubles as the window's drag handle. */}
-        <div className="topbar" onDoubleClick={event => { if (!(event.target as HTMLElement).closest('button,input')) void window.term.window.toggleMaximize() }}>
+        <div className="topbar" onContextMenu={event => { event.preventDefault(); setShowToolbar(true) }} onDoubleClick={event => { if (!(event.target as HTMLElement).closest('button,input')) void window.term.window.toggleMaximize() }}>
           {/* Only reserve traffic-light room when they actually land on the
               stage — with the rail visible on the left, it holds them instead. */}
           <span className="topbar-gap" />
           <div className="workspace-tabs" role="group" aria-label="Workspace panes">
-            {paneOrder.map(pane => <button key={pane} className="btn icon no-drag" draggable
+            {paneOrder.filter(pane => !prefs.hiddenToolbarItems.includes(pane)).map(pane => <button key={pane} className="btn icon no-drag" draggable
               aria-label={pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'}
               aria-pressed={({ terminal: terminalVisible, browser: browserVisible, files: filesVisible })[pane]}
               title={`${pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'} · click to show/hide · drag to reorder · ⌥←/→ to move`}
@@ -690,32 +693,24 @@ export function App(): JSX.Element {
               onKeyDown={event => { if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); stepPane(pane, event.key === 'ArrowLeft' ? -1 : 1) } }}
             ><PaneIcon kind={pane} /></button>)}
           </div>
-          <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
+          {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
           <span className="topbar-spacer" />
-          <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>
-          <button
+          {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
+          {!prefs.hiddenToolbarItems.includes('sessions') && <button
             className="btn icon"
             onClick={() => setShowGrid((g) => !g)}
             title="All sessions  ⌘G"
           >
             ⊞
-          </button>
-          <button
+          </button>}
+          {!prefs.hiddenToolbarItems.includes('sidebar') && <button
             className="btn icon"
             onClick={() => patchPrefs({ railHidden: !prefs.railHidden })}
             title={`${prefs.railHidden ? 'Show' : 'Hide'} sidebar  ⌘S`}
           >
             {prefs.railHidden ? '⇤' : '⇥'}
-          </button>
-          {prefs.voice.enabled && (
-            <button
-              className="btn icon"
-              onClick={() => patchPrefs({ voiceDockHidden: !prefs.voiceDockHidden })}
-              title={`${prefs.voiceDockHidden ? 'Show' : 'Hide'} voice dock  ⌘D`}
-            >
-              ∿
-            </button>
-          )}
+          </button>}
+          <button className="btn icon no-drag" title="Customize toolbar" aria-label="Customize toolbar" aria-expanded={showToolbar} onClick={() => setShowToolbar(value => !value)}>⋯</button>
           {prefs.railHidden && (
             <button className="btn icon" onClick={() => setShowSettings(true)} title="Settings  ⌘,">
               ⚙
@@ -742,7 +737,7 @@ export function App(): JSX.Element {
             <TerminalPane
               key={tab.id}
               ptyId={tab.id}
-              active={tab.id === activeId}
+              active={tab.id === activeId && terminalVisible}
               theme={theme}
               fontSize={prefs.fontSize}
               onTitle={(title) => setTitle(tab.id, title)}
@@ -750,7 +745,7 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
@@ -776,6 +771,14 @@ export function App(): JSX.Element {
           />
         )}
       </main>
+
+      {showToolbar && <div className="toolbar-customize-backdrop" onClick={() => setShowToolbar(false)}>
+        <section className="toolbar-customize" role="dialog" aria-label="Customize toolbar" onClick={event => event.stopPropagation()}>
+          <strong>Customize toolbar</strong><p>Choose icons to show. Drag the pane icons to reorder them.</p>
+          {(['terminal','browser','files','team','sessions','maximize','sidebar'] as const).map(item => <label key={item}><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item.charAt(0).toUpperCase() + item.slice(1)}</label>)}
+          <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [] })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
+        </section>
+      </div>}
 
       {/* First run only. Waits for `ready` so it never flashes over an empty
           window before prefs have loaded. */}

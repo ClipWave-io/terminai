@@ -17,6 +17,7 @@ function hydrate(raw: unknown): Prefs {
     ...DEFAULT_PREFS,
     ...p,
     paneOrder: normalizePaneOrder(p.paneOrder),
+    hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','sessions','maximize','sidebar'].includes(item)) : [],
     // Clamped on read as well as on write: a stale or hand-edited prefs file
     // must never be able to leave the rail off-screen or at zero width.
     railWidth: Math.min(RAIL_MAX, Math.max(RAIL_MIN, p.railWidth ?? RAIL_DEFAULT)),

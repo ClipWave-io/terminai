@@ -4,7 +4,7 @@ fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({seenWelcome:true,ta
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const server=http.createServer((q,r)=>r.end('<title>Embedded fixture</title><h1>Agent browsing inside TerminAI</h1>'));
 app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
- await delay(1800);win.setSize(1500,900);await delay(200);const js=s=>win.webContents.executeJavaScript(s);
+ await delay(1800);win.setSize(1500,900);await delay(200);const js=s=>win.webContents.executeJavaScript(s).catch(error=>{console.error('Failed renderer check:',s);throw error});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const prefs=JSON.parse(fs.readFileSync(path.join(dir,'prefs.json'),'utf8')),owner=prefs.tabs[0].browserKey;
  assert.ok(owner);assert.match(fs.readFileSync(path.join(process.env.CODEX_HOME,'config.toml'),'utf8'),/mcp_servers.terminai_browser/);
@@ -52,9 +52,37 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
  fs.writeFileSync('/tmp/terminai-files-wide.png',(await win.capturePage()).toPNG());
  await js(`document.querySelector('.workspace-tabs [aria-label="Browser"]').click()`);await delay(200);
  fs.writeFileSync('/tmp/terminai-panes-wide.png',(await win.capturePage()).toPNG());
+
+ app.emit('open-file',{preventDefault(){}},path.join(__dirname,'fixtures/two-pages.pdf'));
+ for(let i=0;i<80&&!await js(`document.querySelector('.pdf-toolbar [role=status]')?.textContent==='Page 1 of 2' && document.querySelector('.pdf-pages canvas')?.width>0`);i++)await delay(100);
+ assert.equal(await js(`document.querySelector('.pdf-toolbar [role=status]')?.textContent`),'Page 1 of 2');
+ await delay(800);
+ assert.ok(await js(`Array.from(document.querySelector('.pdf-pages canvas').getContext('2d').getImageData(0,0,300,300).data).some((value,index)=>index%4===3&&value>0)`),'PDF paints pixels');
+ await js(`document.querySelector('[aria-label="Next PDF page"]').click()`);await delay(300);
+ assert.equal(await js(`document.querySelector('.pdf-toolbar [role=status]').textContent`),'Page 2 of 2');
+ fs.writeFileSync('/tmp/terminai-pdf.png',(await win.capturePage()).toPNG());
+ await js(`document.querySelector('button[aria-label="Customize toolbar"]').click()`);await delay(100);
+ await js(`Array.from(document.querySelectorAll('.toolbar-customize label')).find(label=>label.textContent==='Browser').querySelector('input').click()`);await delay(200);
+ assert.equal(await js(`!!document.querySelector('.workspace-tabs [aria-label="Browser"]')`),false);
+ assert.ok(JSON.parse(fs.readFileSync(path.join(dir,'prefs.json'),'utf8')).hiddenToolbarItems.includes('browser'));
+ await js(`Array.from(document.querySelectorAll('.toolbar-customize button')).find(b=>b.textContent==='Reset').click()`);await delay(100);
+ await js(`Array.from(document.querySelectorAll('.toolbar-customize button')).find(b=>b.textContent==='Done').click()`);await delay(100);
+ win.webContents.send('window:fullscreen',true);await delay(100);
+ assert.equal(await js(`getComputedStyle(document.querySelector('.topbar-gap')).display`),'none');
+ win.webContents.send('window:fullscreen',false);await delay(100);
+ await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(200);
+ await js(`window.term.pty.write(${JSON.stringify(ptysBefore[0])},${JSON.stringify("printf '%s\\n' {1..200}\r")})`);await delay(700);
+ await js(`document.querySelector('.term-host.active .xterm-viewport').scrollTop=0`);await delay(100);
+ await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(100);
+ await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(250);
+ assert.ok(await js(`(()=>{const v=document.querySelector('.term-host.active .xterm-viewport');return v.scrollTop>0})()`),'Restored terminal follows latest output');
+ win.show();win.focus();await delay(200);
+ await js(`document.querySelector('.term-host.active .xterm-viewport').scrollTop=0`);await delay(100);
+ await js(`window.dispatchEvent(new Event('focus'))`);await delay(150);
+ assert.ok(await js(`document.querySelector('.term-host.active .xterm-viewport').scrollTop>0`),'Window focus follows latest output');
  win.setSize(720,420);await delay(300);
  assert.equal(await js(`document.querySelectorAll('.workspace-tabs button').length`),3);
- await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(200);
+ await js(`const terminalButton=document.querySelector('.workspace-tabs [aria-label="Terminal"]');if(terminalButton.getAttribute('aria-pressed')!=='true')terminalButton.click()`);await delay(200);
  assert.notEqual(await js(`getComputedStyle(document.querySelector('.workspace > .pane')).display`),'none');
  assert.equal(win.contentView.children.some(view=>view.getVisible()),false);
  await js(`document.querySelector('.tab').dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))`);await delay(200);
@@ -62,6 +90,6 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
  assert.equal(await js(`document.querySelector('.workspace-tabs [aria-label="Browser"]').getAttribute('aria-pressed')`),'true');
  assert.deepEqual(await js(`window.term.pty.list().then(tabs=>tabs.map(tab=>tab.id))`),ptysBefore);
  fs.writeFileSync('/tmp/terminai-browser-workspace.png',(await win.capturePage()).toPNG());
- console.log('PASS pane controls stay available wide/compact; sidebar and Terminal toggle coding without closing PTYs; all-hidden recovery; embedded MCP, profiles and Finder');server.close();app.quit();
+ console.log('PASS full-width/reordered panes, PDF rendering/pagination, customizable toolbar/fullscreen spacing, scroll restoration, live PTYs, embedded MCP, profiles and Finder');server.close();app.quit();
 })().catch(e=>{console.error(e);server.close();app.exit(1)})}));
-setTimeout(()=>app.exit(1),60000).unref();require('../out/main/index.js');
+setTimeout(()=>app.exit(1),90000).unref();require('../out/main/index.js');

@@ -1,5 +1,5 @@
 export interface BrowserTab { id: string; url: string; title: string; profileId: string; group: string; owner: string }
-export interface BrowserProfile { id: string; name: string }
+export interface BrowserProfile { id: string; name: string; private?: boolean }
 export interface BrowserState {
   url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; error: string
   tabs?: BrowserTab[]; profiles?: BrowserProfile[]; activeId?: string; profileId?: string; owner?: string

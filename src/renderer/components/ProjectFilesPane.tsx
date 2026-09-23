@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type JSX } from 'react'
 import type { ProjectListing, ProjectPreview } from '../../shared/project-files'
 const errorMessage = (error: unknown) => String(error).replace(/^Error: Error invoking remote method '[^']+': Error: /, '').replace(/^Error: /, '')
+const PdfViewer = lazy(()=>import('./PdfViewer'))
 const CodeEditor = lazy(()=>import('./CodeEditor'))
 
 export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }: { openRequest?: string | null; side: 'left' | 'right'; onSide: () => void; onClose: () => void; onDirty: (dirty: boolean) => void }): JSX.Element {
@@ -53,7 +54,7 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }
   return <aside className="project-files-pane" aria-label="Project files">
     <div className="files-toolbar"><strong>Files</strong><button className="btn" onClick={() => void choose()}>Choose folder</button><button className="btn" onClick={onSide} title={`Move files ${side === 'left' ? 'right' : 'left'}`} aria-label={`Move files ${side === 'left' ? 'right' : 'left'}`}>{side === 'left' ? '⇥' : '⇤'}</button><button className="btn" onClick={() => { if (!busy && discard()) onClose() }} aria-label="Close files">×</button></div>
     {listing && <div className="files-path" title={listing.root}>{listing.root.split('/').pop()}/{listing.path}</div>}
-    <div role="status" className="files-status">{error || (busy ? 'Loading…' : !listing ? 'Choose a project folder to edit text files.' : 'Text editor · ⌘S to save')}</div>
+    <div role="status" className="files-status">{error || (busy ? 'Loading…' : !listing ? 'Choose a project folder to edit text files.' : preview?.type === 'pdf' ? 'PDF viewer' : 'Text editor · ⌘S to save')}</div>
     {listing && <div className="files-body">
       <nav className="files-tree" aria-label="Project directory">
         {listing.path && <button onClick={() => void load(listing.path.split('/').slice(0, -1).join('/'))}>↰ Parent folder</button>}
@@ -62,7 +63,7 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }
         {listing.truncated && <p>Showing first 500 entries.</p>}
       </nav>
       <section className="file-preview" aria-label="File preview">
-        {preview ? <><div className="file-preview-title">{preview.path}{dirty ? ' • Unsaved' : ''}{preview.type === 'text' && <button className="btn" disabled={!dirty || busy} onClick={()=>void save()}>Save ⌘S</button>}</div>{preview.type === 'image' ? <img src={preview.content} alt={preview.path} /> : <Suspense fallback={<p>Opening editor…</p>}><CodeEditor path={preview.path} value={draft} readOnly={busy} onChange={setDraft} onSave={()=>void save()}/></Suspense>}</> : <p>Select a text file to edit, or an image to preview.</p>}
+        {preview ? <><div className="file-preview-title">{preview.path}{dirty ? ' • Unsaved' : ''}{preview.type === 'text' && <button className="btn" disabled={!dirty || busy} onClick={()=>void save()}>Save ⌘S</button>}</div>{preview.type === 'pdf' ? <Suspense fallback={<p>Opening PDF…</p>}><PdfViewer content={preview.content} /></Suspense> : preview.type === 'image' ? <img src={preview.content} alt={preview.path} /> : <Suspense fallback={<p>Opening editor…</p>}><CodeEditor path={preview.path} value={draft} readOnly={busy} onChange={setDraft} onSave={()=>void save()}/></Suspense>}</> : <p>Select a text file to edit, or a PDF/image to preview.</p>}
       </section>
     </div>}
   </aside>
