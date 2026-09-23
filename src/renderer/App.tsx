@@ -76,10 +76,41 @@ export function App(): JSX.Element {
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
+  const [showTerminal, setShowTerminal] = useState(true)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserOnly, setBrowserOnly] = useState(false)
   useEffect(()=>window.term.browser.onReveal(()=>{setShowBrowser(true);setCompactPane('browser')}),[])
-  useEffect(()=>{const tab=tabs.find(t=>t.id===activeId);if(tab)void window.term.browser.action('session',{owner:tab.browserKey||tab.id}).then(state=>{setShowBrowser(Boolean(state.tabs?.length));if(state.tabs?.length)setCompactPane('browser');else{setBrowserOnly(false);setCompactPane('terminal')}})},[activeId])
+  useEffect(() => {
+    const tab = tabs.find(tab => tab.id === activeId)
+    if (!tab) return
+    let cancelled = false
+    setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal')
+    void window.term.browser.action('session', { owner: tab.browserKey || tab.id })
+      .then(state => { if (!cancelled) setShowBrowser(Boolean(state.tabs?.length)) })
+    return () => { cancelled = true }
+  }, [activeId])
+  const terminalVisible = showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
+  const filesVisible = showFiles && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'files')
+  const browserVisible = showBrowser && (!compactWorkspace || compactPane === 'browser')
+  const toggleTerminal = () => {
+    setShowTerminal(!terminalVisible); setBrowserOnly(false)
+    setCompactPane(terminalVisible ? showBrowser ? 'browser' : showFiles ? 'files' : 'terminal' : 'terminal')
+  }
+  const toggleBrowserOnly = () => {
+    setBrowserOnly(!browserOnly)
+    if (browserOnly) setShowTerminal(true)
+    setCompactPane(browserOnly ? 'terminal' : 'browser')
+  }
+  const toggleBrowser = () => {
+    setShowBrowser(!browserVisible); setBrowserOnly(false)
+    setCompactPane(browserVisible ? showTerminal ? 'terminal' : showFiles ? 'files' : 'browser' : 'browser')
+  }
+  const toggleFiles = () => {
+    if (filesVisible && filesDirty && !window.confirm('Discard unsaved file changes?')) return
+    setShowFiles(!filesVisible); setBrowserOnly(false)
+    setCompactPane(filesVisible ? showTerminal ? 'terminal' : showBrowser ? 'browser' : 'files' : 'files')
+  }
+
   const [showSettings, setShowSettings] = useState(false)
   const [showTeam, setShowTeam] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -596,10 +627,10 @@ export function App(): JSX.Element {
             filter={filterOpen ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
             onRename={(id,title)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,title,customTitle:title}:t))}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(t=>t.cwd))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(cwd=>prev.filter(t=>t.cwd===cwd))})}
-            activeId={activeId}
+            activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}
             width={railWidth}
-            onSelect={id=>{if(id===activeId)setShowBrowser(value=>!value);else setActiveId(id)}}
+            onSelect={id=>{if(id===activeId)toggleTerminal();else setActiveId(id)}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
@@ -631,8 +662,8 @@ export function App(): JSX.Element {
           {/* Only reserve traffic-light room when they actually land on the
               stage — with the rail visible on the left, it holds them instead. */}
           <span className="topbar-gap" />
-          <button className="btn icon" aria-label="Browser" title="Browser" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={showBrowser} onClick={() => { setShowBrowser(value => !value); setCompactPane(showBrowser ? 'terminal' : 'browser') }}><PaneIcon kind="browser" /></button>
-          <button className="btn icon no-drag" aria-label="Files" title="Files" aria-pressed={showFiles} onClick={() => { if (showFiles && filesDirty && !window.confirm('Discard unsaved file changes?')) return; setShowFiles(value => !value); setCompactPane(showFiles ? 'terminal' : 'files') }}><PaneIcon kind="files" /></button>
+          <button className="btn icon" aria-label="Browser" title="Browser" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} aria-pressed={browserVisible} onClick={toggleBrowser}><PaneIcon kind="browser" /></button>
+          <button className="btn icon no-drag" aria-label="Files" title="Files" aria-pressed={filesVisible} onClick={toggleFiles}><PaneIcon kind="files" /></button>
           <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
           <span className="topbar-spacer" />
           <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>
@@ -666,14 +697,14 @@ export function App(): JSX.Element {
           )}
         </div>
 
-        {compactWorkspace && (showBrowser || showFiles) && <div className="workspace-tabs" role="group" aria-label="Workspace panes">
-          <button className="btn" aria-pressed={compactPane === 'terminal'} onClick={() => setCompactPane('terminal')} title="Terminal" aria-label="Terminal"><PaneIcon kind="terminal" /></button>
-          {showFiles && <button className="btn" aria-pressed={compactPane === 'files'} onClick={() => setCompactPane('files')} title="Files" aria-label="Files"><PaneIcon kind="files" /></button>}
-          {showBrowser && <button className="btn" aria-pressed={compactPane === 'browser'} onClick={() => setCompactPane('browser')} title="Browser" aria-label="Browser"><PaneIcon kind="browser" /></button>}
-        </div>}
+        <div className="workspace-tabs" role="group" aria-label="Workspace panes">
+          <button className="btn" aria-pressed={terminalVisible} onClick={toggleTerminal} title="Show or hide terminal" aria-label="Terminal"><PaneIcon kind="terminal" /></button>
+          <button className="btn" aria-pressed={browserVisible} onClick={toggleBrowser} title="Show or hide browser" aria-label="Browser"><PaneIcon kind="browser" /></button>
+          <button className="btn" aria-pressed={filesVisible} onClick={toggleFiles} title="Show or hide files" aria-label="Files"><PaneIcon kind="files" /></button>
+        </div>
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
-        {showFiles && <div className={`${browserOnly && showBrowser ? 'workspace-hidden' : ''} files-slot ${compactWorkspace && compactPane !== 'files' ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2, width: compactWorkspace ? undefined : filesWidth, flex: compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{!compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
-        <div className={`pane ${browserOnly && showBrowser ? 'workspace-hidden' : ''} ${compactWorkspace && compactPane !== 'terminal' ? 'workspace-hidden' : ''}`}>
+        {showFiles && <div className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}`} style={{ order: filesSide === 'left' ? -1 : 2, width: compactWorkspace ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{!compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => setFilesSide(side => side === 'left' ? 'right' : 'left')} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{!compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
+        <div className={`pane ${!terminalVisible ? 'workspace-hidden' : ''}`}>
           {tabs.length === 0 && (
             <div className="pane-empty">
               <div>No sessions open</div>
@@ -698,7 +729,8 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ width: browserOnly ? '100%' : compactWorkspace ? undefined : browserWidth, flex: browserOnly ? '1 1 auto' : compactWorkspace ? undefined : '0 1 auto' }}>{!compactWorkspace && !browserOnly && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={()=>setBrowserOnly(value=>!value)} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}-${browserOnly}`} visible={!resizingPane && (!compactWorkspace || compactPane === 'browser') && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{!compactWorkspace && !browserOnly && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${filesSide}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} /></div>}
+        {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
         {prefs.voice.enabled && (
@@ -753,6 +785,7 @@ export function App(): JSX.Element {
           activeId={activeId}
           onSelect={(id) => {
             setActiveId(id)
+            setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal')
             setShowGrid(false)
           }}
           onClose={closeTab}

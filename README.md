@@ -221,7 +221,8 @@ Use **+** in Browser for another tab. Create named profiles with the profile but
 each has its own cookies and logins. Group tabs with their **…** button and collapse
 or expand the group label. Browser tabs, groups and profiles survive restarting.
 Each coding session has its own tab selection. Selecting a coding session reveals
-its browser tabs; selecting the current session again toggles the browser pane.
+its browser tabs; selecting the current session again shows or hides the coding pane.
+The Terminal/Browser/Files pane controls stay visible at every window size.
 Use the browser-only button to hide terminal/editor content; Cmd+S hides the sidebar.
 
 The embedded `terminai_browser` MCP is installed automatically in Codex's config
