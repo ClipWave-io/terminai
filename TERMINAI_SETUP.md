@@ -56,6 +56,6 @@ The current distributable targets Apple Silicon macOS. Windows, Linux, and Intel
 
 TerminAI 0.2.7 registers `terminai_browser` for both clients. Launch or restart your agent inside a TerminAI terminal tab so it inherits that tab’s `TERMINAI_WORKSPACE_ID`. In Claude Code, use `/mcp` to inspect the connection. Each coding session sees only its own embedded browser tabs. Outside TerminAI, this server exposes no tools.
 
-Registration preserves existing personal MCP definitions. If you already have a different `terminai_browser` entry, TerminAI leaves it alone; inspect it before changing it. Claude’s entry is in `~/.claude.json` (or `.claude.json` inside `CLAUDE_CONFIG_DIR`), and Codex’s entry is in `$CODEX_HOME/config.toml`. Assigned team tools report their setup state separately for each client.
+Registration preserves existing personal MCP definitions. A small `.claude.json.terminai-browser.json` sidecar records only the browser definition TerminAI created, allowing app-path updates without overwriting user edits. If you already have a different `terminai_browser` entry, TerminAI leaves it alone; inspect it before changing it. Claude’s entry is in `~/.claude.json` (or `.claude.json` inside `CLAUDE_CONFIG_DIR`), and Codex’s entry is in `$CODEX_HOME/config.toml`. Assigned team tools report their setup state separately for each client.
 
 Apple Passwords, iCloud passkeys and Chrome profile import are planned features, not implemented by this release.

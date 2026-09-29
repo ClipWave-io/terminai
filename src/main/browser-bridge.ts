@@ -54,11 +54,18 @@ export function registerClaudeBrowserMcp(configFile:string,executable:string,scr
   if(!config||typeof config!=='object'||Array.isArray(config))throw Error('Invalid Claude configuration')
   if(config.mcpServers!==undefined&&(!config.mcpServers||typeof config.mcpServers!=='object'||Array.isArray(config.mcpServers)))throw Error('Invalid Claude MCP configuration')
   const desired={type:'stdio',command:executable,args:[script,descriptor],env:{ELECTRON_RUN_AS_NODE:'1',TERMINAI_WORKSPACE_ID:'${TERMINAI_WORKSPACE_ID:-}'}}
-  const existing=config.mcpServers?.terminai_browser
-  if(existing!==undefined)return existing.type===desired.type&&existing.command===desired.command&&JSON.stringify(existing.args)===JSON.stringify(desired.args)&&existing.env?.ELECTRON_RUN_AS_NODE==='1'&&existing.env?.TERMINAI_WORKSPACE_ID===desired.env.TERMINAI_WORKSPACE_ID
+  const existing=config.mcpServers?.terminai_browser, ownershipFile=configFile+'.terminai-browser.json'
+  if(existing!==undefined){
+    if(JSON.stringify(existing)===JSON.stringify(desired))return true
+    // Only update a definition that is byte-equivalent to the one we last wrote.
+    // A user edit or an unrecognized entry always wins over managed registration.
+    let owned:unknown;try{owned=JSON.parse(readFileSync(ownershipFile,'utf8'))}catch{return false}
+    if(JSON.stringify(existing)!==JSON.stringify(owned))return false
+  }
   config.mcpServers={...config.mcpServers,terminai_browser:desired}
   let current='';try{current=readFileSync(configFile,'utf8')}catch(e:any){if(e.code!=='ENOENT')throw e}
   if(current!==original)throw Error('Claude configuration changed; retry setup')
   writeFileSync(configFile+'.terminai-tmp',JSON.stringify(config,null,2)+'\n',{mode:0o600});chmodSync(configFile+'.terminai-tmp',0o600);renameSync(configFile+'.terminai-tmp',configFile)
+  writeFileSync(ownershipFile+'.tmp',JSON.stringify(desired),{mode:0o600});chmodSync(ownershipFile+'.tmp',0o600);renameSync(ownershipFile+'.tmp',ownershipFile)
   return true
 }
