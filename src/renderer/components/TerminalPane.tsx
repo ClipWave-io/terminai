@@ -1,3 +1,4 @@
+import { installSelectionOverride } from '../terminal-selection'
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -99,6 +100,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
 
     termRef.current = term
     fitRef.current = fit
+    const removeSelectionOverride = installSelectionOverride(term, host)
 
     // Cheap text preview for the grid: read straight off the buffer rather than
     // keeping a second renderer alive per tab.
@@ -155,6 +157,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       offExit()
       ro.disconnect()
       cancelAnimationFrame(raf)
+      removeSelectionOverride()
       term.dispose()
       termRef.current = null
       fitRef.current = null

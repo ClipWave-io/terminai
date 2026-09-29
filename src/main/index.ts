@@ -9,7 +9,7 @@ import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
-import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
+import { startBrowserBridge, registerBrowserMcp, registerClaudeBrowserMcp } from './browser-bridge'
 import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
@@ -142,7 +142,10 @@ app.whenReady().then(() => {
       return browser.automate(command,args,owner)
     })
     app.once('will-quit',bridge.close)
-    registerBrowserMcp(join(process.env.CODEX_HOME||join(homedir(),'.codex'),'config.toml'),process.execPath,script,join(directory,'browser-bridge.json'))
+    for(const register of [
+      ()=>registerBrowserMcp(join(process.env.CODEX_HOME||join(homedir(),'.codex'),'config.toml'),process.execPath,script,join(directory,'browser-bridge.json')),
+      ()=>registerClaudeBrowserMcp(process.env.CLAUDE_CONFIG_DIR?join(process.env.CLAUDE_CONFIG_DIR,'.claude.json'):join(homedir(),'.claude.json'),process.execPath,script,join(directory,'browser-bridge.json')),
+    ]) { try { if(!register())console.warn('An existing user-owned browser MCP was preserved. See the setup guide.') } catch { console.warn('One agent’s browser MCP could not be configured. See the setup guide.') } }
   })().catch(()=>{console.error('Embedded browser MCP setup needs attention. See the browser setup guide.')})
 
   app.on('activate', () => {

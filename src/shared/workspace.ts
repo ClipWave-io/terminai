@@ -14,4 +14,4 @@ export interface WorkspaceState {
 export interface WorkspaceLogin {
   url: string; email?: string; password: string; name?: string; inviteToken?: string
 }
-export interface McpSetupResult { id: string; status: 'configured' | 'needs-setup' | 'error'; message: string }
+export interface McpSetupResult { client?: 'codex' | 'claude'; id: string; status: 'configured' | 'needs-setup' | 'error'; message: string }

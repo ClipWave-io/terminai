@@ -96,3 +96,21 @@ test('preserves managed configuration with missing or old-node-first PATH and as
     assert.equal(f.calls.some(c => c.args[1] === 'add'), false)
   }
 })
+
+test('Claude registers user-scoped MCPs without Codex and verifies persistence',async()=>{
+ const config:any={mcpServers:{personal:{command:'untouched'}}},calls:any[]=[]
+ const setup=createMcpSetup({home:'/test',env:{PATH:'/usr/bin'},exists:async()=>true,executable:async path=>!path.endsWith('/codex'),readText:async()=>JSON.stringify(config),run:async(command,args)=>{
+  if(args[0]==='--version')return 'v22.13.1'
+  calls.push({command,args});assert.ok(command.endsWith('/claude'));assert.deepEqual(args.slice(0,4),['mcp','add-json','--scope','user']);config.mcpServers[args[4]]=JSON.parse(args[5]);return ''
+ }},'claude')
+ const results=await setup(['chrome-devtools','google-ads']);assert.ok(results.every(r=>r.status==='configured'&&r.client==='claude'));assert.equal(calls.length,2)
+ assert.equal(config.mcpServers.personal.command,'untouched');assert.match(config.mcpServers['terminai-chrome'].env.PATH,/^\/test\//)
+ await setup(['chrome-devtools','google-ads']);assert.equal(calls.length,2)
+ config.mcpServers['terminai-chrome'].command='user-edit';assert.equal((await setup(['chrome-devtools']))[0].status,'needs-setup');assert.equal(calls.length,2)
+})
+test('Claude invalid settings and CLI failures do not expose secrets or report success',async()=>{
+ for(const corrupt of [true,false]){
+  const setup=createMcpSetup({home:'/test',env:{},exists:async()=>true,executable:async()=>true,readText:async()=>corrupt?'{broken':'{}',run:async(_c,args)=>{if(args[0]==='--version')return 'v22.13.1';throw Error('SECRET')}},'claude')
+  const [result]=await setup(['chrome-devtools']);assert.equal(result.status,'error');assert.ok(!result.message.includes('SECRET'));assert.match(result.message,/Claude Code/)
+ }
+})

@@ -83,7 +83,7 @@ export function createApp(pool, config) {
       await limit(pool, `api:${ip}`, 300, 60);
       if (req.method === 'GET' && path === '/api/setup') {
         const { rows: [row] } = await pool.query('SELECT EXISTS(SELECT 1 FROM manager_users) AS initialized');
-        return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken) });
+        return json(res, 200, { setupRequired: !row.initialized, setupEnabled: !row.initialized && typeof config.setupToken === 'string' && config.setupToken.length >= 32 });
       }
       if (req.method === 'POST' && ['/api/setup','/api/auth/login','/api/auth/accept-invite'].includes(path)) {
         await limit(pool, `auth:${ip}`, 20, 900);
@@ -102,7 +102,7 @@ export function createApp(pool, config) {
           return json(res,response.status,response.value,response.headers);
         }
         if (path === '/api/setup') {
-          requireThat(config.setupToken?.length >= 32 && safeEqual(input.setupToken, config.setupToken), 403, 'Invalid setup token.');
+          requireThat(config.setupToken?.length >= 32 && safeEqual(input.setupToken, config.setupToken), 403, 'The owner setup token is incorrect. Copy SETUP_TOKEN from the manager service in Railway → Variables, or ask the deployment owner.');
           const accountEmail = email(input.email), name = text(input.name,'Name'), companyName = text(input.companyName,'Company name');
           const passwordHash = await hashPassword(input.password);
           const response = await transaction(pool, async db => {

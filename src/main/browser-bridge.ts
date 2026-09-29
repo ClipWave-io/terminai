@@ -45,3 +45,20 @@ export function registerBrowserMcp(configFile:string,executable:string,script:st
   if(updated!==original){writeFileSync(configFile+'.terminai-tmp',updated,{mode:0o600});chmodSync(configFile+'.terminai-tmp',0o600);renameSync(configFile+'.terminai-tmp',configFile)}
   return true
 }
+
+/** Claude uses JSON for user-scoped stdio MCPs. Preserve every user-owned entry. */
+export function registerClaudeBrowserMcp(configFile:string,executable:string,script:string,descriptor:string) {
+  mkdirSync(dirname(configFile),{recursive:true})
+  let original='';try{original=readFileSync(configFile,'utf8')}catch(e:any){if(e.code!=='ENOENT')throw e}
+  const config=original?JSON.parse(original):{}
+  if(!config||typeof config!=='object'||Array.isArray(config))throw Error('Invalid Claude configuration')
+  if(config.mcpServers!==undefined&&(!config.mcpServers||typeof config.mcpServers!=='object'||Array.isArray(config.mcpServers)))throw Error('Invalid Claude MCP configuration')
+  const desired={type:'stdio',command:executable,args:[script,descriptor],env:{ELECTRON_RUN_AS_NODE:'1',TERMINAI_WORKSPACE_ID:'${TERMINAI_WORKSPACE_ID:-}'}}
+  const existing=config.mcpServers?.terminai_browser
+  if(existing!==undefined)return existing.type===desired.type&&existing.command===desired.command&&JSON.stringify(existing.args)===JSON.stringify(desired.args)&&existing.env?.ELECTRON_RUN_AS_NODE==='1'&&existing.env?.TERMINAI_WORKSPACE_ID===desired.env.TERMINAI_WORKSPACE_ID
+  config.mcpServers={...config.mcpServers,terminai_browser:desired}
+  let current='';try{current=readFileSync(configFile,'utf8')}catch(e:any){if(e.code!=='ENOENT')throw e}
+  if(current!==original)throw Error('Claude configuration changed; retry setup')
+  writeFileSync(configFile+'.terminai-tmp',JSON.stringify(config,null,2)+'\n',{mode:0o600});chmodSync(configFile+'.terminai-tmp',0o600);renameSync(configFile+'.terminai-tmp',configFile)
+  return true
+}

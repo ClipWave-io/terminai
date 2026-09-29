@@ -23,14 +23,14 @@ In the desktop **Team** panel, select a conversation to read or write messages. 
 
 ## Tools for your role
 
-On sign-in, TerminAI fetches your current assignments and registers supported MCP servers with your local Codex CLI. Existing personal MCP settings are preserved. A pinned package downloads automatically when Codex first launches it. Restart your Codex session after setup so it reads the new configuration.
+On sign-in, TerminAI fetches your current assignments and registers supported MCP servers with your installed Codex and Claude Code CLIs. Existing personal MCP settings are preserved. A pinned package downloads automatically when the agent first launches it. Restart your Codex or Claude Code session after setup so it reads the new configuration.
 
 Default assignments:
 
 | Tool | Default assignment | Local prerequisites |
 | --- | --- | --- |
-| Chrome DevTools | All roles | Codex CLI, Node.js 22+, Google Chrome |
-| Google Ads | Analyst and marketing classifications | Codex CLI, Python/pipx, your own Google authorization and Google Cloud project |
+| Chrome DevTools | All roles | Codex or Claude Code, Node.js 22+, Google Chrome |
+| Google Ads | Analyst and marketing classifications | Codex or Claude Code, Python/pipx, your own Google authorization and Google Cloud project |
 
 The manager can change these assignments. Assignment controls provisioning; it does not erase or remotely disable tools that a person separately installed on their own computer. No Google credentials, browser profile, or personal Codex secrets are copied to other users.
 
@@ -51,3 +51,11 @@ Google Ads needs each user's own Application Default Credentials with the Google
 5. Restrict the allowed roles or remove membership and confirm access disappears.
 
 The current distributable targets Apple Silicon macOS. Windows, Linux, and Intel Mac builds require separate packaging and platform validation.
+
+## Embedded browsing in Claude Code and Codex
+
+TerminAI 0.2.7 registers `terminai_browser` for both clients. Launch or restart your agent inside a TerminAI terminal tab so it inherits that tab’s `TERMINAI_WORKSPACE_ID`. In Claude Code, use `/mcp` to inspect the connection. Each coding session sees only its own embedded browser tabs. Outside TerminAI, this server exposes no tools.
+
+Registration preserves existing personal MCP definitions. If you already have a different `terminai_browser` entry, TerminAI leaves it alone; inspect it before changing it. Claude’s entry is in `~/.claude.json` (or `.claude.json` inside `CLAUDE_CONFIG_DIR`), and Codex’s entry is in `$CODEX_HOME/config.toml`. Assigned team tools report their setup state separately for each client.
+
+Apple Passwords, iCloud passkeys and Chrome profile import are planned features, not implemented by this release.

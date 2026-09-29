@@ -12,7 +12,7 @@ cp .env.example .env
 node --env-file=.env src/server.js
 ```
 
-Use PostgreSQL 14+ and Node 22+. The server creates its `manager_*` tables transactionally at startup under a migration advisory lock. Use a dedicated database. Open `http://localhost:8080`, enter the setup token and create your owner account and company. Passwords require at least 12 characters (maximum 256 bytes).
+Use PostgreSQL 14+ and Node 22+. The server creates its `manager_*` tables transactionally at startup under a migration advisory lock. Use a dedicated database. Open `http://localhost:8080/#setup`, enter the setup token and create your owner account and company. Passwords require at least 12 characters (maximum 256 bytes).
 
 First setup is atomic and can only happen when there are no users. A private `/#setup=TOKEN` link can prefill the token; the browser immediately clears the fragment. Tokens never appear in query strings. Remove `SETUP_TOKEN` from the service after setup. There is no open registration: administrators issue single-use, 48-hour invitation links. Send links directly to intended recipients; email delivery is not part of this service. Existing accounts must supply their current password to accept an invitation.
 
@@ -101,3 +101,15 @@ MANAGER_TEST_DATABASE_URL=postgresql://localhost/terminai_test_manager npm test
 ```
 
 The integration test refuses non-loopback hosts and databases not named `terminai_test_*`. Without that variable, integration is explicitly skipped. It starts a local HTTP server, uses real transactions and checks setup replay, invitation replay, ownership invariants, tenant isolation, roles/classifications, catalog allowlisting/revocation, private/shared message access, concurrent idempotent writes, cursor precision, sharing disable, membership removal, CSRF, hashed storage, session revocation and persistent rate limiting. It never contacts an MCP, email or production service.
+
+## Public page and owner onboarding
+
+`/` is the public product page. It does not call the authentication or database APIs. `/#workspace` and `/#signin` show team sign-in; `/#setup` is only for the first owner. Invitation and private setup fragments continue to be supported and are cleared from the address bar immediately.
+
+**Where the owner gets the token:** Railway dashboard → the project hosting this site → TerminAI manager service → **Variables** → `SETUP_TOKEN`. Copy its value, not a Railway access token or an AI API key. If absent, generate one using `openssl rand -hex 32`, add it as `SETUP_TOKEN`, and deploy the variable change. After creating the first owner, remove the variable. Never put this token in source code, a public link, analytics or screenshots. Team members join through administrator invitations and never need it.
+
+Setup is marked enabled only if the token has at least 32 characters and no owner exists. The server still verifies the token, applies rate limits and creates the initial company atomically. Landing-page changes do not enable open registration.
+
+The dashboard separates Overview, People, Tools, Conversations and Account. People and sharing policy remain restricted to appropriate roles; the backend remains authoritative. Apple Passwords and Chrome import are explicitly marked planned.
+
+A DOM smoke check (requires jsdom, used only as a test tool) is in `../tests/manager-ui-smoke.cjs`. Run it with jsdom installed in your test environment or its containing `node_modules` on `NODE_PATH`. It uses an in-memory API fixture, never production credentials. It is separate from the real PostgreSQL integration test described above.

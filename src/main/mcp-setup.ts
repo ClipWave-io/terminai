@@ -1,12 +1,13 @@
 import { execFile } from 'node:child_process'
-import { access } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join, basename, dirname } from 'node:path'
 
-export interface McpSetupResult { id: string; status: 'configured' | 'needs-setup' | 'error'; message: string }
+export interface McpSetupResult { client?: 'codex' | 'claude'; id: string; status: 'configured' | 'needs-setup' | 'error'; message: string }
 interface Server { name: string; enabled?: boolean; transport?: { command?: string; args?: string[]; env?: Record<string, string> } }
 interface SetupDependencies {
+  readText?(path: string): Promise<string>
   home: string
   env: NodeJS.ProcessEnv
   executable(path: string): Promise<boolean>
@@ -20,7 +21,7 @@ const ALLOWED = {
 } as const
 
 /** Internal dependency seam for offline tests; never expose this factory through IPC. */
-export function createMcpSetup(deps: SetupDependencies) {
+export function createMcpSetup(deps: SetupDependencies, client: 'codex' | 'claude' = 'codex') {
   let pending: Promise<unknown> = Promise.resolve()
   const folders = [...new Set([join(deps.home, '.npm-global/bin'), join(deps.home, '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(deps.env.PATH || '').split(delimiter).filter(p => p.startsWith('/') && !/[\r\n\0]/.test(p))])]
   async function findExecutable(name: string): Promise<string | null> {
@@ -60,10 +61,18 @@ export function createMcpSetup(deps: SetupDependencies) {
     const valid = requested.filter(id => Object.hasOwn(ALLOWED, id))
     for (const id of requested.filter(id => !Object.hasOwn(ALLOWED, id))) results.push({ id, status: 'error', message: 'This MCP is not in the supported installation allowlist.' })
     if (!valid.length) return results
-    const codex = await findExecutable('codex')
-    if (!codex) return [...results, ...valid.map(id => ({ id, status: 'needs-setup' as const, message: 'Install the Codex CLI and sign in, then retry MCP setup.' }))]
+    const codex = await findExecutable(client)
+    if (!codex) return [...results, ...valid.map(id => ({ id, status: 'needs-setup' as const, message: `Install ${client === 'claude' ? 'Claude Code' : 'the Codex CLI'} and sign in, then retry MCP setup.` }))]
     const readServers = async (): Promise<Server[]> => {
-      const value: unknown = JSON.parse(await deps.run(codex, ['mcp', 'list', '--json']))
+      let value: unknown
+      if (client === 'claude') {
+        if (!deps.readText) throw Error('Claude configuration reader unavailable')
+        let source = '{}'
+        try { source = await deps.readText(deps.env.CLAUDE_CONFIG_DIR ? join(deps.env.CLAUDE_CONFIG_DIR, '.claude.json') : join(deps.home, '.claude.json')) } catch (error: any) { if (error.code !== 'ENOENT') throw error }
+        const parsed = JSON.parse(source)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || (parsed.mcpServers !== undefined && (!parsed.mcpServers || typeof parsed.mcpServers !== 'object' || Array.isArray(parsed.mcpServers)))) throw Error('Invalid Claude MCP settings')
+        value = Object.entries(parsed.mcpServers || {}).map(([name, transport]) => ({ name, transport }))
+      } else value = JSON.parse(await deps.run(codex, ['mcp', 'list', '--json']))
       if (!Array.isArray(value) || value.some(s => !s || typeof s.name !== 'string')) throw new Error('Invalid MCP listing')
       return value as Server[]
     }
@@ -100,7 +109,9 @@ export function createMcpSetup(deps: SetupDependencies) {
           runtimePath = [...new Set([dirname(node), ...folders])].join(delimiter)
         }
         // The subprocess receives fixed argv only; never shell commands or copied credential env.
-        await deps.run(codex, ['mcp', 'add', spec.name, ...(runtimePath ? ['--env', `PATH=${runtimePath}`] : []), '--', command, ...spec.args])
+        await deps.run(codex, client === 'claude'
+          ? ['mcp', 'add-json', '--scope', 'user', spec.name, JSON.stringify({ type: 'stdio', command, args: spec.args, ...(runtimePath ? { env: { PATH: runtimePath } } : {}) })]
+          : ['mcp', 'add', spec.name, ...(runtimePath ? ['--env', `PATH=${runtimePath}`] : []), '--', command, ...spec.args])
         servers = await readServers()
         const saved = servers.find(s => s.name === spec.name)
         if (!saved || saved.enabled === false || saved.transport?.command !== command || JSON.stringify(saved.transport.args) !== JSON.stringify(spec.args) || (runtimePath && saved.transport.env?.PATH !== runtimePath)) throw new Error('Registration not verified')
@@ -115,7 +126,7 @@ export function createMcpSetup(deps: SetupDependencies) {
     return results
   }
   return (ids: string[]): Promise<McpSetupResult[]> => {
-    const task = pending.then(() => setup(ids))
+    const task = pending.then(() => setup(ids)).then(rows => rows.map(row => ({ ...row, client, message: client === 'claude' ? row.message.replaceAll('Codex', 'Claude Code') : row.message })))
     pending = task.catch(() => {})
     return task
   }
@@ -125,9 +136,14 @@ const home = homedir()
 const exists = async (path: string) => { try { await access(path, constants.R_OK); return true } catch { return false } }
 const executable = async (path: string) => { try { await access(path, constants.X_OK); return true } catch { return false } }
 /** Main-process only. Pass IDs fetched from the authenticated assignment service, never renderer-provided commands. */
-export const setupAssignedMcps = createMcpSetup({
-  home, env: process.env, exists, executable,
+const setupDependencies: SetupDependencies = {
+  home, env: process.env, exists, executable, readText: path => readFile(path, 'utf8'),
   run: (command, args) => new Promise((resolve, reject) => {
     execFile(command, args, { cwd: home, env: { ...process.env, PATH: [join(home, '.npm-global/bin'), join(home, '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || '/usr/bin:/bin'].join(delimiter) }, timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true }, (error, stdout) => error ? reject(new Error('MCP command failed')) : resolve(stdout))
   }),
-})
+}
+const setupCodexMcps = createMcpSetup(setupDependencies)
+const setupClaudeMcps = createMcpSetup(setupDependencies, 'claude')
+export async function setupAssignedMcps(ids: string[]) {
+  return [...await setupCodexMcps(ids), ...await setupClaudeMcps(ids)]
+}
