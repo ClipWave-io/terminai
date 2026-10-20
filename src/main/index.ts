@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem } from 'electron'
 import { join, basename, resolve, sep, dirname } from 'node:path'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { copyFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { ProjectFiles } from './project-files'
@@ -141,6 +141,11 @@ app.whenReady().then(() => {
   void (async()=>{
     const directory=app.getPath('userData'),script=join(directory,'browser-mcp.cjs')
     await copyFile(app.isPackaged?join(app.getAppPath(),'resources/browser-mcp.cjs'):join(__dirname,'../../resources/browser-mcp.cjs'),script)
+    // node cannot run a script inside app.asar from a shell, so every PTY gets a real copy on PATH.
+    const cli=join(directory,'bin','terminai')
+    await mkdir(join(directory,'bin'),{recursive:true})
+    await copyFile(app.isPackaged?join(app.getAppPath(),'resources/terminai.cjs'):join(__dirname,'../../resources/terminai.cjs'),cli)
+    await chmod(cli,0o755)
     const bridge=await startBrowserBridge(directory,async(command,args,owner)=>{
       if(!browser||!win||win.isDestroyed())throw Error('Open the TerminAI window to browse.')
       const known=store.load().tabs.some(tab=>(tab.browserKey||tab.ptyId)===owner)

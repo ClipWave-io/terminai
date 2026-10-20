@@ -127,6 +127,10 @@ function ptyEnv(tabId) {
   // a session can drive its own app's tabs and never another copy's.
   env.TERMINAI_CONTROL = node_path.join(electron.app.getPath("userData"), "control.json");
   env.TERMINAI_TAB_ID = tabId;
+  // The `terminai` CLI that index.ts copies out of the asar at startup.
+  const cliDir = node_path.join(electron.app.getPath("userData"), "bin");
+  env.TERMINAI_CLI = node_path.join(cliDir, "terminai");
+  env.PATH = `${cliDir}:${env.PATH ?? ""}`;
   if (ensureShim()) {
     env.CLIPWAVE_SHIM = shimDir();
     env.CLIPWAVE_SESSION_FILE = sessionIdFile(tabId);
