@@ -300,8 +300,11 @@ function registerIpc(): void {
   }
   appIpc.handle('todos:list', () => todos.list())
   appIpc.handle('todos:save', (_e, scope: unknown, input: TaskInput) => todos.save(scopeOf(scope), input && typeof input === 'object' ? input : {}))
+  appIpc.handle('todos:saveMany', (_e, scope: unknown, inputs: unknown) => todos.saveMany(scopeOf(scope), Array.isArray(inputs) ? inputs.map(input => input && typeof input === 'object' ? input : {}) : []))
   appIpc.handle('todos:remove', (_e, scope: unknown, id: string) => todos.remove(scopeOf(scope), id))
-  appIpc.handle('todos:move', (_e, from: unknown, id: string, assignee?: Task['assignee']) => todos.move(scopeOf(from), id, assignee))
+  appIpc.handle('todos:removeMany', (_e, scope: unknown, ids: unknown) => todos.removeMany(scopeOf(scope), Array.isArray(ids) ? ids : []))
+  appIpc.handle('todos:restore', (_e, scope: unknown, tasks: unknown) => todos.restore(scopeOf(scope), Array.isArray(tasks) ? tasks : []))
+  appIpc.handle('todos:move', (_e, from: unknown, id: string, assignee?: Task['assignee'], order?: number) => todos.move(scopeOf(from), id, assignee, order))
   appIpc.handle('todos:sync', () => todos.sync())
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()

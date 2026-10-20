@@ -106,9 +106,14 @@ const api = {
   todos: {
     list: (): Promise<TaskList> => ipcRenderer.invoke('todos:list'),
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => ipcRenderer.invoke('todos:save', scope, input),
+    /** Several at once: one commit for the shared ones. */
+    saveMany: (scope: TaskScope, inputs: TaskInput[]): Promise<TaskList> => ipcRenderer.invoke('todos:saveMany', scope, inputs),
     remove: (scope: TaskScope, id: string): Promise<TaskList> => ipcRenderer.invoke('todos:remove', scope, id),
-    /** Private ⇄ shared; to shared it goes to `assignee`, by default the user. */
-    move: (from: TaskScope, id: string, assignee?: Task['assignee']): Promise<TaskList> => ipcRenderer.invoke('todos:move', from, id, assignee),
+    removeMany: (scope: TaskScope, ids: string[]): Promise<TaskList> => ipcRenderer.invoke('todos:removeMany', scope, ids),
+    /** Undo: the tasks written back exactly as given (id, dates, authors). */
+    restore: (scope: TaskScope, tasks: Task[]): Promise<TaskList> => ipcRenderer.invoke('todos:restore', scope, tasks),
+    /** Private ⇄ shared; to shared it goes to `assignee`, by default the user. `order` places it in the list it goes to. */
+    move: (from: TaskScope, id: string, assignee?: Task['assignee'], order?: number): Promise<TaskList> => ipcRenderer.invoke('todos:move', from, id, assignee, order),
     sync: (): Promise<TaskList> => ipcRenderer.invoke('todos:sync'),
     onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('todos:changed', cb); return () => { ipcRenderer.removeListener('todos:changed', cb) } },
   },

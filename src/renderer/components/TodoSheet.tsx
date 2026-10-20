@@ -13,27 +13,46 @@ type MenuItem = { label: string; checked?: boolean; danger?: boolean; run: () =>
 /** `up`: where the menu's bottom goes when it does not fit below `y` (the top of the button that opened it). */
 type Menu = { x: number; y: number; up?: number; items: MenuItem[] }
 type Row = { kind: 'task'; task: Task } | { kind: 'pending'; pending: Pending } | { kind: 'draft' }
-/** Asked under the row: deleting, and making a shared task private (the other one loses sight of it). */
-type Confirm = { id: string; kind: 'delete' | 'private' }
 /** One checklist in a column: where its rows are saved and where a row typed into it goes. */
 type Part = { scope: TaskScope; section: string; assignee: Assignee; label?: string; list: Task[]; placeholder?: string }
 type Column = { key: string; label: string; parts: Part[]; done: { task: Task; scope: TaskScope }[] }
+/** Where a task is at one point of the undo history; null: it does not exist (deleted, or not made yet). */
+type Snap = { scope: TaskScope; task: Task } | null
+/** One action, undone and redone as a whole: every task it changed, before and after. */
+type Step = { id: string; before: Snap; after: Snap }[]
+/** ⌘X moves the tasks on ⌘V, ⌘C duplicates them; ids in the order their rows were on screen. */
+type Clip = { ids: string[]; mode: 'cut' | 'copy' }
+/** Where ⌘V puts the clipboard: after task `after` of `part`, or at its top when null. */
+type Spot = { part: Part; after: string | null }
 
 /** Livio is Matteo in the BUILD note; the files keep the id 'livio'. */
 const NAME = { livio: 'Matteo', ilai: 'Ilai' } as const
 /** Completed tasks shown per column before "Show all". */
 const DONE_SHOWN = 5
+/** Steps ⌘Z can go back. */
+const UNDO_STEPS = 50
+const SECOND = 1000, HOUR = 3_600_000
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 const rome = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('de-DE', { timeZone: 'Europe/Rome', ...opts })
 const clock = (iso: string) => rome(iso, { hour: '2-digit', minute: '2-digit' })
+/** A task's place in its list: where it was pasted, otherwise when it was created. */
+const rank = (task: Task) => task.order ?? Date.parse(task.createdAt)
 // The 39 tasks imported from BUILD share one createdAt: the id breaks the tie and, unlike the title, never changes.
-const byCreated = (a: Task, b: Task) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+const byOrder = (a: Task, b: Task) => rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 const byDone = (a: Task, b: Task) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
 const rowKey = (row: Row) => row.kind === 'task' ? row.task.id : row.kind === 'pending' ? row.pending.key : 'draft'
+function find(list: TaskList | null, id: string): Snap {
+  for (const scope of ['shared', 'personal'] as const) { const task = list?.[scope].find(t => t.id === id); if (task) return { scope, task } }
+  return null
+}
+const same = (a: Snap, b: Snap) => {
+  const key = (snap: Snap) => JSON.stringify(snap && [snap.scope, Object.entries(snap.task).filter(([, value]) => value !== undefined).sort(([x], [y]) => x < y ? -1 : 1)])
+  return key(a) === key(b)
+}
 const Chevron = () => <svg className="todo-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
 const Lock = () => <svg className="todo-lock" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7.2" width="9" height="6.3" rx="1.6" /><path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8" /></svg>
 
-/** createdAt order, then what was added this session put back under the row where Enter was pressed. */
+/** Their order (see rank), then what was added this session put back under the row where Enter was pressed. */
 function arrange(tasks: Task[], layout: Layout, scope: TaskScope, section: string): Row[] {
   const rows: Row[] = tasks.filter(task => !layout.placed[task.id]).map(task => ({ kind: 'task', task }))
   const put = (row: Row, after: string | null) => { const at = after ? rows.findIndex(r => rowKey(r) === after) : -1; rows.splice(at < 0 ? rows.length : at + 1, 0, row) }
@@ -55,6 +74,23 @@ function settle(layout: Layout, key: string, id: string | null): Layout {
 }
 
 /**
+ * New orders for `moving` put at index `at` of `rows` (a part as shown, without them), for them and for the
+ * neighbours that have to move with them. The gap between two rows is shared out; with no gap left (the tasks
+ * imported from BUILD all have one createdAt) the whole part is renumbered a second apart from its first rank,
+ * so tasks created later still sort below. Tasks placed this session under a row (`loose`, shown out of their
+ * order) are renumbered too, so they stay where they are on screen.
+ */
+function orders(rows: Task[], moving: Task[], at: number, loose: Set<string>): { task: Task; order: number; moved: boolean }[] {
+  const seq = [...rows.slice(0, at), ...moving, ...rows.slice(at)], moved = (i: number) => i >= at && i < at + moving.length
+  const span = seq.flatMap((task, i) => moved(i) || loose.has(task.id) ? [i] : [])
+  const lo = Math.min(...span), hi = Math.max(...span) + 1, n = hi - lo
+  const a = lo > 0 ? rank(seq[lo - 1]) : -Infinity, b = hi < seq.length ? rank(seq[hi]) : Infinity
+  if (b - a < n + 1) { const base = Math.min(...seq.map(rank)); return seq.map((task, i) => ({ task, order: base + i * SECOND, moved: moved(i) })) }
+  return seq.slice(lo, hi).map((task, i) => ({ task, moved: moved(lo + i), order:
+    a === -Infinity ? (b === Infinity ? Date.now() + i * SECOND : b - (n - i) * HOUR) : b === Infinity ? a + (i + 1) * HOUR : a + (b - a) * (i + 1) / (n + 1) }))
+}
+
+/**
  * The BUILD note of Apple Notes in four columns: mine, Together and the other one's (all shared, in the
  * build-tasks repo, mirrored on the other Mac), then my private notes, kept on this Mac only.
  */
@@ -63,20 +99,36 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const [allDone, setAllDone] = useState<Record<string, boolean>>({})
   const [error, setError] = useState('')
   const [layout, setLayout] = useState<Layout>({ pending: [], placed: {}, draft: null })
-  const [confirm, setConfirm] = useState<Confirm | null>(null)
+  // The shared task whose row asks "Make it private?" (the other one loses sight of it).
+  const [confirm, setConfirm] = useState<string | null>(null)
   const [noteFor, setNoteFor] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [view, setView] = useState<'shared' | 'private'>('shared')
+  const [sel, setSel] = useState<string[]>([])
+  const [clip, setClip] = useState<Clip | null>(null)
+  /** The tasks the delete question is about. */
+  const [ask, setAsk] = useState<string[] | null>(null)
+  // An object, so a second "Deleted 3 tasks" restarts the 8 seconds.
+  const [toast, setToast] = useState<{ text: string } | null>(null)
   // App.tsx mounts the top bar slot in the same commit, so it is looked up once the sheet is in the DOM.
   const [slot, setSlot] = useState<HTMLElement | null | undefined>(undefined)
   useLayoutEffect(() => setSlot(document.getElementById('todo-topbar-slot')), [])
   const seq = useRef(0)
   const sheet = useRef<HTMLElement>(null)
+  // What the main process last returned: the undo history reads it between renders.
+  const latest = useRef<TaskList | null>(null)
+  const undos = useRef<Step[]>([]), redos = useRef<Step[]>([])
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  /** The row ⇧-click selects from, and the column ⌘A selects. */
+  const anchor = useRef<string | null>(null), lastCol = useRef<string | null>(null)
+  const keys = useRef<(event: KeyboardEvent) => void>(() => {})
+  const show = (value: TaskList) => { latest.current = value; setData(value) }
+  const focusSheet = () => sheet.current?.focus({ preventScroll: true })
 
   useEffect(() => {
     sheet.current?.focus()
     let stopped = false
-    const refresh = () => void window.term.todos.list().then(value => { if (!stopped) setData(value) }).catch(err => setError(errorText(err)))
+    const refresh = () => void window.term.todos.list().then(value => { if (!stopped) show(value) }).catch(err => setError(errorText(err)))
     refresh()
     // Sent by the main process around every pull and push, including the 3-minute sync.
     const off = window.term.todos.onChanged(refresh)
@@ -88,32 +140,179 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     addEventListener('keydown', key)
     return () => removeEventListener('keydown', key)
   }, [onClose])
+  // Before the rows and the overlay see them: ⌘Z, ⌘X, ⌘V… on the tasks (keys.current says when).
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => keys.current(event)
+    addEventListener('keydown', key, true)
+    return () => removeEventListener('keydown', key, true)
+  }, [])
+  // Text cut or copied in a field takes the clipboard's place: the next ⌘V pastes that text, not the tasks.
+  useEffect(() => {
+    const drop = (event: Event) => { if (event.target instanceof Element && event.target.closest('textarea, input')) setClip(null) }
+    addEventListener('cut', drop)
+    addEventListener('copy', drop)
+    return () => { removeEventListener('cut', drop); removeEventListener('copy', drop) }
+  }, [])
+  // A task deleted elsewhere (the other Mac, through a sync) leaves the selection and the clipboard.
+  useEffect(() => {
+    if (!data) return
+    const live = (id: string) => !!find(data, id)
+    setSel(ids => ids.every(live) ? ids : ids.filter(live))
+    setClip(c => !c || c.ids.every(live) ? c : c.ids.some(live) ? { ...c, ids: c.ids.filter(live) } : null)
+  }, [data])
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 8000)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   async function act(work: () => Promise<TaskList>): Promise<TaskList | null> {
     setError('')
-    try { const value = await work(); setData(value); return value } catch (err) { setError(errorText(err)); return null }
+    try { const value = await work(); show(value); return value } catch (err) { setError(errorText(err)); return null }
   }
-  const save: Save = (target, input) => act(() => window.term.todos.save(target, input))
-  const remove = async (target: TaskScope, id: string) => !!(await act(() => window.term.todos.remove(target, id)))
-  const move = async (from: TaskScope, id: string, assignee?: Assignee) => !!(await act(() => window.term.todos.move(from, id, assignee)))
+  /** One change at a time, so ⌘Z always finds the step of the change made before it. */
+  function serial<T>(work: () => Promise<T>): Promise<T> {
+    const run = queue.current.then(work)
+    queue.current = run.catch(() => {})
+    return run
+  }
+  /** What `ids` were in `then` and are now, as one step of undo. */
+  function remember(then: TaskList | null, ids: string[]): Step | null {
+    const step = [...new Set(ids)].flatMap(id => { const before = find(then, id), after = find(latest.current, id); return same(before, after) ? [] : [{ id, before, after }] })
+    if (!step.length) return null
+    undos.current = [...undos.current, step].slice(-UNDO_STEPS)
+    redos.current = []
+    setToast(null)
+    return step
+  }
+  const save: Save = (target, input) => serial(async () => {
+    const then = latest.current, value = await act(() => window.term.todos.save(target, input))
+    if (input.id) remember(then, [input.id])
+    return value
+  })
+  const move = (from: TaskScope, id: string, assignee?: Assignee) => serial(async () => {
+    const then = latest.current, ok = !!(await act(() => window.term.todos.move(from, id, assignee)))
+    remember(then, [id])
+    return ok
+  })
 
   /** Shows the row at once and clears the field, so the next task can be typed while git commits and pushes this one. */
   async function add(target: TaskScope, section: string, assignee: Assignee, title: string, fromDraft: boolean) {
     const key = `new-${++seq.current}`, known = new Set((data?.[target] ?? []).map(task => task.id))
     setLayout(l => ({ ...l, pending: [...l.pending, { key, scope: target, section, title, assignee, after: fromDraft ? l.draft?.after ?? null : null }], draft: fromDraft && l.draft ? { ...l.draft, after: key } : l.draft }))
-    let made: Task | undefined
-    try {
-      const value = await window.term.todos.save(target, { title, assignee })
-      setData(value)
-      made = value[target].filter(task => !known.has(task.id) && task.title === title).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
-    } catch (err) { setError(`Could not add “${title}”: ${errorText(err)}`) }
+    const made = await serial(async () => {
+      const then = latest.current
+      try {
+        const value = await window.term.todos.save(target, { title, assignee })
+        show(value)
+        const task = value[target].filter(t => !known.has(t.id) && t.title === title).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
+        if (task) remember(then, [task.id])
+        return task
+      } catch (err) { setError(`Could not add “${title}”: ${errorText(err)}`); return undefined }
+    })
     setLayout(l => settle(l, key, made?.id ?? null))
+  }
+
+  /** ⌘V: the cut tasks move to `spot` (another column, private ⇄ shared, or up and down their own), copied ones are duplicated there. */
+  const paste = ({ part, after }: Spot) => serial(async () => {
+    const then = latest.current, take = clip
+    const movers = (take?.ids ?? []).flatMap(id => { const snap = find(then, id); return snap ? [snap] : [] })
+    if (!then || !take || !movers.length) return
+    const cut = take.mode === 'cut', away = new Set(cut ? take.ids : [])
+    const shown = arrange(open(part.scope === 'personal' ? then.personal : then.shared.filter(task => task.assignee === part.assignee)), layout, part.scope, part.section).flatMap(row => row.kind === 'task' ? [row.task] : [])
+    const rows = shown.filter(task => !away.has(task.id)), upto = shown.findIndex(task => task.id === after)
+    // Pasted next to a task that is itself moving: after the last one before it that stays.
+    const at = after === null ? 0 : upto < 0 ? rows.length : shown.slice(0, upto + 1).filter(task => !away.has(task.id)).length
+    const loose = new Set(rows.filter(task => layout.placed[task.id]).map(task => task.id))
+    const to = part.scope === 'shared' ? part.assignee : null
+    const inputs: TaskInput[] = [], moves: { from: TaskScope; id: string; order: number }[] = []
+    let next = 0
+    for (const { task, order, moved } of orders(rows, movers.map(snap => snap.task), at, loose)) {
+      if (!moved) { if (rank(task) !== order) inputs.push({ id: task.id, order }); continue }
+      const from = movers[next++]!.scope
+      if (!cut) inputs.push({ title: task.title, notes: task.notes, status: task.status, product: task.product, assignee: to, order })
+      else if (from !== part.scope) moves.push({ from, id: task.id, order })
+      else inputs.push({ id: task.id, order, ...(part.scope === 'personal' || task.assignee === to ? {} : { assignee: to }) })
+    }
+    // Their place now comes from their order, not from the row they were typed under.
+    setLayout(l => ({ ...l, placed: Object.fromEntries(Object.entries(l.placed).filter(([id]) => !away.has(id) && !loose.has(id))) }))
+    let ok = true
+    for (const m of moves) ok = ok && !!(await act(() => window.term.todos.move(m.from, m.id, to, m.order)))
+    if (ok && inputs.length) ok = !!(await act(() => window.term.todos.saveMany(part.scope, inputs)))
+    const copies = cut ? [] : (latest.current?.[part.scope] ?? []).filter(task => !find(then, task.id) && movers.some(snap => snap.task.title === task.title)).map(task => task.id)
+    remember(then, [...moves.map(m => m.id), ...inputs.flatMap(input => input.id ?? []), ...copies])
+    if (cut && ok) setClip(null)
+    const landed = cut ? movers.map(snap => snap.task.id) : copies
+    setSel(landed)
+    anchor.current = landed[0] ?? null
+  })
+
+  /** The delete question answered: one commit for the shared ones, then "Deleted N tasks · Undo". */
+  const deleteTasks = (ids: string[]) => serial(async () => {
+    const then = latest.current, gone = ids.flatMap(id => { const snap = find(then, id); return snap ? [snap] : [] })
+    for (const scope of ['shared', 'personal'] as const) {
+      const some = gone.filter(snap => snap.scope === scope).map(snap => snap.task.id)
+      if (some.length && !(await act(() => window.term.todos.removeMany(scope, some)))) break
+    }
+    const step = remember(then, gone.map(snap => snap.task.id))
+    setAsk(null)
+    setSel([])
+    focusSheet()
+    if (step) setToast({ text: `Deleted ${step.length} task${step.length === 1 ? '' : 's'}` })
+  })
+
+  /** ⌘Z, and ⇧⌘Z to redo: every task of the last step back where it was, private or shared, with its very same file. */
+  const undo = (redo = false) => serial(async () => {
+    const step = (redo ? redos : undos).current.pop()
+    if (!step) return
+    const from = (c: Step[number]) => redo ? c.before : c.after, to = (c: Step[number]) => redo ? c.after : c.before
+    // Changed since by someone else (the other Mac, through a sync): going back would throw that away.
+    const changed = step.find(c => !same(find(latest.current, c.id), from(c)))
+    if (changed) return setError(`Can’t ${redo ? 'redo' : 'undo'}: “${(changed.after ?? changed.before)?.task.title}” changed since.`)
+    let ok = true
+    // Private ⇄ shared through the move that never leaves a task nowhere, then the exact copies, then away what did not exist.
+    for (const c of step) {
+      const here = from(c), there = to(c)
+      if (ok && here && there && here.scope !== there.scope) ok = !!(await act(() => window.term.todos.move(here.scope, c.id, there.task.assignee)))
+    }
+    for (const scope of ['shared', 'personal'] as const) {
+      const put = step.flatMap(c => { const there = to(c); return there?.scope === scope ? [there.task] : [] })
+      const drop = step.flatMap(c => !to(c) && from(c)?.scope === scope ? [c.id] : [])
+      if (ok && put.length) ok = !!(await act(() => window.term.todos.restore(scope, put)))
+      if (ok && drop.length) ok = !!(await act(() => window.term.todos.removeMany(scope, drop)))
+    }
+    if (ok) (redo ? undos : redos).current.push(step)
+    setToast(null)
+    const back = step.flatMap(c => to(c) ? [c.id] : [])
+    setSel(back)
+    anchor.current = back[0] ?? null
+  })
+
+  /** Ids in the order their rows are on screen; ones not on screen are left out. */
+  const inOrder = (ids: string[]) => [...document.querySelectorAll<HTMLElement>('.todo-row[data-id]')].map(row => row.dataset.id!).filter(id => ids.includes(id))
+  /** ⌘-click adds a row to the selection or takes it out; ⇧-click selects from the last ⌘-clicked row, in its column. */
+  function select(id: string, how: 'toggle' | 'range') {
+    const col = document.querySelector(`.todo-row[data-id="${id}"]`)?.closest<HTMLElement>('.todo-col')
+    const ids = [...(col?.querySelectorAll<HTMLElement>('.todo-row[data-id]') ?? [])].map(row => row.dataset.id!)
+    lastCol.current = col?.dataset.col ?? null
+    focusSheet()
+    if (how === 'range' && anchor.current && ids.includes(anchor.current)) {
+      const [first, last] = [ids.indexOf(anchor.current), ids.indexOf(id)].sort((x, y) => x - y)
+      return setSel(ids.slice(first, last + 1))
+    }
+    anchor.current = id
+    setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   }
 
   const me: TasksUser = user || 'livio', other: TasksUser = me === 'livio' ? 'ilai' : 'livio'
   const label = (assignee: Assignee) => assignee === 'both' ? 'Together' : assignee ? NAME[assignee] : 'Unassigned'
 
   function openMenu(task: Task, scope: TaskScope, x: number, y: number, up?: number) {
+    // On one of several selected rows the menu is about all of them.
+    const group = sel.length > 1 && sel.includes(task.id) ? inOrder(sel) : null
+    if (group) return setMenu({ x, y, up, items: [{ heading: `${group.length} tasks` }, { label: 'Cut', run: () => { setClip({ ids: group, mode: 'cut' }); setSel([]) } },
+      { label: 'Copy', run: () => setClip({ ids: group, mode: 'copy' }) }, null, { label: `Delete ${group.length} tasks…`, danger: true, run: () => setAsk(group) }] })
+    if (!sel.includes(task.id)) setSel([])
     const set = (input: Omit<TaskInput, 'id'>) => () => void save(scope, { id: task.id, ...input })
     const share = (assignee: Assignee) => () => void move('personal', task.id, assignee)
     const items: (MenuItem | false)[] = [
@@ -122,17 +321,17 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
       // A private task that goes to another column becomes shared on the way.
       ...(scope === 'personal'
         ? [null, { label: 'Make shared', run: share(me) }, { heading: 'Move to' }, ...(['both', other] as const).map(a => ({ label: label(a), run: share(a) }))]
-        : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm({ id: task.id, kind: 'private' }) }]),
+        : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm(task.id) }]),
       null, { heading: 'Product' }, { input: task.product, placeholder: 'e.g. ManyMotions', run: (product: string) => void save(scope, { id: task.id, product }) },
       !task.notes && { label: 'Add note', run: () => setNoteFor(task.id) },
-      null, { label: 'Delete…', danger: true, run: () => setConfirm({ id: task.id, kind: 'delete' }) },
+      null, { label: 'Delete…', danger: true, run: () => setAsk([task.id]) },
     ]
     setMenu({ x, y, up, items: items.filter((item): item is MenuItem => item !== false) })
   }
 
   const sync = data?.sync
   const personal = data?.personal ?? [], shared = data?.shared ?? []
-  const open = (list: Task[]) => list.filter(task => task.status !== 'done').sort(byCreated)
+  const open = (list: Task[]) => list.filter(task => task.status !== 'done').sort(byOrder)
   const done = (list: Task[], scope: TaskScope) => list.filter(task => task.status === 'done').map(task => ({ task, scope }))
   const to = (assignee: Assignee) => shared.filter(task => task.assignee === assignee)
   const columns: Column[] = [
@@ -148,9 +347,9 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const shownColumns = view === 'private' ? [privateNotes] : columns
   const pick = (event: { currentTarget: HTMLElement }, items: MenuItem[]) => { const b = event.currentTarget.getBoundingClientRect(); setMenu({ x: b.left, y: b.bottom + 4, up: b.top - 4, items }) }
   const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]}
-    confirming={confirm?.id === task.id ? confirm.kind : null} openNote={noteFor === task.id}
-    onSave={save} onRemove={remove} onPrivate={() => move('shared', task.id)} onConfirm={kind => setConfirm(kind ? { id: task.id, kind } : null)} onNoteOpened={() => setNoteFor(null)}
-    onMenu={(x, y, up) => openMenu(task, scope, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
+    confirming={confirm === task.id} openNote={noteFor === task.id} selected={sel.includes(task.id)} cut={clip?.mode === 'cut' && clip.ids.includes(task.id)}
+    onSave={save} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
+    onSelect={how => select(task.id, how)} onMenu={(x, y, up) => openMenu(task, scope, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
   const checklist = ({ scope, section, assignee, list, placeholder }: Part) => <ul className="todo-check">
     {arrange(list, layout, scope, section).map(item => item.kind === 'task' ? row(item.task, scope, section)
       : item.kind === 'pending' ? <li key={item.pending.key} className="todo-row pending"><span className="todo-circle" /><div className="todo-body"><div className="todo-line"><span className="todo-text">{item.pending.title}</span></div></div></li>
@@ -173,12 +372,67 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
       {list.length > DONE_SHOWN && <button className="todo-show-done" aria-expanded={all} onClick={() => setAllDone(value => ({ ...value, [col.key]: !all }))}>{all ? 'Show fewer' : `Show all (${list.length})`}</button>}
     </section>
   }
+  /** Where ⌘V goes from a row: after a task, after the last task above a "New task" row, at the end of the part a completed task belongs to. */
+  function spotOf(li: Element | null): Spot | null {
+    const col = li?.closest<HTMLElement>('.todo-col'), box = li?.closest<HTMLElement>('.todo-part')
+    const parts = shownColumns.find(c => c.key === col?.dataset.col)?.parts ?? []
+    if (!li || !col) return null
+    if (box) {
+      const part = parts.find(p => p.section === box.dataset.part)
+      let above: Element | null = li
+      while (above && !above.matches('[data-id]')) above = above.previousElementSibling
+      return part ? { part, after: above instanceof HTMLElement ? above.dataset.id ?? null : null } : null
+    }
+    const snap = find(latest.current, li instanceof HTMLElement ? li.dataset.id ?? '' : '')
+    const part = snap && parts.find(p => p.scope === snap.scope && (p.scope === 'personal' || p.assignee === snap.task.assignee))
+    if (!part) return null
+    const last = [...col.querySelectorAll<HTMLElement>(`.todo-part[data-part="${part.section}"] .todo-row[data-id]`)].pop()
+    return { part, after: last?.dataset.id ?? null }
+  }
+  /** ⌘V in a field pastes the tasks only on a row's title left as it is or an empty "New task" row; once something is typed, the text. */
+  function spotIn(field: HTMLElement): Spot | null {
+    const li = field.closest<HTMLElement>('.todo-row'), value = field instanceof HTMLTextAreaElement ? field.value : ''
+    if (!li || !field.matches('.todo-text')) return null
+    if (li.dataset.id ? value !== find(latest.current, li.dataset.id)?.task.title : value) return null
+    return spotOf(li)
+  }
+  /** ⌘A: every open task of the column last clicked or focused, mine when none. */
+  function selectColumn() {
+    const key = shownColumns.some(c => c.key === lastCol.current) ? lastCol.current : shownColumns[0]?.key
+    const ids = [...document.querySelectorAll<HTMLElement>(`.todo-col[data-col="${key}"] .todo-part .todo-row[data-id]`)].map(r => r.dataset.id!)
+    setSel(ids)
+    anchor.current = ids[0] ?? null
+  }
+  keys.current = event => {
+    if (event.isComposing || menu || ask || !user) return
+    const el = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // The "Make private" question under a row keeps its own keys.
+    if (el?.closest('.todo-confirm')) return
+    const field = !!el?.matches('textarea, input, select, [contenteditable="true"]'), cmd = event.metaKey && !event.ctrlKey && !event.altKey, k = event.key.toLowerCase()
+    const take = (work: () => void) => { event.preventDefault(); event.stopPropagation(); work() }
+    if (cmd && k === 'v' && clip) {
+      const last = inOrder(sel).pop(), spot = field && el ? spotIn(el) : last ? spotOf(document.querySelector(`.todo-row[data-id="${last}"]`)) : null
+      if (spot) take(() => { focusSheet(); void paste(spot) })
+      return
+    }
+    // In a field ⌘Z, ⌘X, ⌘C and ⌘A stay the text's own.
+    if (field) return
+    if (cmd && k === 'z') take(() => void undo(event.shiftKey))
+    else if (cmd && k === 'a') take(selectColumn)
+    else if (cmd && (k === 'x' || k === 'c') && sel.length) take(() => { setClip({ ids: inOrder(sel), mode: k === 'x' ? 'cut' : 'copy' }); if (k === 'x') setSel([]) })
+    else if ((event.key === 'Backspace' || event.key === 'Delete') && !event.metaKey && sel.length) take(() => setAsk(inOrder(sel)))
+    else if (event.key === 'Escape' && (sel.length || clip)) take(() => { setSel([]); setClip(null) })
+  }
   const syncText = !sync ? '' : !sync.enabled ? 'Shared sync is off' : sync.syncing ? 'Syncing…' : sync.error ? 'Sync failed' : sync.lastSync ? `Synced ${clock(sync.lastSync)}` : 'Not synced yet'
 
   return <div className="workspace-overlay todo-overlay" role="presentation"
     onClick={event => { if (event.target === event.currentTarget) onClose() }}
     onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose() } }}>
-    <section ref={sheet} tabIndex={-1} className="todo-sheet" role="dialog" aria-modal="true" aria-label="To-do">
+    <section ref={sheet} tabIndex={-1} className="todo-sheet" role="dialog" aria-modal="true" aria-label="To-do"
+      onFocus={event => { const col = event.target instanceof Element && event.target.closest<HTMLElement>('.todo-col'); if (col) lastCol.current = col.dataset.col ?? null }}
+      // A plain click anywhere (editing a row, an empty spot) drops the selection; ⌘- and ⇧-clicks on rows never get here,
+      // and "•••" on a selected row opens the menu for all of them.
+      onMouseDown={event => { if (event.button === 0 && sel.length && !(event.target instanceof Element && event.target.closest('.todo-menu, .sheet-backdrop, .todo-toast, .todo-actions'))) setSel([]) }}>
       {(() => {
         // The controls sit in the middle of the app's top bar while the to-do is open (App.tsx keeps
         // the slot); inline above the columns only if the slot is missing.
@@ -215,14 +469,20 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         </div>
       </article>}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {ask && <DeleteDialog titles={ask.flatMap(id => find(data, id)?.task.title ?? [])} onCancel={() => { setAsk(null); focusSheet() }} onDelete={() => void deleteTasks(ask)} />}
+      {toast && <div className="todo-toast" role="status">{toast.text}<span aria-hidden="true">·</span><button onClick={() => void undo()}>Undo</button></div>}
     </section>
   </div>
 }
 
-/** `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private. */
-function TaskRow({ task, scope, lock, other, confirming, openNote, onSave, onRemove, onPrivate, onConfirm, onNoteOpened, onMenu, onEnter }: {
-  task: Task; scope: TaskScope; lock: boolean; other: string; confirming: Confirm['kind'] | null; openNote: boolean; onSave: Save; onRemove: (scope: TaskScope, id: string) => Promise<boolean>
-  onPrivate: () => Promise<boolean>; onConfirm: (kind: Confirm['kind'] | null) => void; onNoteOpened: () => void; onMenu: (x: number, y: number, up?: number) => void; onEnter?: () => void
+/**
+ * `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private.
+ * `confirming`: the row asks "Make it private?"; deleting is asked by the sheet (onDelete).
+ */
+function TaskRow({ task, scope, lock, other, confirming, openNote, selected, cut, onSave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
+  task: Task; scope: TaskScope; lock: boolean; other: string; confirming: boolean; openNote: boolean; selected: boolean; cut: boolean; onSave: Save
+  onPrivate: () => Promise<boolean>; onConfirm: (on: boolean) => void; onDelete: () => void; onNoteOpened: () => void; onSelect: (how: 'toggle' | 'range') => void
+  onMenu: (x: number, y: number, up?: number) => void; onEnter?: () => void
 }): JSX.Element {
   const [title, setTitle] = useState(task.title)
   const [notes, setNotes] = useState(task.notes)
@@ -260,8 +520,13 @@ function TaskRow({ task, scope, lock, other, confirming, openNote, onSave, onRem
     if (!(await onSave(scope, { id: task.id, status: 'done' }))) setChecking(false)
   }
   const status = checking ? 'done' : task.status
+  // ⌘-click and ⇧-click select the row: no editing, no tick. ⇧-click inside the text being edited still extends its selection.
+  const picking = (event: { button: number; metaKey: boolean; shiftKey: boolean; target: EventTarget }) => event.button === 0 && (event.metaKey || (event.shiftKey && event.target !== document.activeElement))
 
-  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}`} data-id={task.id} onContextMenu={event => { event.preventDefault(); onMenu(event.clientX, event.clientY) }}>
+  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}`} data-id={task.id}
+    onMouseDownCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation(); onSelect(event.shiftKey ? 'range' : 'toggle') } }}
+    onClickCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation() } }}
+    onContextMenu={event => { event.preventDefault(); onMenu(event.clientX, event.clientY) }}>
     <button className={`todo-circle ${status}`} aria-label={task.status === 'done' ? 'Reopen' : 'Mark done'} title={task.status === 'done' ? 'Reopen' : task.status === 'doing' ? 'In progress · mark done' : 'Mark done'} onClick={() => void check()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.8 10.4l2.8 2.8 5.6-6" /></svg>
     </button>
@@ -275,7 +540,7 @@ function TaskRow({ task, scope, lock, other, confirming, openNote, onSave, onRem
             if (event.nativeEvent.isComposing) return
             if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); onEnter?.() }
             else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel.current = true; setTitle(task.title); event.currentTarget.blur() }
-            else if (event.key === 'Backspace' && !title) { event.preventDefault(); onConfirm('delete') }
+            else if (event.key === 'Backspace' && !title) { event.preventDefault(); onDelete() }
           }} />
         {task.status === 'doing' && <span className="todo-tag doing">in progress</span>}
         {task.product && <span className="todo-tag">{task.product}</span>}
@@ -292,12 +557,11 @@ function TaskRow({ task, scope, lock, other, confirming, openNote, onSave, onRem
         : notes && <div className="todo-note-text" role="button" tabIndex={0} aria-label="Edit note"
             onMouseDown={event => { const range = document.caretRangeFromPoint(event.clientX, event.clientY); caret.current = range && event.currentTarget.contains(range.startContainer) ? range.startOffset : notes.length; event.preventDefault(); setNoteEditing(true) }}
             onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); caret.current = notes.length; setNoteEditing(true) } }}>{notes}</div>}
-      {confirming && <div className={`todo-confirm ${confirming}`} role="group" aria-label={confirming === 'delete' ? 'Confirm delete' : 'Confirm make private'}
-        onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onConfirm(null) } }}>
-        {confirming === 'delete' ? 'Delete this task?' : `Make it private? ${other} will no longer see it.`}
-        <button className={confirming === 'delete' ? 'danger' : 'primary'} autoFocus disabled={busy}
-          onClick={async () => { setBusy(true); if (await (confirming === 'delete' ? onRemove(scope, task.id) : onPrivate())) onConfirm(null); else setBusy(false) }}>{confirming === 'delete' ? 'Delete' : 'Make private'}</button>
-        <button onClick={() => onConfirm(null)}>{confirming === 'delete' ? 'Keep' : 'Keep shared'}</button>
+      {confirming && <div className="todo-confirm" role="group" aria-label="Confirm make private"
+        onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onConfirm(false) } }}>
+        Make it private? {other} will no longer see it.
+        <button className="primary" autoFocus disabled={busy} onClick={async () => { setBusy(true); if (await onPrivate()) onConfirm(false); else setBusy(false) }}>Make private</button>
+        <button onClick={() => onConfirm(false)}>Keep shared</button>
       </div>}
     </div>
     <span className="todo-actions">
@@ -326,6 +590,26 @@ function DraftRow({ placeholder = '', autoFocus, onAdd, onLeave }: { placeholder
         }} />
     </div></div>
   </li>
+}
+
+/** Deleting, asked in the app and never with window.confirm: Delete has the focus (Enter), Esc or Cancel keeps the tasks. */
+function DeleteDialog({ titles, onCancel, onDelete }: { titles: string[]; onCancel: () => void; onDelete: () => void }): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const heading = titles.length === 1 ? 'Delete this task?' : `Delete ${titles.length} tasks?`
+  return <div className="sheet-backdrop todo-ask" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onCancel() }}
+    onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel() } }}>
+    <div className="sheet" role="alertdialog" aria-modal="true" aria-label={heading}>
+      <h2>{heading}</h2>
+      <ul className="todo-ask-list">
+        {titles.slice(0, 5).map((title, i) => <li key={i}>{title}</li>)}
+        {titles.length > 5 && <li className="more">and {titles.length - 5} more</li>}
+      </ul>
+      <div className="recovery-actions">
+        <button className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn danger" autoFocus disabled={busy} onClick={() => { setBusy(true); onDelete() }}>Delete</button>
+      </div>
+    </div>
+  </div>
 }
 
 /** Right click or "•••" on a row. Not a native menu: Esc and a click outside close it, the arrows move through it. */

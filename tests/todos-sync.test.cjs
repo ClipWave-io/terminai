@@ -204,3 +204,64 @@ test('no repository configured: shared work is refused, personal still works',as
   assert.equal(fs.existsSync(path.join(root,'build-tasks')),false);
  }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+test('order is saved and read back; a file without it still loads and an edit does not add one',async()=>{
+ const t=setup();try{
+  const app=t.app('livio');await app.sync();
+  let mine=(await app.save('personal',{title:'Ordered',order:1234.5})).personal[0];
+  assert.equal(read(app.personalFile('livio'))[0].order,1234.5);
+  mine=(await app.save('personal',{id:mine.id,title:'Ordered, renamed'})).personal[0];assert.equal(mine.order,1234.5);
+  const stamp=mine.updatedAt;await new Promise(r=>setTimeout(r,5));
+  mine=(await app.save('personal',{id:mine.id,order:99})).personal[0];
+  assert.equal(mine.order,99);assert.equal(mine.updatedAt,stamp,'moving a task up or down is not an edit');
+  await assert.rejects(app.save('personal',{id:mine.id,order:NaN}),/Invalid order/);
+  await assert.rejects(app.save('personal',{id:mine.id,order:'3'}),/Invalid order/);
+  // A task written before order existed, pushed from the other Mac.
+  const now=romeIso(),old={id:'no-order-task',title:'Old format',notes:'',status:'open',assignee:'both',product:'',createdAt:now,createdBy:'ilai',updatedAt:now,updatedBy:'ilai'};
+  t.push(old,'ilai: add Old format');
+  let list=await app.sync();const got=list.shared.find(x=>x.id===old.id);
+  assert.deepEqual(got,old);assert.equal('order' in got,false);
+  await app.save('shared',{id:old.id,title:'Old format, edited'});
+  const edited=t.show(old.id);assert.equal('order' in edited,false,'an edit does not add an order');
+  list=await app.save('shared',{id:old.id,order:42});
+  assert.equal(t.show(old.id).order,42);assert.equal(t.show(old.id).updatedAt,edited.updatedAt);assert.equal(list.shared.find(x=>x.id===old.id).order,42);
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: reorder Old format, edited');
+  assert.deepEqual(Object.keys(t.show(old.id)),['id','title','notes','status','assignee','product','order','createdAt','createdBy','updatedAt','updatedBy']);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
+
+test('batches are one commit each and restore puts back the very same files',async()=>{
+ const t=setup();try{
+  const app=t.app('livio');await app.sync();
+  const commits=()=>Number(git(t.bare,'rev-list','--count','main')),last=()=>git(t.bare,'log','-1','--format=%s','main').trim();
+  let list=await app.saveMany('shared',[{title:'One',assignee:'both',notes:'n1'},{title:'Two',assignee:'both',order:5},{title:'Three',assignee:'ilai',product:'X'},{title:'Four'}]);
+  assert.equal(last(),'livio: add One, Two, Three and 1 more');assert.equal(list.shared.length,4);
+  const ids=['One','Two','Three','Four'].map(title=>list.shared.find(x=>x.title===title).id);
+  let n=commits();
+  list=await app.saveMany('shared',[{id:ids[0],assignee:'ilai',order:7},{id:ids[1],order:8}]);
+  assert.equal(commits(),n+1);assert.equal(last(),'livio: move One, Two');
+  assert.deepEqual([t.show(ids[0]).assignee,t.show(ids[0]).order,t.show(ids[1]).order],['ilai',7,8]);
+  await assert.rejects(app.saveMany('shared',[{id:ids[2],title:'ok'},{id:'missing',title:'x'}]),/no longer exists/);
+  assert.equal(t.show(ids[2]).title,'Three','a batch with a bad input writes nothing');
+  const before=ids.slice(0,3).map(id=>list.shared.find(x=>x.id===id)),bytes=ids.slice(0,3).map(id=>git(t.bare,'show',`main:tasks/${id}.json`));
+  n=commits();list=await app.removeMany('shared',ids.slice(0,3));
+  assert.equal(commits(),n+1);assert.equal(last(),'livio: delete One, Two, Three');assert.deepEqual(list.shared.map(x=>x.id),[ids[3]]);
+  for(const id of ids.slice(0,3))assert.throws(()=>git(t.bare,'cat-file','-e',`main:tasks/${id}.json`));
+  await assert.rejects(app.restore('shared',[{...before[0],status:'later'}]),/Invalid task/);
+  await assert.rejects(app.restore('shared',[{...before[0],createdAt:undefined}]),/Invalid task/);
+  assert.equal(commits(),n+1);
+  list=await app.restore('shared',before);
+  assert.equal(commits(),n+2);assert.equal(last(),'livio: restore One, Two, Three');
+  assert.deepEqual(ids.slice(0,3).map(id=>git(t.bare,'show',`main:tasks/${id}.json`)),bytes,'the same bytes as before the delete');
+  assert.deepEqual(before.map(x=>list.shared.find(y=>y.id===x.id)),before);
+  await app.restore('shared',before);assert.equal(commits(),n+2,'nothing to commit when the files already say it');
+  // Private: delete and put back; move with an order on both sides.
+  const p=(await app.save('personal',{title:'Mine',notes:'keep'})).personal[0];
+  await app.removeMany('personal',[p.id]);assert.deepEqual(read(app.personalFile('livio')),[]);
+  list=await app.restore('personal',[p]);assert.deepEqual(read(app.personalFile('livio')),[p]);
+  list=await app.move('personal',p.id,'both',9.5);assert.deepEqual([t.show(p.id).assignee,t.show(p.id).order,t.show(p.id).createdAt],['both',9.5,p.createdAt]);
+  list=await app.move('shared',ids[3],undefined,3.25);assert.equal(read(app.personalFile('livio')).find(x=>x.id===ids[3]).order,3.25);
+  await assert.rejects(app.move('shared',p.id,undefined,Infinity),/Invalid order/);
+  await assert.rejects(app.removeMany('shared',['../x']),/Invalid task id/);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});

@@ -96,26 +96,36 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if ((input.id === undefined || input.title !== undefined) && !input.title?.trim()) throw Error('A task needs a title.')
     if (input.status !== undefined && !STATUSES.includes(input.status)) throw Error('Invalid status')
     if (input.assignee !== undefined && input.assignee !== null && !ASSIGNEES.includes(input.assignee)) throw Error('Invalid assignee')
+    if (input.order !== undefined && !Number.isFinite(input.order)) throw Error('Invalid order')
   }
+  /** The fields of a task in the order the files have them; `order` only when it is set. */
+  const clean = ({ id, title, notes, status, assignee, product, order, createdAt, createdBy, updatedAt, updatedBy }: Task): Task =>
+    ({ id, title, notes, status, assignee, product, ...(order === undefined ? {} : { order }), createdAt, createdBy, updatedAt, updatedBy })
   function build(input: TaskInput, old: Task | undefined, user: TasksUser): Task {
     const now = romeIso()
-    return {
+    // Moving a task up or down its list is not an edit: in a conflict, a change to its content on the other Mac still wins.
+    const kept = old && Object.entries(input).every(([field, value]) => field === 'id' || field === 'order' || value === undefined) ? old : undefined
+    return clean({
       id: old?.id ?? randomUUID(),
       title: input.title?.trim() ?? old?.title ?? '',
       notes: input.notes?.trim() ?? old?.notes ?? '',
       status: input.status ?? old?.status ?? 'open',
       assignee: input.assignee === undefined ? old?.assignee ?? null : input.assignee,
       product: input.product?.trim() ?? old?.product ?? '',
-      createdAt: old?.createdAt ?? now, createdBy: old?.createdBy ?? user, updatedAt: now, updatedBy: user,
-    }
+      order: input.order ?? old?.order,
+      createdAt: old?.createdAt ?? now, createdBy: old?.createdBy ?? user, updatedAt: kept?.updatedAt ?? now, updatedBy: kept?.updatedBy ?? user,
+    })
   }
   /** The verb in the commit message, e.g. "livio: done Fix login". */
   function verb(old: Task | undefined, next: Task): string {
     if (!old) return 'add'
     if (old.status !== next.status) return next.status === 'done' ? 'done' : next.status === 'doing' ? 'start' : 'reopen'
     if (old.assignee !== next.assignee) return `assign to ${next.assignee ?? 'nobody'}`
+    if (old.order !== next.order && old.title === next.title && old.notes === next.notes && old.product === next.product) return 'reorder'
     return 'edit'
   }
+  /** "Fix login", or "Fix login, Deploy, Call Ilai and 2 more" when a commit carries several tasks. */
+  const titles = (tasks: Task[]) => tasks.slice(0, 3).map(task => task.title).join(', ') + (tasks.length > 3 ? ` and ${tasks.length - 3} more` : '')
 
   // ---- git ----------------------------------------------------------------
   let chain: Promise<unknown> = Promise.resolve()
@@ -216,18 +226,68 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     }
   }
 
-  /** Write one task file, commit and push it. Once committed the change is safe: a failed push is retried by the next sync. */
-  async function change(write: () => { path: string; message: string } | null): Promise<void> {
+  /** Write task files, commit and push them. Once committed the change is safe: a failed push is retried by the next sync. */
+  async function change(write: () => { paths: string[]; message: string } | null): Promise<void> {
     let committed = false
     await job(async () => {
       await ready()
       const done = write()
       if (!done) return
-      await git(clone, 'add', '-A', '--', done.path)
+      await git(clone, 'add', '-A', '--', ...done.paths)
+      // Nothing to commit when the files already say this (a task put back where it was).
+      if (!(await git(clone, 'status', '--porcelain', '--', ...done.paths)).trim()) return
       await git(clone, 'commit', '-q', '-m', done.message)
       committed = true
       await push()
     }).catch(err => { if (!committed) throw err })
+  }
+
+  /** Several tasks in one go: a shared batch is one commit. Every input is checked before anything is written. */
+  async function saveMany(scope: TaskScope, inputs: TaskInput[]): Promise<TaskList> {
+    const user = who()
+    if (!Array.isArray(inputs) || !inputs.length) throw Error('Nothing to save.')
+    inputs.forEach(check)
+    if (scope === 'personal') {
+      const tasks = readPersonal(user)
+      for (const input of inputs) {
+        const at = input.id === undefined ? -1 : tasks.findIndex(task => task.id === input.id)
+        if (input.id !== undefined && at < 0) throw Error('That task no longer exists.')
+        const task = build(input, tasks[at], user)
+        if (at < 0) tasks.push(task); else tasks[at] = task
+      }
+      writePersonal(user, tasks)
+      return list()
+    }
+    // The old copies are read inside the job, after any sync that was already running.
+    await change(() => {
+      const made = inputs.map(input => {
+        const old = input.id === undefined ? undefined : readTask(join(tasksDir, `${input.id}.json`))
+        if (input.id !== undefined && !old) throw Error('That task no longer exists.')
+        return { old, task: build(input, old, user) }
+      })
+      mkdirSync(tasksDir, { recursive: true })
+      for (const { task } of made) writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
+      // A paste reassigns the tasks it moves and may renumber the ones around them.
+      const verbs = [...new Set(made.map(({ old, task }) => verb(old, task)))], word = verbs.length === 1 ? verbs[0] : verbs.every(v => v === 'reorder' || v.startsWith('assign to')) ? 'move' : 'edit'
+      return { paths: made.map(({ task }) => `tasks/${task.id}.json`), message: `${user}: ${word} ${titles(made.map(({ task }) => task))}` }
+    })
+    return list()
+  }
+
+  async function removeMany(scope: TaskScope, ids: string[]): Promise<TaskList> {
+    if (!Array.isArray(ids) || !ids.length || !ids.every(validId)) throw Error('Invalid task id')
+    const user = who()
+    if (scope === 'personal') {
+      writePersonal(user, readPersonal(user).filter(task => !ids.includes(task.id)))
+      return list()
+    }
+    await change(() => {
+      const gone = ids.flatMap(id => { const task = readTask(join(tasksDir, `${id}.json`)); return task ? [{ ...task, id }] : [] })
+      if (!gone.length) return null
+      for (const task of gone) rmSync(join(tasksDir, `${task.id}.json`), { force: true })
+      return { paths: gone.map(task => `tasks/${task.id}.json`), message: `${user}: delete ${titles(gone)}` }
+    })
+    return list()
   }
 
   return {
@@ -245,53 +305,47 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       }).catch(() => {}).then(list)
     },
 
-    async save(scope: TaskScope, input: TaskInput): Promise<TaskList> {
-      const user = who()
-      check(input)
-      if (scope === 'personal') {
-        const tasks = readPersonal(user), at = input.id === undefined ? -1 : tasks.findIndex(task => task.id === input.id)
-        if (input.id !== undefined && at < 0) throw Error('That task no longer exists.')
-        const task = build(input, tasks[at], user)
-        if (at < 0) tasks.push(task); else tasks[at] = task
-        writePersonal(user, tasks)
-        return list()
-      }
-      // The old copy is read inside the job, after any sync that was already running.
-      await change(() => {
-        const old = input.id === undefined ? undefined : readTask(join(tasksDir, `${input.id}.json`))
-        if (input.id !== undefined && !old) throw Error('That task no longer exists.')
-        const task = build(input, old, user)
-        mkdirSync(tasksDir, { recursive: true })
-        writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
-        return { path: `tasks/${task.id}.json`, message: `${user}: ${verb(old, task)} ${task.title}` }
-      })
-      return list()
-    },
+    save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => saveMany(scope, [input]),
+    saveMany,
+    remove: (scope: TaskScope, id: string): Promise<TaskList> => removeMany(scope, [id]),
+    removeMany,
 
-    async remove(scope: TaskScope, id: string): Promise<TaskList> {
-      if (!validId(id)) throw Error('Invalid task id')
-      const user = who()
+    /**
+     * Puts tasks back exactly as they were, for undo: same id, dates and authors, written the way save
+     * writes them. A shared batch is one commit.
+     */
+    async restore(scope: TaskScope, tasks: Task[]): Promise<TaskList> {
+      if (!Array.isArray(tasks) || !tasks.length) throw Error('Nothing to restore.')
+      for (const task of tasks) {
+        if (!task || typeof task !== 'object' || !validId(task.id) || !STATUSES.includes(task.status) || task.assignee === undefined) throw Error('Invalid task')
+        if (!(['title', 'notes', 'product', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'] as const).every(field => typeof task[field] === 'string')) throw Error('Invalid task')
+        check({ title: task.title, notes: task.notes, status: task.status, assignee: task.assignee, product: task.product, order: task.order })
+      }
+      const user = who(), back = tasks.map(clean)
       if (scope === 'personal') {
-        writePersonal(user, readPersonal(user).filter(task => task.id !== id))
+        const have = readPersonal(user), ids = new Set(have.map(task => task.id))
+        writePersonal(user, [...have.map(task => back.find(t => t.id === task.id) ?? task), ...back.filter(task => !ids.has(task.id))])
         return list()
       }
       await change(() => {
-        const file = join(tasksDir, `${id}.json`), old = readTask(file)
-        if (!old) return null
-        rmSync(file, { force: true })
-        return { path: `tasks/${id}.json`, message: `${user}: delete ${old.title}` }
+        mkdirSync(tasksDir, { recursive: true })
+        for (const task of back) writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
+        return { paths: back.map(task => `tasks/${task.id}.json`), message: `${user}: restore ${titles(back)}` }
       })
       return list()
     },
 
     /**
      * Private to shared (assigned to `assignee`, by default the user) or shared to private, keeping
-     * the id and dates. The task is written where it goes before it leaves where it was, and a step
-     * that fails puts back what it changed: a failed move leaves the task where it was, never nowhere.
+     * the id and dates; `order` places it in the list it goes to. The task is written where it goes
+     * before it leaves where it was, and a step that fails puts back what it changed: a failed move
+     * leaves the task where it was, never nowhere.
      */
-    async move(from: TaskScope, id: string, assignee?: Task['assignee']): Promise<TaskList> {
+    async move(from: TaskScope, id: string, assignee?: Task['assignee'], order?: number): Promise<TaskList> {
       if (!validId(id)) throw Error('Invalid task id')
       if (assignee !== undefined && assignee !== null && !ASSIGNEES.includes(assignee)) throw Error('Invalid assignee')
+      if (order !== undefined && !Number.isFinite(order)) throw Error('Invalid order')
+      const placed = order === undefined ? {} : { order }
       const user = who(), file = join(tasksDir, `${id}.json`), path = `tasks/${id}.json`
       // Set inside the git job; `as` keeps TypeScript from treating them as never assigned.
       let before = undefined as string | null | undefined, added = false as boolean
@@ -302,8 +356,8 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           await change(() => {
             before = existsSync(file) ? readFileSync(file, 'utf8') : null
             mkdirSync(tasksDir, { recursive: true })
-            writeFileSync(file, JSON.stringify({ ...task, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }, null, 2) + '\n', 'utf8')
-            return { path, message: `${user}: share ${task.title}` }
+            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }), null, 2) + '\n', 'utf8')
+            return { paths: [path], message: `${user}: share ${task.title}` }
           })
         } catch (err) {
           // Not committed: the next sync would commit the copy while the task is still private.
@@ -319,10 +373,10 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           const old = readTask(file)
           if (!old) throw Error('That task no longer exists.')
           before = readFileSync(file, 'utf8')
-          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), { ...old, assignee: null, updatedAt: romeIso(), updatedBy: user }])
+          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), clean({ ...old, ...placed, assignee: null, updatedAt: romeIso(), updatedBy: user })])
           added = true
           rmSync(file)
-          return { path, message: `${user}: make private ${old.title}` }
+          return { paths: [path], message: `${user}: make private ${old.title}` }
         })
       } catch (err) {
         // Not committed: the next sync would commit the delete as "save unsynced changes".

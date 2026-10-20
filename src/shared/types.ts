@@ -71,6 +71,8 @@ export interface Task {
   assignee: TasksUser | 'both' | null
   /** free text, e.g. ManyMotions, Abracadabrax, ResumeNext */
   product: string
+  /** Place in its list after a cut and paste; without it the task sorts by Date.parse(createdAt). */
+  order?: number
   /** ISO with the Europe/Rome offset */
   createdAt: string
   createdBy: string
@@ -94,7 +96,7 @@ export interface TaskList {
 }
 
 /** What the To-do sheet sends; the main process stamps the dates and authors. */
-export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product'>>
+export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product' | 'order'>>
 
 /** Assigned to me or to both, or unassigned and created by me. resources/terminai.cjs repeats it for --mine. */
 export function isMine(task: Task, user: string): boolean {
