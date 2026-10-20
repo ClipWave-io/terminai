@@ -10,7 +10,7 @@
   --todo-ink: color-mix(in srgb, var(--fg) 84%, transparent);
   position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box;
   background: var(--pane); color: var(--fg); border: 1px solid var(--border); border-radius: 14px; outline: none;
-  font-size: 14.5px; line-height: 1.45;
+  font-size: 13px; line-height: 1.38;
 }
 .todo-head, .todo-note { box-sizing: border-box; width: 100%; max-width: 1440px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
 .todo-head { flex: none; position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-top: 12px; padding-bottom: 8px; background: var(--pane); font-size: 12px; line-height: 1.3; }
@@ -23,20 +23,21 @@
 .todo-close:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); }
 .todo-note { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 4px; }
 .todo-note > * { flex: none; }
-.todo-note h1 { margin: 14px 0 14px; font-size: 21px; font-weight: 700; color: var(--todo-ink); }
-.todo-rule { margin: 0 0 12px; font-weight: 700; color: var(--todo-ink); }
+.todo-note h1 { margin: 8px 0 6px; font-size: 18px; font-weight: 700; color: var(--todo-ink); }
+.todo-rule { margin: 0 0 4px; font-weight: 700; color: var(--todo-ink); }
 /* Each column scrolls on its own, its @name staying on top. */
-.todo-note > .todo-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 36px; margin-top: 14px; }
-.todo-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 96px; }
-.todo-at { position: sticky; top: 0; z-index: 1; margin: 0; padding: 2px 0 10px; font-size: inherit; font-weight: 700; color: var(--todo-ink); background: var(--pane); }
+.todo-note > .todo-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; margin-top: 10px; }
+/* Each column is a card, so the three lists do not float on the page. */
+.todo-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.todo-at { position: sticky; top: 0; z-index: 1; margin: 0 -12px; padding: 10px 12px 6px; font-size: inherit; font-weight: 700; color: var(--todo-ink); background: var(--surface); border-bottom: 1px solid var(--border); }
 .todo-at.livio { color: var(--todo-matteo); }
 .todo-at.ilai { color: var(--todo-ilai); }
-.todo-sub { display: flex; align-items: center; gap: 5px; margin: 18px 0 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+.todo-sub { display: flex; align-items: center; gap: 5px; margin: 10px 0 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
 .todo-at + .todo-part > .todo-sub { margin-top: 4px; }
 .todo-lock { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; vertical-align: -1px; }
-.todo-done { margin-top: 30px; }
-.todo-done-head { margin: 0 0 10px; font-size: 13.5px; font-weight: 400; text-transform: uppercase; letter-spacing: .02em; color: var(--todo-ink); }
-.todo-done .todo-show-done { margin: 4px 0 0 29px; }
+.todo-done { margin-top: 16px; }
+.todo-done-head { margin: 0 0 6px; font-size: 11.5px; font-weight: 400; text-transform: uppercase; letter-spacing: .02em; color: var(--todo-ink); }
+.todo-done .todo-show-done { margin: 4px 0 0 24px; }
 .todo-muted { margin: 0; font-size: 13px; color: var(--dim); }
 .todo-show-done { font: inherit; font-size: 13px; padding: 0; color: var(--dim); background: none; border: 0; cursor: pointer; }
 .todo-show-done:hover { color: var(--fg); }
@@ -44,16 +45,16 @@
 
 .todo-check { list-style: none; margin: 0; padding: 0; }
 /* The right padding keeps the hover buttons off the text, so a click at the end of a line always lands in it. */
-.todo-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 4px 92px 4px 0; }
-.todo-circle { position: relative; flex: 0 0 auto; width: 19px; height: 19px; margin-top: 1px; padding: 0; box-sizing: border-box; border: 1.4px solid var(--todo-circle); border-radius: 50%; background: transparent; cursor: pointer; }
+.todo-row { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 2px 84px 2px 0; }
+.todo-circle { position: relative; flex: 0 0 auto; width: 16px; height: 16px; margin-top: 1px; padding: 0; box-sizing: border-box; border: 1.4px solid var(--todo-circle); border-radius: 50%; background: transparent; cursor: pointer; }
 button.todo-circle:hover { border-color: var(--dim); }
-.todo-circle svg { position: absolute; inset: -1.4px; width: 19px; height: 19px; opacity: 0; }
+.todo-circle svg { position: absolute; inset: -1.4px; width: 16px; height: 16px; opacity: 0; }
 .todo-circle path { fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .todo-circle.done, button.todo-circle.done:hover { border-color: var(--todo-yellow); background: var(--todo-yellow); }
 .todo-circle.done svg { opacity: 1; }
 /* Notes has no "doing": a dot in the circle and a grey word after the text. */
 .todo-circle.doing { border-color: var(--todo-yellow); }
-.todo-circle.doing::after { content: ''; position: absolute; inset: 3.5px; border-radius: 50%; background: var(--todo-yellow); }
+.todo-circle.doing::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--todo-yellow); }
 .todo-row.checking .todo-circle { animation: todo-pop .26s ease-out; }
 .todo-row.checking .todo-circle path { stroke-dasharray: 14; stroke-dashoffset: 14; animation: todo-tick .2s .06s ease-out forwards; }
 .todo-row.checking .todo-body { opacity: .55; transition: opacity .25s; }
@@ -62,17 +63,17 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-row.draft .todo-circle { opacity: .45; cursor: text; }
 .todo-row.pending { opacity: .5; }
 .todo-body { flex: 1; min-width: 0; }
-.todo-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; min-height: 21px; cursor: text; }
+.todo-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; min-height: 18px; cursor: text; }
 .todo-text { field-sizing: content; min-width: 4ch; max-width: 100%; margin: 0; padding: 0; font: inherit; line-height: inherit; color: inherit; background: transparent; border: 0; outline: none; resize: none; overflow: hidden; overflow-wrap: anywhere; }
 .todo-text::placeholder { color: var(--dim); }
-.todo-tag { font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+.todo-tag { font-size: 10.5px; color: var(--dim); white-space: nowrap; }
 .todo-tag.doing { font-style: italic; }
-.todo-note-text, .todo-notes { display: block; margin: 1px 0 2px; font-size: 12.5px; line-height: 1.45; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.todo-note-text, .todo-notes { display: block; margin: 0 0 1px; font-size: 11.5px; line-height: 1.35; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
 .todo-note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; cursor: text; outline: none; }
 .todo-notes { field-sizing: content; width: 100%; min-height: 18px; padding: 0; font-family: inherit; background: transparent; border: 0; outline: none; resize: none; }
-.todo-actions { position: absolute; top: 4px; right: 0; display: flex; gap: 2px; opacity: 0; }
+.todo-actions { position: absolute; top: 2px; right: 0; display: flex; gap: 2px; opacity: 0; }
 .todo-row:hover .todo-actions, .todo-row:focus-within .todo-actions { opacity: 1; }
-.todo-icon { height: 21px; padding: 0 5px; font: inherit; font-size: 11.5px; letter-spacing: .04em; color: var(--dim); background: none; border: 0; border-radius: 6px; cursor: pointer; }
+.todo-icon { height: 18px; padding: 0 5px; font: inherit; font-size: 11.5px; letter-spacing: .04em; color: var(--dim); background: none; border: 0; border-radius: 6px; cursor: pointer; }
 .todo-icon:hover, .todo-icon:focus-visible { color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); outline: none; }
 .todo-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 2px; font-size: 12.5px; color: var(--danger); }
 .todo-confirm button { font: inherit; padding: 1px 9px; color: var(--fg); background: transparent; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
@@ -101,6 +102,6 @@ button.todo-circle:hover { border-color: var(--dim); }
   .todo-sheet { display: block; overflow: auto; }
   .todo-note { display: block; padding-bottom: 96px; }
   .todo-note > .todo-cols { display: block; margin-top: 0; }
-  .todo-col { overflow: visible; padding-bottom: 0; scroll-margin-top: 48px; }
-  .todo-at { position: static; margin: 28px 0 0; padding-top: 0; background: none; }
+  .todo-col { overflow: visible; padding-bottom: 12px; margin-bottom: 12px; scroll-margin-top: 48px; }
+  .todo-at { position: static; }
 }
