@@ -136,6 +136,8 @@ body {
 }
 
 .rail-group-head {
+  /* Draggable, so it must not be part of the window's drag region. */
+  -webkit-app-region: no-drag;
   padding: 2px 8px 4px;
   font-size: 10px;
   font-weight: 700;
@@ -178,6 +180,18 @@ body {
 
 .tab.dragging {
   opacity: 0.45;
+}
+.rail-group.dragging {
+  opacity: 0.5;
+}
+/* Where the folder will land if dropped here. */
+.rail-group.dropping .rail-group-head {
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+/* A named session reads as deliberate; the automatic title stays lighter. */
+.tab-title.named {
+  font-weight: 650;
 }
 
 /* Where the tab will land if dropped here. */

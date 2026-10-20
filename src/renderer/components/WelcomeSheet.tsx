@@ -17,7 +17,8 @@ const TOUR: { title: string; blurb: string; keys: [string, string][] }[] = [
     blurb:
       'Every tab is its own shell in its own folder. The dot beside each one tracks what it is doing — green is idle, yellow is working, blue is waiting on you.',
     keys: [
-      ['⌘T', 'New tab'],
+      ['⌘T / ⌘N', 'New tab'],
+      ['⇧⌘T', 'Reopen the tab you just closed'],
       ['⇧⌘O', 'New tab in a folder you pick'],
       ['⌘S', 'Show or hide the sidebar'],
     ],

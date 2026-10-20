@@ -115,6 +115,11 @@ export function groupOf(tab: { group?: string; cwd: string }): string {
   return tab.group || tab.cwd
 }
 
+/** The name its owner gave the session; until then, the title the terminal sets for itself. */
+export function tabLabel(tab: { customTitle?: string; title: string }): string {
+  return tab.customTitle || tab.title
+}
+
 export interface TabInfo {
   id: string
   title: string

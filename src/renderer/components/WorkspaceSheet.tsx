@@ -3,13 +3,14 @@ import type { JSX } from 'react'
 import { DEFAULT_WORKSPACE_URL } from '../../shared/workspace'
 import type { McpSetupResult, WorkspaceState } from '../../shared/workspace'
 import { snapshot } from '../snapshots'
+import { tabLabel } from '../../shared/types'
 import './workspace.css'
 
 type Conversation = { id: string; title: string; visibility: string; ownerId?: string; owner_id?: string }
 type Message = { id: string; content: string; kind: string; authorName?: string; author_name?: string }
 const items = <T,>(value: any): T[] => Array.isArray(value) ? value : value?.items ?? value?.conversations ?? value?.messages ?? value?.catalog ?? []
 
-export function WorkspaceSheet({ activeTab, onClose }: { activeTab?: { id: string; title: string }; onClose: () => void }): JSX.Element {
+export function WorkspaceSheet({ activeTab, onClose }: { activeTab?: { id: string; title: string; customTitle?: string }; onClose: () => void }): JSX.Element {
   const [state, setState] = useState<WorkspaceState>({ url: '', signedIn: false })
   const [url, setUrl] = useState(DEFAULT_WORKSPACE_URL)
   const [email, setEmail] = useState('')
@@ -80,7 +81,7 @@ export function WorkspaceSheet({ activeTab, onClose }: { activeTab?: { id: strin
       inFlight = true
       try {
         await window.term.workspace.request(`${base}/conversations/${selected}/messages`, 'POST', {
-          content: `Terminal snapshot — ${activeTab.title}\n\n${text}`, kind: 'note', clientMessageId: crypto.randomUUID(),
+          content: `Terminal snapshot — ${tabLabel(activeTab)}\n\n${text}`, kind: 'note', clientMessageId: crypto.randomUUID(),
         })
         lastSnapshot.current = text
       } catch (err) { fail(err); setSharing(false) }
@@ -101,7 +102,7 @@ export function WorkspaceSheet({ activeTab, onClose }: { activeTab?: { id: strin
   async function create(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError('')
     try {
-      const result = await window.term.workspace.request(`${base}/conversations`, 'POST', { title: title || activeTab?.title || 'New conversation', visibility })
+      const result = await window.term.workspace.request(`${base}/conversations`, 'POST', { title: title || (activeTab && tabLabel(activeTab)) || 'New conversation', visibility })
       const row: Conversation = result.conversation ?? result
       if (context.current.company !== company) return
       setConversations(value => [row, ...value]); setSelected(row.id); setTitle('')
@@ -132,11 +133,11 @@ export function WorkspaceSheet({ activeTab, onClose }: { activeTab?: { id: strin
       <div className="team-account"><span>{state.identity?.user.name}</span><select aria-label="Company" value={company} onChange={event => setCompany(event.target.value)}>{state.identity?.companies.map(row => <option key={row.id} value={row.id}>{row.name} · {row.classification}</option>)}</select><button className="btn" onClick={() => { setSharing(false); void window.term.workspace.logout().catch(fail).finally(() => { setState({ url, signedIn: false }); setCompany(''); setMessages([]); setConversations([]); setTools([]) }) }}>Sign out</button></div>
       {tools.length > 0 && <details className="team-tools"><summary>Tools for your role</summary>{tools.map(tool => <p key={tool.id}><strong>{tool.id}</strong> · {tool.message}</p>)}</details>}
       <div className="team-columns"><aside>
-        <form onSubmit={create}><label>New conversation<input value={title} onChange={event => setTitle(event.target.value)} placeholder={activeTab?.title || 'Conversation title'} maxLength={160} /></label><select aria-label="Conversation visibility" value={visibility} onChange={event => setVisibility(event.target.value)}><option value="owner">Only me</option>{membership?.allowCompanySharing && <option value="company">Company</option>}</select><button className="btn" disabled={busy || !company || membership?.role === 'viewer'}>Create</button></form>
+        <form onSubmit={create}><label>New conversation<input value={title} onChange={event => setTitle(event.target.value)} placeholder={(activeTab && tabLabel(activeTab)) || 'Conversation title'} maxLength={160} /></label><select aria-label="Conversation visibility" value={visibility} onChange={event => setVisibility(event.target.value)}><option value="owner">Only me</option>{membership?.allowCompanySharing && <option value="company">Company</option>}</select><button className="btn" disabled={busy || !company || membership?.role === 'viewer'}>Create</button></form>
         <nav aria-label="Conversations">{conversations.map(row => <button key={row.id} className={`team-conversation ${selected === row.id ? 'selected' : ''}`} onClick={() => setSelected(row.id)}>{row.title}<small>{row.visibility === 'company' ? 'Shared with company' : 'Private'}</small></button>)}</nav>
       </aside><div className="team-thread">{selected ? <>
         <h3>{activeConversation?.title}</h3>
-        {ownConversation && activeTab && <label className="team-share"><input type="checkbox" checked={sharing} onChange={event => setSharing(event.target.checked)} />Share visible output from “{activeTab.title}” while this panel is open. Anyone with access to this conversation can read it.</label>}
+        {ownConversation && activeTab && <label className="team-share"><input type="checkbox" checked={sharing} onChange={event => setSharing(event.target.checked)} />Share visible output from “{tabLabel(activeTab)}” while this panel is open. Anyone with access to this conversation can read it.</label>}
         <div className="team-messages" aria-live="polite">{messages.map(message => <article key={message.id}><small>{message.authorName || message.author_name || message.kind}</small><pre>{message.content}</pre></article>)}{!messages.length && <p className="team-muted">Start a conversation or share the visible output of your session.</p>}</div>
         {membership?.role !== 'viewer' && <form className="team-compose" onSubmit={send}><textarea aria-label="Message" value={draft} onChange={event => setDraft(event.target.value)} maxLength={16000} placeholder="Ask a teammate or share an update…" /><button className="btn primary" disabled={busy || !draft.trim()}>Send</button></form>}
         <p className="team-muted">Messages appear here; they are never executed in another person’s terminal.</p>

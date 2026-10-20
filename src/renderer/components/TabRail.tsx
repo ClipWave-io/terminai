@@ -1,12 +1,15 @@
-import { useState } from 'react'
-import { groupOf, type TabInfo, type TabStatus } from '../../shared/types'
+import { useRef, useState } from 'react'
+import { groupOf, tabLabel, type TabInfo, type TabStatus } from '../../shared/types'
 import type { JSX } from 'react'
 
 interface Props {
   filter: string
   filterOpen: boolean
   onFilter: (value: string) => void
-  onRename: (id: string, title: string) => void
+  /** Escape in the filter, or Enter once it has picked a session */
+  onFilterClose: () => void
+  /** an empty name hands the row back to the terminal's own title */
+  onRename: (id: string, name: string) => void
   onReorderGroups: (from: string, to: string) => void
   tabs: TabInfo[]
   activeId: string | null
@@ -38,6 +41,10 @@ function dotClass(tab: TabInfo, speaking: boolean): string {
   return `tab-dot ${tab.status}`
 }
 
+// Dragged folder headers carry this; rows check for it so the two drags never
+// answer each other's drops.
+const GROUP_MIME = 'application/terminai-group'
+
 const DOT_TITLE: Record<TabStatus, string> = {
   ready: 'Idle — nothing running',
   working: 'Working…',
@@ -46,7 +53,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
 }
 
 export function TabRail({
-  tabs, filter, filterOpen, onFilter, onRename, onReorderGroups,
+  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onReorderGroups,
   activeId,
   speakingId,
   width,
@@ -60,11 +67,18 @@ export function TabRail({
 }: Props): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
-  const commitTitle = (id: string) => { const title=draftTitle.trim(); if(title)onRename(id,title); setEditingId(null) }
+  // Escape unmounts the field, and the blur that can follow must not save what Escape dropped.
+  const editDone = useRef(false)
+  const startEdit = (tab: TabInfo) => { editDone.current = false; setEditingId(tab.id); setDraftTitle(tabLabel(tab)) }
+  const endEdit = (id: string, save: boolean) => { if (editDone.current) return; editDone.current = true; if (save) onRename(id, draftTitle.trim()); setEditingId(null) }
   const [dragGroup, setDragGroup] = useState<string | null>(null)
-  const matches = (tab: TabInfo) => !filter || `${tab.title} ${tab.cwd} ${tab.group ?? ''}`.toLowerCase().includes(filter.toLowerCase())
+  const [overGroup, setOverGroup] = useState<string | null>(null)
+  const matches = (tab: TabInfo) => !filter || `${tabLabel(tab)} ${tab.cwd} ${tab.group ?? ''}`.toLowerCase().includes(filter.toLowerCase())
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
+  // The dragged row's bucket, read during dragover where state from the same gesture can still be stale.
+  const dragKey = useRef<string | null>(null)
+  const clearDrag = () => { setDragFrom(null); setDragOver(null); setDragGroup(null); setOverGroup(null); dragKey.current = null }
 
   // Buckets in first-appearance order, so turning grouping on rearranges as
   // little as possible: the folder you were just in stays near the top.
@@ -91,43 +105,46 @@ export function TabRail({
         .join(' ')}
       // Grouping *is* the order while it is on: a row dragged across
       // folders would snap straight back when the buckets re-form.
-      draggable
+      draggable={editingId !== tab.id}
       onDragStart={(e) => {
         // Chromium refuses to start a drag whose dataTransfer is empty,
         // which is why `draggable` alone did nothing here.
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('text/plain', String(i))
+        dragKey.current = groupOf(tab)
         setDragFrom(i)
       }}
       onDragOver={(e) => {
+        // Only a row of this rail lands here: not a folder header, not a file from Finder.
+        if (e.dataTransfer.types.includes(GROUP_MIME) || dragKey.current === null) return
+        // Grouped, a session only moves inside its own bucket.
+        if (grouped && dragKey.current !== groupOf(tab)) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
         setDragOver(i)
       }}
-      onDragEnd={() => {
-        setDragFrom(null)
-        setDragOver(null)
-      }}
+      onDragEnd={clearDrag}
       onDrop={(e) => {
+        if (e.dataTransfer.types.includes(GROUP_MIME)) return
         e.preventDefault()
         // Prefer the payload over React state: selecting the tab on
-        // mousedown re-renders mid-drag and can lose it.
-        const carried = Number(e.dataTransfer.getData('text/plain'))
-        const from = Number.isInteger(carried) ? carried : dragFrom
+        // mousedown re-renders mid-drag and can lose it. An empty payload is
+        // not row 0.
+        const carried = e.dataTransfer.getData('text/plain')
+        const from = /^\d+$/.test(carried) ? Number(carried) : dragFrom
         if (from !== null && from !== i) onReorder(from, i)
-        setDragFrom(null)
-        setDragOver(null)
+        clearDrag()
       }}
       onMouseDown={() => onSelect(tab.id)}
-      onDoubleClick={() => { setEditingId(tab.id); setDraftTitle(tab.title) }}
-      title={`${tab.title}\n${tab.cwd}`}
+      onDoubleClick={() => startEdit(tab)}
+      title={`${tabLabel(tab)}\n${tab.cwd}\nDouble-click to rename`}
     >
       <span
         className={dotClass(tab, tab.id === speakingId)}
         title={tab.id === speakingId ? 'Speaking its summary' : DOT_TITLE[tab.status]}
       />
       <span className="tab-body">
-        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus maxLength={100} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>commitTitle(tab.id)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')commitTitle(tab.id);if(e.key==='Escape')setEditingId(null)}}/> : <div className="tab-title">{tab.title}</div>}
+        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tabLabel(tab)}</div>}
         <div className="tab-cwd">{shortCwd(tab.cwd)}</div>
       </span>
       <button
@@ -148,12 +165,14 @@ export function TabRail({
       {/* leaves room for the traffic lights and drags the window */}
       <div className="rail-top" />
 
-      {filterOpen && <input className="rail-filter no-drag" aria-label="Filter sessions" autoFocus value={filter} onChange={e=>onFilter(e.target.value)} placeholder="Find session or folder…"/>}
+      {/* Keys stay in the field: the window shortcuts must not fire while typing here. */}
+      {filterOpen && <input className="rail-filter no-drag" aria-label="Filter sessions" autoFocus value={filter} onChange={e=>onFilter(e.target.value)} onFocus={e=>e.target.select()} onKeyDown={e=>{e.stopPropagation();if(e.key==='Escape')onFilterClose();if(e.key==='Enter'){const first=tabs.find(matches);if(first)onSelect(first.id);onFilterClose()}}} placeholder="Find session or folder…"/>}
       <div className="rail-scroll">
         {grouped
           ? groups.map((g) => (
-              <div key={g.key} className="rail-group">
-                <div className="rail-group-head" title={g.key} draggable onDragStart={e=>{e.stopPropagation();setDragGroup(g.key);e.dataTransfer.setData('application/terminai-group',g.key)}} onDragOver={e=>{if(dragGroup)e.preventDefault()}} onDrop={e=>{e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData('application/terminai-group');if(from)onReorderGroups(from,g.key);setDragGroup(null)}} onDragEnd={()=>setDragGroup(null)}>
+              <div key={g.key} className={['rail-group', dragGroup === g.key ? 'dragging' : '', overGroup === g.key && dragGroup !== null && dragGroup !== g.key ? 'dropping' : ''].filter(Boolean).join(' ')}>
+                {/* Only another folder lands on a header, never a single session. */}
+                <div className="rail-group-head" title={`${g.key}\nDrag to move this folder`} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';e.dataTransfer.setData(GROUP_MIME,g.key);setDragGroup(g.key)}} onDragOver={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.dataTransfer.dropEffect='move';setOverGroup(g.key)}} onDrop={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData(GROUP_MIME)||dragGroup;if(from&&from!==g.key)onReorderGroups(from,g.key);clearDrag()}} onDragEnd={clearDrag}>
                   {g.name || shortCwd(g.key) || '/'}
                 </div>
                 {g.tabs.map(({ tab, i }) => row(tab, i))}

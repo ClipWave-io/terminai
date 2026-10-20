@@ -17,6 +17,7 @@ import * as snapshots from './snapshots'
 import {
   DEFAULT_PREFS,
   groupOf,
+  tabLabel,
   RAIL_MIN,
   RAIL_MAX,
   RAIL_DEFAULT,
@@ -192,7 +193,7 @@ export function App(): JSX.Element {
       id, browserKey,
       customTitle: restore?.customTitle || restore?.name, group: restore?.group,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
-      title: restore?.customTitle || restore?.name || restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
+      title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
       process: '',
       status: 'ready',
@@ -234,7 +235,7 @@ export function App(): JSX.Element {
         customTitle: restore?.customTitle || restore?.name, group: restore?.group,
       browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
-      title: restore?.customTitle || restore?.name || restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
+      title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
         cwd: live.cwd,
         process: '',
         status: 'ready',
@@ -266,15 +267,20 @@ export function App(): JSX.Element {
   }, [])
 
   const closeTab = useCallback(async (id: string) => {
-    const agent = await window.term.pty.agent(id)
-    if (agent.alive) setConfirmClose({ id, kind: agent.kind })
+    // A failed look at the agent must not leave the tab stuck open.
+    const agent = await window.term.pty.agent(id).catch(() => null)
+    if (agent?.alive) setConfirmClose({ id, kind: agent.kind })
     else dropTab(id)
   }, [dropTab])
 
   // Restore the previous session's tabs, or open one in $HOME on a first run.
   const reopenTab = useCallback(async () => {
     const saved = closedTabs.current.shift()
-    if (!saved) return
+    if (!saved) {
+      setToast('Nothing to reopen')
+      setTimeout(() => setToast(null), 2500)
+      return
+    }
     const live = saved.ptyId ? await window.term.pty.unclose(saved.ptyId) : null
     if (live) adoptTab(live, saved); else await newTab(saved.cwd, saved)
   }, [adoptTab, newTab])
@@ -430,6 +436,9 @@ export function App(): JSX.Element {
           prev.map((t) => {
             const s = seen.find((x) => x.id === t.id)
             if (!s) return t
+            // A tab that switched between Claude and Codex must not carry the other one's session id.
+            const agent = s.agent.kind || t.agent
+            const agentSession = s.agent.sessionId || (agent === t.agent ? t.agentSession : '')
             const changed = !!s.agent.kind ||
               s.process !== t.process ||
               s.cwd !== t.cwd ||
@@ -442,7 +451,7 @@ export function App(): JSX.Element {
                   process: s.process,
                   cwd: s.cwd,
                   status: s.status,
-                  agent: s.agent.kind || t.agent, agentSession: s.agent.sessionId || t.agentSession, agentArgs: s.agent.kind ? s.agent.args : t.agentArgs,
+                  agent, agentSession, agentArgs: s.agent.kind ? s.agent.args : t.agentArgs,
                   usedClaude: s.usedClaude,
                   claudeSession: s.claudeSession || t.claudeSession,
                 }
@@ -458,7 +467,8 @@ export function App(): JSX.Element {
   const setTitle = useCallback((id: string, title: string) => {
     const clean = title.trim()
     if (!clean) return
-    setTabs((prev) => prev.map((t) => (t.id === id && !t.customTitle ? { ...t, title: clean } : t)))
+    // Always kept, under any name the session was given: clearing the name brings it back.
+    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title: clean } : t)))
   }, [])
 
   // ---- voice -------------------------------------------------------------
@@ -591,7 +601,8 @@ export function App(): JSX.Element {
       }
 
       if (e.key.toLowerCase() === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); return }
-      if (e.key.toLowerCase() === 'f') { e.preventDefault(); if (prefs.railHidden) patchPrefs({ railHidden: false }); setFilterOpen(v=>!v); return }
+      // Opens, never closes (Escape in the field does that); pressed again it takes the field back.
+      if (e.key.toLowerCase() === 'f') { e.preventDefault(); if (prefs.railHidden) patchPrefs({ railHidden: false }); setFilterOpen(true); const field = document.querySelector<HTMLInputElement>('.rail-filter'); field?.focus(); field?.select(); return }
       switch (e.key) {
         // ⌘N as in Livio's build: a new tab in the current folder, like ⌘T.
         case 'n':
@@ -692,12 +703,13 @@ export function App(): JSX.Element {
           <TabRail
             tabs={tabs}
             filter={filterOpen ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
-            onRename={(id,title)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,title,customTitle:title}:t))}
+            onRename={(id,name)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,customTitle:name||undefined}:t))}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
             activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}
             width={railWidth}
-            onSelect={id=>{if(id===activeId)toggleTerminal();else setActiveId(id)}}
+            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal')}}
+            onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
@@ -746,7 +758,7 @@ export function App(): JSX.Element {
           <span className="topbar-spacer" />
           {showTodos && <div id="todo-topbar-slot" className="todo-topbar-slot no-drag" />}
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
-          {!showTodos && <span className="topbar-title centered">{tabs.find(t => t.id === activeId)?.title ?? ''}</span>}
+          {!showTodos && <span className="topbar-title centered">{(() => { const tab = tabs.find(t => t.id === activeId); return tab ? tabLabel(tab) : '' })()}</span>}
           {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag" aria-label="To-do" title="To-do" aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" /></button>}
           {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
           {!prefs.hiddenToolbarItems.includes('sessions') && <button

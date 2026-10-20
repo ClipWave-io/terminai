@@ -33,9 +33,11 @@ const SHORTCUTS: { group: string; items: [string, string][] }[] = [
   {
     group: 'Tabs',
     items: [
-      ['⌘T', 'New tab'],
+      ['⌘T / ⌘N', 'New tab'],
       ['⇧⌘O', 'Open a folder in a new tab'],
       ['⌘W', 'Close tab'],
+      ['⇧⌘T', 'Reopen the tab you just closed'],
+      ['⌘F', 'Filter sessions'],
       ['⌃⇥ / ⌃⇧⇥', 'Cycle forward / back'],
       ['⌘[ / ⌘]', 'Previous / next tab'],
       ['⌘1–⌘9', 'Jump to tab by position'],

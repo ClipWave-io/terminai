@@ -29,7 +29,7 @@ function shellQuote(path: string): string {
 
 let lastLink = { uri: '', at: 0 }
 function openLink(uri: string) {
-  if (!/^(https?|mailto):/i.test(uri)) return
+  if (!/^(https?|mailto|file):/i.test(uri)) return
   if (uri === lastLink.uri && Date.now() - lastLink.at < 500) return
   lastLink = { uri, at: Date.now() }; window.open(uri)
 }

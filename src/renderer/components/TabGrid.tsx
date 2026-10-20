@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { TabInfo } from '../../shared/types'
+import { tabLabel, type TabInfo } from '../../shared/types'
 import * as snapshots from '../snapshots'
 
 interface Props {
@@ -184,7 +184,7 @@ export function TabGrid({
                   {/* Same live status dot as the sidebar — green/yellow/blue —
                       not the process-name colour, which never had CSS here. */}
                   <span className={`tab-dot ${tab.exited ? 'exited' : tab.status}`} />
-                  <span className="card-title">{tab.title}</span>
+                  <span className="card-title">{tabLabel(tab)}</span>
                   <button
                     className="tab-close"
                     onClick={(e) => {

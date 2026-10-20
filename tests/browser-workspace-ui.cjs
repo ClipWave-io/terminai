@@ -16,7 +16,8 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
  assert.equal(win.contentView.children[0].getVisible(),true);
  assert.equal(await js(`document.querySelectorAll('.workspace-tabs button').length`),3);
  const ptysBefore=await js(`window.term.pty.list().then(tabs=>tabs.map(tab=>tab.id))`);
- await js(`document.querySelector('.tab').dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))`);await delay(200);
+ // The top bar's Terminal icon hides the selected coding pane; a click on its row only ever shows it (as in Livio's build).
+ await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(200);
  assert.equal(await js(`getComputedStyle(document.querySelector('.workspace > .pane')).display`),'none');
  assert.equal(win.contentView.children[0].getVisible(),true);
  assert.equal(await js(`document.querySelector('.workspace-tabs').parentElement.className`),'topbar');
@@ -85,7 +86,7 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
  await js(`const terminalButton=document.querySelector('.workspace-tabs [aria-label="Terminal"]');if(terminalButton.getAttribute('aria-pressed')!=='true')terminalButton.click()`);await delay(200);
  assert.notEqual(await js(`getComputedStyle(document.querySelector('.workspace > .pane')).display`),'none');
  assert.equal(win.contentView.children.some(view=>view.getVisible()),false);
- await js(`document.querySelector('.tab').dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))`);await delay(200);
+ await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(200);
  assert.equal(await js(`getComputedStyle(document.querySelector('.workspace > .pane')).display`),'none');
  assert.equal(await js(`document.querySelector('.workspace-tabs [aria-label="Browser"]').getAttribute('aria-pressed')`),'true');
  assert.deepEqual(await js(`window.term.pty.list().then(tabs=>tabs.map(tab=>tab.id))`),ptysBefore);
