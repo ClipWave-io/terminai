@@ -102,7 +102,8 @@ function createWindow(): void {
   })
   win.on('enter-full-screen', () => win?.webContents.send('window:fullscreen', true))
   win.on('leave-full-screen', () => win?.webContents.send('window:fullscreen', false))
-  win.once('ready-to-show', () => win?.show())
+  // A test build must not take focus from the real app the user is typing in.
+  win.once('ready-to-show', () => process.env.TERMINAI_TEST_BUILD ? win?.showInactive() : win?.show())
 
   // Links in terminal output open in the real browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {

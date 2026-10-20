@@ -614,6 +614,75 @@ input[type='range'] {
   min-width: 132px;
 }
 
+/* ---------- crash recovery ---------- */
+
+.sheet.recovery {
+  width: 520px;
+}
+
+.recovery-list {
+  max-height: 44vh;
+  overflow-y: auto;
+  margin: 10px 0 14px;
+  border-top: 1px solid var(--border);
+}
+
+.recovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.recovery-main {
+  min-width: 0;
+}
+
+.recovery-title {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recovery-cwd {
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recovery-badge {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--dim);
+}
+
+.recovery-badge.claude,
+.recovery-badge.codex {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.recovery-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.recovery-actions .btn {
+  flex: 0 0 auto;
+}
+
 /* ---------- first-run welcome ---------- */
 
 .sheet.welcome {

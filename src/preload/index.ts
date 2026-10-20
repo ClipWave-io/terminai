@@ -49,7 +49,7 @@ const api = {
     close: (id: string): void => ipcRenderer.send('pty:close', { id }),
     unclose: (id: string): Promise<{id: string; cwd: string; exited: boolean} | null> => ipcRenderer.invoke('pty:unclose', { id }),
     agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),
-    resumeCommand: (desc: {kind: string; sessionId?: string; args?: string[]}): Promise<string> => ipcRenderer.invoke('pty:resumeCommand', desc),
+    resumeCommand: (desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string> => ipcRenderer.invoke('pty:resumeCommand', desc),
     exec: (id: string, cmd: string): void => ipcRenderer.send('pty:exec', { id, cmd }),
     create: (opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),

@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# A test build (TerminAI Test) must never replace or kill the installed app.
+[ -z "${TERMINAI_TEST_BUILD:-}" ] || { echo "apply.sh is disabled inside a test build" >&2; exit 1; }
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 

@@ -8,6 +8,8 @@ import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
 import { WelcomeSheet } from './components/WelcomeSheet'
 import { WorkspaceSheet } from './components/WorkspaceSheet'
+import { RecoverySheet } from './components/RecoverySheet'
+import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
 import { getTheme, nextTheme } from '../shared/themes'
 import {
@@ -122,6 +124,10 @@ export function App(): JSX.Element {
   const [filter, setFilter] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
   const [showGrid, setShowGrid] = useState(false)
+  // Tabs from a run that never quit cleanly, waiting for the user's say-so.
+  const [recovery, setRecovery] = useState<SavedTab[] | null>(null)
+  // Tab whose close is waiting on the user: an agent is still running in it.
+  const [confirmClose, setConfirmClose] = useState<{ id: string; kind: string } | null>(null)
 
   // Kept in refs so the global key handler never closes over stale state.
   const tabsRef = useRef<TabInfo[]>([])
@@ -201,7 +207,7 @@ export function App(): JSX.Element {
     const kind = restore?.agent || (restore?.claude ? 'claude' : '')
     if (kind && restore) {
       const sessionId = restore.agentSession || restore.claudeSession || ''
-      const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs })
+      const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs, cwd: realCwd })
       setTabs(prev => prev.map(t=>t.id===id?{...t, agent:kind, agentSession:sessionId, agentArgs:restore.agentArgs||[]}:t))
       window.term.pty.exec(id, cmd)
     }
@@ -238,9 +244,7 @@ export function App(): JSX.Element {
     setActiveId(live.id)
   }, [])
 
-  const closeTab = useCallback(async (id: string) => {
-    const agent = await window.term.pty.agent(id)
-    if (agent.alive && !window.confirm('An agent is still running in this tab. Close it? You can reopen it with ⇧⌘T.')) return
+  const dropTab = useCallback((id: string) => {
     const tab = tabsRef.current.find(t=>t.id===id)
     if (tab) closedTabs.current = [{...tab, ptyId: tab.id, claude: tab.usedClaude}, ...closedTabs.current].slice(0,10)
     window.term.pty.close(id)
@@ -255,6 +259,12 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  const closeTab = useCallback(async (id: string) => {
+    const agent = await window.term.pty.agent(id)
+    if (agent.alive) setConfirmClose({ id, kind: agent.kind })
+    else dropTab(id)
+  }, [dropTab])
+
   // Restore the previous session's tabs, or open one in $HOME on a first run.
   const reopenTab = useCallback(async () => {
     const saved = closedTabs.current.shift()
@@ -263,6 +273,39 @@ export function App(): JSX.Element {
     if (live) adoptTab(live, saved); else await newTab(saved.cwd, saved)
   }, [adoptTab, newTab])
 
+  const restoreTabs = useCallback(async (savedTabs: SavedTab[], live: Map<string, { id: string; cwd: string }>) => {
+    const taken = new Set<string>()
+
+    // Tabs saved before the app learned to mint session ids have none, and
+    // `--continue` would put every one of them on the newest conversation in
+    // the folder. Deal them the folder's conversations instead, newest to the
+    // tab nearest the top, so each comes back somewhere different.
+    const needIds = savedTabs.filter((t) => t.claude && !t.claudeSession)
+    const dealt = new Map<SavedTab, string>()
+    for (const cwd of new Set(needIds.map((t) => t.cwd))) {
+      const forCwd = needIds.filter((t) => t.cwd === cwd)
+      const ids = await window.term.pty.recentSessions(cwd, forCwd.length)
+      forCwd.forEach((t, i) => ids[i] && dealt.set(t, ids[i]))
+    }
+
+    for (const raw of savedTabs) {
+      const t = dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw
+      const running = t.ptyId ? live.get(t.ptyId) : undefined
+      if (running) {
+        taken.add(running.id)
+        adoptTab(running, t)
+      } else {
+        await newTab(t.cwd, t)
+      }
+    }
+
+    // A session with no saved tab: opened and then closed out of prefs, or
+    // prefs lost. Still a running shell, so surface it rather than orphan it.
+    for (const s of live.values()) if (!taken.has(s.id)) adoptTab(s)
+
+    if (!savedTabs.length && !live.size) await newTab()
+  }, [newTab, adoptTab])
+
   const bootstrapped = useRef(false)
   useEffect(() => {
     if (!ready || bootstrapped.current) return
@@ -270,43 +313,17 @@ export function App(): JSX.Element {
     void (async () => {
       // Shells outlive the window on macOS, so prefer adopting one over
       // restarting it. After a real quit this list is empty and every tab
-      // takes the spawn-and-resume path below.
+      // takes the spawn-and-resume path in restoreTabs.
       const live = new Map((await window.term.pty.list()).map((s) => [s.id, s]))
       const launch = await window.term.app.launch()
-      if (launch.crashed && prefs.tabs.length && !live.size && !window.confirm('TerminAI did not quit cleanly. Restore your saved sessions? Choose Cancel to start a fresh shell.')) { await newTab(); setRestored(true); return }
-      const taken = new Set<string>()
-
-      // Tabs saved before the app learned to mint session ids have none, and
-      // `--continue` would put every one of them on the newest conversation in
-      // the folder. Deal them the folder's conversations instead, newest to the
-      // tab nearest the top, so each comes back somewhere different.
-      const needIds = prefs.tabs.filter((t) => t.claude && !t.claudeSession)
-      const dealt = new Map<SavedTab, string>()
-      for (const cwd of new Set(needIds.map((t) => t.cwd))) {
-        const forCwd = needIds.filter((t) => t.cwd === cwd)
-        const ids = await window.term.pty.recentSessions(cwd, forCwd.length)
-        forCwd.forEach((t, i) => ids[i] && dealt.set(t, ids[i]))
-      }
-
-      for (const raw of prefs.tabs) {
-        const t = dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw
-        const running = t.ptyId ? live.get(t.ptyId) : undefined
-        if (running) {
-          taken.add(running.id)
-          adoptTab(running, t)
-        } else {
-          await newTab(t.cwd, t)
-        }
-      }
-
-      // A session with no saved tab: opened and then closed out of prefs, or
-      // prefs lost. Still a running shell, so surface it rather than orphan it.
-      for (const s of live.values()) if (!taken.has(s.id)) adoptTab(s)
-
-      if (!prefs.tabs.length && !live.size) await newTab()
+      // The last run never said goodbye (crash, force quit, reboot): ask before
+      // spinning every session back up. Tabs are not persisted until restored,
+      // so an unanswered prompt cannot wipe the list it is offering.
+      if (launch.crashed && prefs.tabs.length && !live.size) { setRecovery(prefs.tabs); return }
+      await restoreTabs(prefs.tabs, live)
       setRestored(true)
     })()
-  }, [ready, prefs.tabs, newTab, adoptTab])
+  }, [ready, prefs.tabs, restoreTabs])
 
   // Persist the tab set. Keyed on the saved fields alone: `tabs` also carries
   // live status, which changes several times a second, and writing prefs.json
@@ -316,6 +333,8 @@ export function App(): JSX.Element {
     cwd: t.cwd,
     title: t.title,
     customTitle: t.customTitle,
+    // The name field older builds read and wrote, kept so prefs stay interchangeable.
+    name: t.customTitle,
     browserKey: t.browserKey || t.id,
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
     notes: t.notes,
@@ -792,6 +811,39 @@ export function App(): JSX.Element {
           }}
         />
       )}
+
+      {recovery && (
+        <RecoverySheet
+          tabs={recovery}
+          onResume={() => {
+            const list = recovery
+            setRecovery(null)
+            void restoreTabs(list, new Map()).then(() => setRestored(true))
+          }}
+          onDiscard={() => {
+            setRecovery(null)
+            void newTab().then(() => setRestored(true))
+          }}
+        />
+      )}
+
+      {confirmClose && (() => {
+        const tab = tabs.find((t) => t.id === confirmClose.id)
+        return (
+          <CloseSheet
+            name={tab?.customTitle || tab?.title || tab?.cwd.split('/').filter(Boolean).slice(-1)[0] || 'this tab'}
+            kind={confirmClose.kind}
+            onConfirm={() => {
+              setConfirmClose(null)
+              dropTab(confirmClose.id)
+            }}
+            onCancel={() => {
+              setConfirmClose(null)
+              document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()
+            }}
+          />
+        )
+      })()}
 
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} onClose={() => setShowTeam(false)} />}
       {showSettings && (

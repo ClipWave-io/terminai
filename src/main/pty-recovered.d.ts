@@ -20,5 +20,5 @@ export function claudeSessionExists(id: string): boolean;
 export function recentClaudeSessions(cwd: string, limit: number): string[];
 export function liveIds(): string[];
 export function agentOf(id: string): AgentSession;
-export function resumeCommandFor(desc: {kind: string; sessionId?: string; args?: string[]}): Promise<string>;
+export function resumeCommandFor(desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string>;
 export function execWhenReady(id: string, cmd: string): void;

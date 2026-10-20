@@ -8,6 +8,7 @@ import * as node_os from 'node:os';
 import * as node_crypto from 'node:crypto';
 import * as node_child_process from 'node:child_process';
 import * as pty__namespace from '@homebridge/node-pty-prebuilt-multiarch';
+import { load } from './store';
 const sessions = /* @__PURE__ */ new Map();
 function safeSend(wc, channel, payload) {
   if (!wc || wc.isDestroyed()) return false;
@@ -152,6 +153,9 @@ function createSession(opts = {}) {
     oscOpen: false,
     sawClaude: false,
     spawnedAt: Date.now(),
+    // Last keystroke, and how much the tab has printed in total: buf is a window.
+    typedAt: 0,
+    outCount: 0,
     // Whichever claude/codex the user launched in this tab, found by scanAgents().
     agent: null,
     // Set by closeSession(): the tab is gone but the process gets a grace
@@ -171,6 +175,7 @@ function createSession(opts = {}) {
     if (chunk.painted && Date.now() >= session.quietUntil) session.lastDataAt = Date.now();
     if (chunk.bell) session.belled = true;
     session.buf = (session.buf + data).slice(-524288);
+    session.outCount += data.length;
     if (!safeSend(session.wc, "pty:data", { id, data })) session.wc = null;
   });
   proc.onExit(({ exitCode }) => {
@@ -215,6 +220,8 @@ function write(id, data) {
   } else {
     s.belled = false;
   }
+  // Keystrokes and pastes; what xterm answers on its own starts with ESC.
+  if (!data.startsWith("\x1b") || data.startsWith("\x1b[200~")) s.typedAt = Date.now();
   try { s.proc.write(data); } catch { s.exited = true; }
 }
 function resize(id, cols, rows) {
@@ -433,6 +440,76 @@ function codexThreadExists(id) {
     );
   });
 }
+// Codex 0.158+ runs every thread inside a shared app-server daemon: the TUI
+// under the tab holds no lock and its threads are no longer `cli`-sourced, so
+// the lock lookup above comes back empty. The state db still says which folder
+// a thread lives in and when it was born.
+const CODEX_INTERACTIVE = "source in ('cli','vscode') and archived=0";
+function sqlText(s) {
+  return `'${String(s).replace(/'/g, "''")}'`;
+}
+function codexThreadIds(sql, cb) {
+  const db = codexStateDb();
+  if (!db) return cb([]);
+  node_child_process.execFile("/usr/bin/sqlite3", ["-readonly", db, sql], { timeout: 5e3 }, (err, out) => {
+    cb(err ? [] : String(out || "").split("\n").map((l) => l.trim()).filter((l) => UUID_RE.test(l)));
+  });
+}
+function processStartMs(pid, cb) {
+  node_child_process.execFile("ps", ["-o", "etime=", "-p", String(pid)], (_err, out) => {
+    const m = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(String(out || "").trim());
+    if (!m) return cb(0);
+    cb(Date.now() - (((Number(m[1] || 0) * 24 + Number(m[2] || 0)) * 60 + Number(m[3])) * 60 + Number(m[4])) * 1e3);
+  });
+}
+// A thread belongs to the Codex that started most recently before it in that
+// folder: its first thread, or a later /new. A Codex alone in its folder that
+// made none (`codex resume`, picked by hand) owns the one touched since.
+function codexThreadFromDb(s, cb) {
+  const a = s.agent;
+  if (!a.startedAt) {
+    return processStartMs(a.pid, (ms) => {
+      a.startedAt = ms;
+      ms ? codexThreadFromDb(s, cb) : cb("");
+    });
+  }
+  let next = Infinity;
+  let alone = true;
+  for (const o of sessions.values()) {
+    const b = o.agent;
+    if (o === s || o.exited || !b || b.kind !== "codex" || !b.alive || o.cwd !== s.cwd) continue;
+    alone = false;
+    // A sibling not timed yet could be the owner: decide on the next sweep.
+    if (!b.startedAt) return cb("");
+    if (b.startedAt > a.startedAt || (b.startedAt === a.startedAt && b.pid > a.pid)) next = Math.min(next, b.startedAt);
+  }
+  const folder = `cwd=${sqlText(s.cwd)} and ${CODEX_INTERACTIVE}`;
+  // etime is whole seconds and the first thread is born a moment after the process.
+  const until = next < Infinity ? ` and created_at_ms < ${next - 1500}` : "";
+  codexThreadIds(`select id from threads where ${folder} and created_at_ms >= ${a.startedAt - 1500}${until} order by created_at_ms desc limit 1`, (ids) => {
+    if (ids.length || a.sessionId || !alone) return cb(ids[0] || "");
+    codexThreadIds(`select id from threads where ${folder} and updated_at_ms >= ${a.startedAt} order by updated_at_ms desc limit 1`, (touched) => cb(touched[0] || ""));
+  });
+}
+// A tab saved while its Codex thread could not be read comes back on the
+// folder's latest conversation, as a Claude tab does with --continue: one
+// thread per tab, and never one that another tab already names.
+const dealtCodexThreads = /* @__PURE__ */ new Set();
+function codexLatestThread(cwd) {
+  const taken = new Set(dealtCodexThreads);
+  for (const t of load().tabs) if (t && typeof t.agentSession === "string") taken.add(t.agentSession);
+  for (const s of sessions.values()) if (s.agent?.sessionId) taken.add(s.agent.sessionId);
+  return new Promise((resolve) => {
+    codexThreadIds(`select id from threads where cwd=${sqlText(cwd)} and ${CODEX_INTERACTIVE} order by updated_at_ms desc limit 20`, async (ids) => {
+      for (const id of ids) {
+        if (taken.has(id) || !await codexThreadExists(id)) continue;
+        dealtCodexThreads.add(id);
+        return resolve(id);
+      }
+      resolve("");
+    });
+  });
+}
 function resolveAgentSession(s) {
   const a = s.agent;
   if (a.kind === "claude") {
@@ -442,13 +519,14 @@ function resolveAgentSession(s) {
   }
   // lsof is not free: once a thread is known, look again every 30s so an
   // in-TUI /new or /resume is still picked up.
-  if (a.resolving || (a.sessionId && Date.now() - a.resolvedAt < 3e4)) return;
+  if (a.resolving || Date.now() - a.resolvedAt < (a.sessionId ? 3e4 : 1e4)) return;
   a.resolving = true;
-  codexThreadForPid(a.pid, (id) => {
+  const done = (id) => {
     a.resolving = false;
     a.resolvedAt = Date.now();
     if (id) a.sessionId = id;
-  });
+  };
+  codexThreadForPid(a.pid, (id) => id ? done(id) : codexThreadFromDb(s, done));
 }
 function scanAgents() {
   node_child_process.execFile("ps", ["-e", "-ww", "-o", "pid=,ppid=,args="], { maxBuffer: 16 << 20 }, (err, stdout) => {
@@ -487,7 +565,7 @@ function scanAgents() {
         continue;
       }
       if (!s.agent || s.agent.pid !== found.pid) {
-        s.agent = { kind: found.kind, pid: found.pid, args: found.args, sessionId: sessionIdFromArgs(found.kind, found.args), alive: true, resolvedAt: 0, resolving: false };
+        s.agent = { kind: found.kind, pid: found.pid, args: found.args, sessionId: sessionIdFromArgs(found.kind, found.args), alive: true, resolvedAt: 0, resolving: false, startedAt: 0 };
       }
       s.agent.alive = true;
       if (found.kind === "claude") s.sawClaude = true;
@@ -827,9 +905,43 @@ async function resumeCommandFor(d) {
   const wrapper = best ? null : await wrapperFunctionFor(kind, args);
   const head = best ? best.name : wrapper ? wrapper.name : kind;
   const rest = best ? args.slice(best.a.length) : wrapper ? wrapper.rest : args;
-  const id = typeof d.sessionId === "string" && UUID_RE.test(d.sessionId) ? d.sessionId : "";
+  let id = typeof d.sessionId === "string" && UUID_RE.test(d.sessionId) ? d.sessionId : "";
+  if (kind === "codex" && !id && typeof d.cwd === "string" && d.cwd) id = await codexLatestThread(d.cwd);
   const tail = kind === "claude" ? id && claudeSessionExists(id) ? ["--resume", id] : ["--continue"] : id ? ["resume", id] : [];
-  return [head, ...rest.map(shellQuote), ...tail].join(" ");
+  const command = [head, ...rest.map(shellQuote), ...tail].join(" ");
+  // A test build runs beside the real app and must never resume the real conversations.
+  if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_ALLOW_AGENTS) return `echo ${shellQuote(`[test build] resume skipped: ${command}`)}`;
+  return command;
+}
+// A Codex daemon that is restarting refuses clients until its running turns
+// are over ("Server is draining"), which can be many minutes: the resume typed
+// at launch dies at once and the tab is left on a bare prompt. Type it again
+// for as long as that is the error on screen and nobody has touched the tab.
+const DRAIN_RETRY_MAX = 45;
+function retryWhileDraining(id, cmd, attempt) {
+  const first = sessions.get(id);
+  if (!first) return;
+  const typedAt = Date.now();
+  const mark = first.outCount;
+  const poll = () => {
+    const s = sessions.get(id);
+    if (!s || s.exited || s.closing || s.typedAt > typedAt) return;
+    const age = Date.now() - typedAt;
+    if (age < 4e3 || !isBareShell(foregroundProcess(id))) {
+      // Still running after half a minute: it started fine.
+      if (age < 3e4) setTimeout(poll, 1e3);
+      return;
+    }
+    const printed = s.outCount - mark;
+    if (attempt >= DRAIN_RETRY_MAX || printed <= 0 || !s.buf.slice(-printed).includes("Server is draining")) return;
+    setTimeout(() => {
+      const t = sessions.get(id);
+      if (!t || t.exited || t.closing || t.typedAt > typedAt || t.agent?.alive || !isBareShell(foregroundProcess(id))) return;
+      write(id, `${cmd}\r`);
+      retryWhileDraining(id, cmd, attempt + 1);
+    }, Math.min(6e4, 15e3 * 2 ** attempt));
+  };
+  setTimeout(poll, 1e3);
 }
 // Type a command once the shell is sitting at a prompt (or after 10s regardless).
 function execWhenReady(id, cmd) {
@@ -840,6 +952,7 @@ function execWhenReady(id, cmd) {
     const settled = Date.now() - s.spawnedAt >= 900 && isBareShell(foregroundProcess(id));
     if (settled || Date.now() - started > 1e4) {
       write(id, `${cmd}\r`);
+      retryWhileDraining(id, cmd, 0);
       return;
     }
     setTimeout(tick, 200);

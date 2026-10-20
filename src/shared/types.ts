@@ -200,6 +200,6 @@ export const DEFAULT_PREFS: Prefs = {
     volume: 1,
   },
   seenWelcome: false,
-  groupByFolder: false,
+  groupByFolder: true,
   tabs: [],
 }
