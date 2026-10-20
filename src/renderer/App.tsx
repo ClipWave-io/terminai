@@ -12,8 +12,10 @@ import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
 import { getTheme, nextTheme } from '../shared/themes'
+import * as snapshots from './snapshots'
 import {
   DEFAULT_PREFS,
+  groupOf,
   RAIL_MIN,
   RAIL_MAX,
   RAIL_DEFAULT,
@@ -186,7 +188,7 @@ export function App(): JSX.Element {
     const now = Date.now()
     const tab: TabInfo = {
       id, browserKey,
-      customTitle: restore?.customTitle || restore?.name,
+      customTitle: restore?.customTitle || restore?.name, group: restore?.group,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.customTitle || restore?.name || restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
@@ -218,14 +220,16 @@ export function App(): JSX.Element {
    * Take over a shell that is still running from before the window closed. No
    * spawn, and deliberately no `claude --resume`: the conversation was never
    * interrupted, so typing anything into it would land in a live prompt.
+   * In the background (a tab opened by `terminai open`) the tab in view stays.
    */
-  const adoptTab = useCallback((live: { id: string; cwd: string }, restore?: SavedTab) => {
+  const adoptTab = useCallback((live: { id: string; cwd: string }, restore?: SavedTab, background = false) => {
     const now = Date.now()
-    setTabs((prev) => [
+    // Once only: a control adoption can race the launch-time adoption of the same shell.
+    setTabs((prev) => prev.some((t) => t.id === live.id) ? prev : [
       ...prev,
       {
         id: live.id,
-        customTitle: restore?.customTitle || restore?.name,
+        customTitle: restore?.customTitle || restore?.name, group: restore?.group,
       browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.customTitle || restore?.name || restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
@@ -241,7 +245,7 @@ export function App(): JSX.Element {
         claudeSession: '',
       },
     ])
-    setActiveId(live.id)
+    if (!background) setActiveId(live.id)
   }, [])
 
   const dropTab = useCallback((id: string) => {
@@ -335,6 +339,7 @@ export function App(): JSX.Element {
     customTitle: t.customTitle,
     // The name field older builds read and wrote, kept so prefs stay interchangeable.
     name: t.customTitle,
+    group: t.group,
     browserKey: t.browserKey || t.id,
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
     notes: t.notes,
@@ -354,6 +359,27 @@ export function App(): JSX.Element {
   useEffect(() => {
     window.term.tabs.setActive(activeId)
   }, [activeId])
+
+  // Requests from `terminai` (src/main/control.ts). Refs, not state: the
+  // listener is registered once and must see the current tab list.
+  useEffect(() => window.term.tabs.onRequest((kind, input) => {
+    if (kind === 'adopt') {
+      adoptTab({ id: input.id, cwd: input.cwd }, input, input.background !== false)
+      return true
+    }
+    if (!tabsRef.current.some((t) => t.id === input?.id)) return null
+    if (kind === 'read') return snapshots.snapshot(input.id, input.lines)
+    if (kind === 'close') {
+      dropTab(input.id)
+      return true
+    }
+    if (kind === 'focus') {
+      setActiveId(input.id)
+      setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal')
+      return true
+    }
+    return null
+  }), [adoptTab, dropTab])
 
   // Bank the time the outgoing tab spent focused, and start the incoming one's
   // clock. Doing it on switch rather than on a timer keeps it exact and cheap.
@@ -663,7 +689,7 @@ export function App(): JSX.Element {
             tabs={tabs}
             filter={filterOpen ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
             onRename={(id,title)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,title,customTitle:title}:t))}
-            onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(t=>t.cwd))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(cwd=>prev.filter(t=>t.cwd===cwd))})}
+            onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
             activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}
             width={railWidth}
@@ -672,7 +698,7 @@ export function App(): JSX.Element {
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
             onSettings={() => setShowSettings(true)}
-            onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(prev[from]?.cwd!==prev[to]?.cwd)return prev;const slots=prev.map((t,i)=>t.cwd===prev[from]?.cwd?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}
+            onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(!prev[from]||!prev[to]||groupOf(prev[from])!==groupOf(prev[to]))return prev;const key=groupOf(prev[from]);const slots=prev.map((t,i)=>groupOf(t)===key?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}
             grouped={prefs.groupByFolder}
           />
 

@@ -10,6 +10,7 @@ import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } fro
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
+import { startControl, controlReply } from './control'
 import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
@@ -133,6 +134,10 @@ app.whenReady().then(() => {
   registerAudioProtocol()
   registerIpc()
   createWindow()
+  // Local command channel for the terminal tabs, used by resources/terminai.cjs.
+  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id } })
+    .then((control) => app.once('before-quit', control.close))
+    .catch((err) => console.error('[control] could not start:', err))
   void (async()=>{
     const directory=app.getPath('userData'),script=join(directory,'browser-mcp.cjs')
     await copyFile(app.isPackaged?join(app.getAppPath(),'resources/browser-mcp.cjs'):join(__dirname,'../../resources/browser-mcp.cjs'),script)
@@ -240,6 +245,8 @@ function registerIpc(): void {
   appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
   appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))
   appIpc.on('pty:exec', (_event, { id, cmd }: {id: string; cmd: string}) => ptys.execWhenReady(id, String(cmd || '')))
+  appIpc.handle('pty:size', (_event, { id }: {id: string}) => ptys.sizeOf(id))
+  appIpc.on('tab:reply', (_event, reply) => controlReply(reply))
   appIpc.handle('clip:image', async (_event, path: string) => {
     if (typeof path !== 'string') return false
     const image = nativeImage.createFromPath(path)

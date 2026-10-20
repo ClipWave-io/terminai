@@ -65,11 +65,18 @@ export type RailSide = 'left' | 'right'
  */
 export type TabStatus = 'ready' | 'working' | 'waiting' | 'exited'
 
+/** The rail buckets a tab under its group when it has one, else under its folder. */
+export function groupOf(tab: { group?: string; cwd: string }): string {
+  return tab.group || tab.cwd
+}
+
 export interface TabInfo {
   id: string
   title: string
   customTitle?: string
   name?: string
+  /** rail heading this tab sits under instead of its folder; set by `terminai open --group` */
+  group?: string
   agent?: string
   browserKey?: string
   agentSession?: string
@@ -98,6 +105,7 @@ export interface SavedTab {
   cwd: string
   customTitle?: string
   name?: string
+  group?: string
   agent?: string
   browserKey?: string
   agentSession?: string

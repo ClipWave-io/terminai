@@ -123,6 +123,10 @@ function ptyEnv(tabId) {
       delete env[key];
     }
   }
+  // The local control channel of this very instance (src/main/control.ts), so
+  // a session can drive its own app's tabs and never another copy's.
+  env.TERMINAI_CONTROL = node_path.join(electron.app.getPath("userData"), "control.json");
+  env.TERMINAI_TAB_ID = tabId;
   if (ensureShim()) {
     env.CLIPWAVE_SHIM = shimDir();
     env.CLIPWAVE_SESSION_FILE = sessionIdFile(tabId);
@@ -962,5 +966,16 @@ function execWhenReady(id, cmd) {
 function liveIds() {
   return [...sessions.values()].filter((s) => !s.closing).map((s) => s.id);
 }
+function pidOf(id) {
+  return sessions.get(id)?.proc.pid ?? 0;
+}
+function sizeOf(id) {
+  const s = sessions.get(id);
+  return s && !s.exited ? { cols: s.proc.cols, rows: s.proc.rows } : null;
+}
+// Raw output as the program wrote it, escape codes included: the last 512 KB.
+function bufferOf(id) {
+  return sessions.get(id)?.buf ?? "";
+}
 
-export { createSession, list, attach, detachAll, write, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, execWhenReady };
+export { createSession, list, attach, detachAll, write, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, execWhenReady, pidOf, sizeOf, bufferOf };

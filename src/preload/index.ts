@@ -51,6 +51,7 @@ const api = {
     agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),
     resumeCommand: (desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string> => ipcRenderer.invoke('pty:resumeCommand', desc),
     exec: (id: string, cmd: string): void => ipcRenderer.send('pty:exec', { id, cmd }),
+    size: (id: string): Promise<{ cols: number; rows: number } | null> => ipcRenderer.invoke('pty:size', { id }),
     create: (opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),
     list: (): Promise<{ id: string; cwd: string; exited: boolean }[]> =>
@@ -85,6 +86,20 @@ const api = {
 
   tabs: {
     setActive: (id: string | null): void => ipcRenderer.send('tab:active', { id }),
+    /** Requests from the local control channel (src/main/control.ts); the answer goes back under the same reqId. */
+    onRequest: (cb: (kind: string, input: any) => unknown): (() => void) => {
+      const h = (_e: IpcRendererEvent, p: { reqId: string; kind: string; input: any }): void => {
+        let result: unknown = null
+        try {
+          result = cb(p.kind, p.input)
+        } catch {
+          /* answered as null */
+        }
+        ipcRenderer.send('tab:reply', { reqId: p.reqId, result })
+      }
+      ipcRenderer.on('tab:request', h)
+      return () => ipcRenderer.removeListener('tab:request', h)
+    },
   },
 
   prefs: {

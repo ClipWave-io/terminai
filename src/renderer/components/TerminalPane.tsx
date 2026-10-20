@@ -173,7 +173,13 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     // Only now, with both listeners live, does main start sending. Everything
     // the shell printed before this point — including while the window was
     // closed — arrives as one replayed chunk, exactly once.
-    void window.term.pty.attach(ptyId)
+    // A tab opened while the terminal pane is hidden has nothing to fit to:
+    // take its PTY's size first, or output drawn for that width wraps here and
+    // no SIGWINCH ever comes to repaint it once the pane is shown.
+    const sized = host.clientWidth && host.clientHeight
+      ? Promise.resolve()
+      : window.term.pty.size(ptyId).then((s) => { if (s && termRef.current === term) term.resize(s.cols, s.rows) })
+    void sized.catch(() => {}).then(() => { if (termRef.current === term) void window.term.pty.attach(ptyId) })
 
     term.onData((d) => window.term.pty.write(ptyId, d))
     // Honour OSC 0/2, which is how shells and TUIs announce what they're doing.
@@ -225,6 +231,9 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     const term = termRef.current
     if (!term) return
     term.options.fontSize = fontSize
+    // A hidden pane cannot be measured, and xterm's unfitted 80x24 is not a size
+    // to give the PTY; the fit on show sends the real one.
+    if (!hostRef.current?.clientWidth) return
     fitRef.current?.fit()
     window.term.pty.resize(ptyId, term.cols, term.rows)
   }, [fontSize, ptyId])
