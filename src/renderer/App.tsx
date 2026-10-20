@@ -742,6 +742,7 @@ export function App(): JSX.Element {
           </div>
           {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
           <span className="topbar-spacer" />
+          {showTodos && <div id="todo-topbar-slot" className="todo-topbar-slot no-drag" />}
           {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag" aria-label="To-do" title="To-do" aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" /></button>}
           {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
           {!prefs.hiddenToolbarItems.includes('sessions') && <button

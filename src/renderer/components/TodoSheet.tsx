@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { Task, TaskInput, TaskList, TaskScope, TasksUser } from '../../shared/types'
 import './todos.css'
@@ -29,6 +30,7 @@ const clock = (iso: string) => rome(iso, { hour: '2-digit', minute: '2-digit' })
 const byCreated = (a: Task, b: Task) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 const byDone = (a: Task, b: Task) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
 const rowKey = (row: Row) => row.kind === 'task' ? row.task.id : row.kind === 'pending' ? row.pending.key : 'draft'
+const Chevron = () => <svg className="todo-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
 const Lock = () => <svg className="todo-lock" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7.2" width="9" height="6.3" rx="1.6" /><path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8" /></svg>
 
 /** createdAt order, then what was added this session put back under the row where Enter was pressed. */
@@ -53,8 +55,8 @@ function settle(layout: Layout, key: string, id: string | null): Layout {
 }
 
 /**
- * The BUILD note of Apple Notes in three columns: mine (my private tasks, kept on this Mac, and the
- * shared ones assigned to me), Together, and the other one's. Shared tasks live in the build-tasks repo.
+ * The BUILD note of Apple Notes in four columns: mine, Together and the other one's (all shared, in the
+ * build-tasks repo, mirrored on the other Mac), then my private notes, kept on this Mac only.
  */
 export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onUser: (user: TasksUser) => void; onClose: () => void }): JSX.Element {
   const [data, setData] = useState<TaskList | null>(null)
@@ -64,6 +66,10 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [noteFor, setNoteFor] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  const [view, setView] = useState<'shared' | 'private'>('shared')
+  // App.tsx mounts the top bar slot in the same commit, so it is looked up once the sheet is in the DOM.
+  const [slot, setSlot] = useState<HTMLElement | null | undefined>(undefined)
+  useLayoutEffect(() => setSlot(document.getElementById('todo-topbar-slot')), [])
   const seq = useRef(0)
   const sheet = useRef<HTMLElement>(null)
 
@@ -130,16 +136,17 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const done = (list: Task[], scope: TaskScope) => list.filter(task => task.status === 'done').map(task => ({ task, scope }))
   const to = (assignee: Assignee) => shared.filter(task => task.assignee === assignee)
   const columns: Column[] = [
-    { key: me, label: NAME[me], parts: [
-      { scope: 'personal', section: 'private', assignee: null, label: 'Private', list: open(personal), placeholder: 'New private task' },
-      { scope: 'shared', section: me, assignee: me, label: 'Shared', list: open(to(me)), placeholder: 'New shared task' },
-    ], done: [...done(personal, 'personal'), ...done(to(me), 'shared')] },
+    { key: me, label: NAME[me], parts: [{ scope: 'shared', section: me, assignee: me, list: open(to(me)), placeholder: 'New task' }], done: done(to(me), 'shared') },
     { key: 'both', label: 'Together', parts: [
       { scope: 'shared', section: 'both', assignee: 'both', list: open(to('both')), placeholder: 'New task' },
       { scope: 'shared', section: 'none', assignee: null, label: 'Unassigned', list: open(to(null)) },
     ], done: [...done(to('both'), 'shared'), ...done(to(null), 'shared')] },
     { key: other, label: NAME[other], parts: [{ scope: 'shared', section: other, assignee: other, list: open(to(other)), placeholder: 'New task' }], done: done(to(other), 'shared') },
   ]
+  // Private notes stay on this Mac, one file per person: the other one never sees them.
+  const privateNotes: Column = { key: 'private', label: 'Private', parts: [{ scope: 'personal', section: 'private', assignee: null, list: open(personal), placeholder: 'New private note' }], done: done(personal, 'personal') }
+  const shownColumns = view === 'private' ? [privateNotes] : columns
+  const pick = (event: { currentTarget: HTMLElement }, items: MenuItem[]) => { const b = event.currentTarget.getBoundingClientRect(); setMenu({ x: b.left, y: b.bottom + 4, up: b.top - 4, items }) }
   const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]}
     confirming={confirm?.id === task.id ? confirm.kind : null} openNote={noteFor === task.id}
     onSave={save} onRemove={remove} onPrivate={() => move('shared', task.id)} onConfirm={kind => setConfirm(kind ? { id: task.id, kind } : null)} onNoteOpened={() => setNoteFor(null)}
@@ -162,7 +169,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     const list = [...col.done].sort((a, b) => byDone(a.task, b.task)), all = allDone[col.key] || list.length <= DONE_SHOWN
     return !!list.length && <section className="todo-done" aria-label={`${col.label} tasks done`}>
       <h4 className="todo-done-head">{col.label} tasks done</h4>
-      <ul className="todo-check">{(all ? list : list.slice(0, DONE_SHOWN)).map(({ task, scope }) => row(task, scope, undefined, scope === 'personal'))}</ul>
+      <ul className="todo-check">{(all ? list : list.slice(0, DONE_SHOWN)).map(({ task, scope }) => row(task, scope))}</ul>
       {list.length > DONE_SHOWN && <button className="todo-show-done" aria-expanded={all} onClick={() => setAllDone(value => ({ ...value, [col.key]: !all }))}>{all ? 'Show fewer' : `Show all (${list.length})`}</button>}
     </section>
   }
@@ -172,17 +179,22 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     onClick={event => { if (event.target === event.currentTarget) onClose() }}
     onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose() } }}>
     <section ref={sheet} tabIndex={-1} className="todo-sheet" role="dialog" aria-modal="true" aria-label="To-do">
-      <header className="todo-head">
-        <div className="todo-sync">
+      {(() => {
+        // The controls sit in the middle of the app's top bar while the to-do is open (App.tsx keeps
+        // the slot); inline above the columns only if the slot is missing.
+        const controls = <div className="todo-sync">
           {user && <>
+            <button className="todo-drop" aria-label={`Showing ${view} tasks`} title="Shared tasks or your private notes"
+              onClick={event => pick(event, [{ heading: 'Show' }, { label: 'Shared', checked: view === 'shared', run: () => setView('shared') }, { label: 'Private (only on this Mac)', checked: view === 'private', run: () => setView('private') }])}>
+              {view === 'private' && <Lock />}{view === 'private' ? 'Private' : 'Shared'}<Chevron /></button>
+            <button className="todo-drop" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
+              onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>
             <span className={sync?.error ? 'failed' : ''} title={sync?.error ?? undefined} aria-live="polite">{syncText}</span>
             <button className="todo-link" disabled={!sync?.enabled || sync.syncing} onClick={() => void act(() => window.term.todos.sync())}>Sync now</button>
-            <button className="todo-link" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
-              onClick={event => { const b = event.currentTarget.getBoundingClientRect(); setMenu({ x: b.left, y: b.bottom + 4, up: b.top - 4, items: [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))] }) }}>{NAME[user]}</button>
           </>}
-          <button className="todo-close" aria-label="Close to-do" title="Close" onClick={onClose}>×</button>
         </div>
-      </header>
+        return slot ? createPortal(controls, slot) : slot === null && <header className="todo-head">{controls}</header>
+      })()}
       {!user ? <div className="todo-note todo-pick">
         <h1>To-do</h1>
         <p>Who are you on this Mac?</p>
@@ -191,9 +203,9 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
       </div> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
         {sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
-        <div className="todo-cols">
-          {columns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>
-            <h3 className={`todo-at ${col.key}`}>{col.label.toUpperCase()}</h3>
+        <div className={`todo-cols${view === 'private' ? ' single' : ''}`}>
+          {shownColumns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>
+            <h3 className={`todo-at ${col.key}`} title={col.key === 'private' ? 'Only on this Mac' : undefined}>{col.key === 'private' && <Lock />}{col.label.toUpperCase()}</h3>
             {col.parts.filter(shown).map(part => <div key={part.section} className="todo-part" data-part={part.section} role="group" aria-label={part.label ?? col.label}>
               {part.label && <h4 className="todo-sub">{part.scope === 'personal' && <Lock />}{part.label}</h4>}
               {checklist(part)}
@@ -289,7 +301,6 @@ function TaskRow({ task, scope, lock, other, confirming, openNote, onSave, onRem
       </div>}
     </div>
     <span className="todo-actions">
-      {!notes && !noteEditing && <button className="todo-icon" title="Add note" onClick={() => { caret.current = 0; setNoteEditing(true) }}>+ Note</button>}
       <button className="todo-icon" aria-label="Task actions" title="More" onClick={event => { const b = event.currentTarget.getBoundingClientRect(); onMenu(b.right - 200, b.bottom + 4, b.top - 4) }}>•••</button>
     </span>
   </li>
