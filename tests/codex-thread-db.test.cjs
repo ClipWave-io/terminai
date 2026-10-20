@@ -2,6 +2,8 @@
 // from the state db. Lifts the functions verbatim out of src/main/pty-recovered.js
 // (node-pty is built for Electron's ABI, so the module itself cannot be loaded
 // here) and runs them against a fixture db and real processes. No ~/.codex.
+// The resume commands under test are the real ones, not the test build's echo.
+delete process.env.TERMINAI_TEST_BUILD;
 const node_child_process = require("child_process"), node_fs = require("fs"), node_path = require("path"), node_os = require("os");
 const src = node_fs.readFileSync(node_path.join(__dirname, "../src/main/pty-recovered.js"), "utf8");
 function grab(name) {
