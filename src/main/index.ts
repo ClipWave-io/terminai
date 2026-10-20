@@ -129,7 +129,10 @@ function createWindow(): void {
 let crashedLastRun = false
 const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
 app.whenReady().then(() => {
-  crashedLastRun = existsSync(aliveMarker())
+  // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
+  const legacyMarker = join(app.getPath('userData'), 'alive')
+  crashedLastRun = existsSync(aliveMarker()) || existsSync(legacyMarker)
+  rmSync(legacyMarker, { force: true })
   mkdirSync(app.getPath('userData'), { recursive: true })
   writeFileSync(aliveMarker(), String(process.pid))
   registerAudioProtocol()

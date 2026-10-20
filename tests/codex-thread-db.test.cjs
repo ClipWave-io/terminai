@@ -127,6 +127,15 @@ const mk = (cwd, agent) => ({ cwd, exited: false, closing: false, agent: { kind:
   eq("U6b codex tab with id -> that id, cwd ignored", await T.resumeCommandFor({ kind: "codex", sessionId: TWO2, args: [], cwd: "/fx/two" }), `codex resume ${TWO2}`);
   eq("U6c codex tab without id or cwd -> fresh codex", await T.resumeCommandFor({ kind: "codex", sessionId: "", args: [] }), "codex");
   eq("U6d claude tab untouched by cwd", await T.resumeCommandFor({ kind: "claude", sessionId: "", args: [], cwd: "/fx/two" }), "claude --continue");
+  eq("U6e codex tab whose thread has no rollout -> fresh codex", await T.resumeCommandFor({ kind: "codex", sessionId: NOFILE, args: [] }), "codex");
+  eq("U6f claude tab saved without launch flags -> the historical default", await T.resumeCommandFor({ kind: "claude", sessionId: "", cwd: "/fx/two" }), "claude --dangerously-skip-permissions --continue");
+  const bare = node_path.join(root, "bare-home");
+  node_fs.mkdirSync(node_path.join(bare, "thread-writer-locks"), { recursive: true });
+  process.env.CODEX_HOME = bare;
+  eq("U6g Codex home with no state db and no sessions -> the saved id stands", await T.resumeCommandFor({ kind: "codex", sessionId: NOFILE, args: [] }), `codex resume ${NOFILE}`);
+  node_fs.mkdirSync(node_path.join(bare, "sessions"));
+  eq("U6h sessions folder without the thread's rollout -> fresh codex", await T.resumeCommandFor({ kind: "codex", sessionId: NOFILE, args: [] }), "codex");
+  process.env.CODEX_HOME = home;
   // U7: drain retry, clock and timers 200x faster
   const realNow = Date.now.bind(Date), realST = setTimeout, t0 = realNow();
   Date.now = () => t0 + (realNow() - t0) * 200;

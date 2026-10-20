@@ -906,7 +906,7 @@ async function wrapperFunctionFor(kind, args) {
 async function resumeCommandFor(d) {
   const kind = d.kind === "codex" ? "codex" : "claude";
   // Tabs saved before launch flags were recorded get the historical default.
-  const args = Array.isArray(d.args) ? keepOptions(kind, d.args) : [];
+  const args = Array.isArray(d.args) ? keepOptions(kind, d.args) : kind === "claude" ? ["--dangerously-skip-permissions"] : [];
   let best = null;
   for (const [name, words] of await shellAliases()) {
     if (node_path.basename(words[0]) !== kind) continue;
@@ -919,7 +919,10 @@ async function resumeCommandFor(d) {
   const rest = best ? args.slice(best.a.length) : wrapper ? wrapper.rest : args;
   let id = typeof d.sessionId === "string" && UUID_RE.test(d.sessionId) ? d.sessionId : "";
   if (kind === "codex" && !id && typeof d.cwd === "string" && d.cwd) id = await codexLatestThread(d.cwd);
-  const tail = kind === "claude" ? id && claudeSessionExists(id) ? ["--resume", id] : ["--continue"] : id ? ["resume", id] : [];
+  // A Codex home with neither a state db nor a sessions folder says nothing either
+  // way (its threads live where this process cannot see), so the saved id stands.
+  const codexKnows = kind === "codex" && Boolean(codexStateDb() || node_fs.existsSync(node_path.join(codexHome(), "sessions")));
+  const tail = kind === "claude" ? id && claudeSessionExists(id) ? ["--resume", id] : ["--continue"] : id && (!codexKnows || await codexThreadExists(id)) ? ["resume", id] : [];
   const command = [head, ...rest.map(shellQuote), ...tail].join(" ");
   // A test build runs beside the real app and must never resume the real conversations.
   if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_ALLOW_AGENTS) return `echo ${shellQuote(`[test build] resume skipped: ${command}`)}`;
