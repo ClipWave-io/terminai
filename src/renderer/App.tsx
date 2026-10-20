@@ -591,8 +591,10 @@ export function App(): JSX.Element {
       }
 
       if (e.key.toLowerCase() === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); return }
-      if (e.key.toLowerCase() === 'f') { e.preventDefault(); setFilterOpen(v=>!v); return }
+      if (e.key.toLowerCase() === 'f') { e.preventDefault(); if (prefs.railHidden) patchPrefs({ railHidden: false }); setFilterOpen(v=>!v); return }
       switch (e.key) {
+        // ⌘N as in Livio's build: a new tab in the current folder, like ⌘T.
+        case 'n':
         case 't':
           e.preventDefault()
           void newTab(list[cur]?.cwd)
@@ -743,6 +745,8 @@ export function App(): JSX.Element {
           {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
           <span className="topbar-spacer" />
           {showTodos && <div id="todo-topbar-slot" className="todo-topbar-slot no-drag" />}
+          {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
+          {!showTodos && <span className="topbar-title centered">{tabs.find(t => t.id === activeId)?.title ?? ''}</span>}
           {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag" aria-label="To-do" title="To-do" aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" /></button>}
           {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
           {!prefs.hiddenToolbarItems.includes('sessions') && <button

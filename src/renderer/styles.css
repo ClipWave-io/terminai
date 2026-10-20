@@ -1061,6 +1061,7 @@ textarea.card-notes.editing {
 .rail-top { display: none; }
 .rail-grip { top: 54px; }
 .topbar-title { text-align: center; }
+.topbar-title.centered { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 44%; flex: none; pointer-events: none; }
 .sheet { max-height: calc(100vh - 32px); overflow: auto; }
 
 .topbar-spacer { flex: 1; }
