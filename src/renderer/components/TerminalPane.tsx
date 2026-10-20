@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { toXtermTheme } from '../../shared/themes'
+import { claudeDarkOnLight, type Remap } from '../../shared/claude-colors'
 import * as snapshots from '../snapshots'
 import type { Theme } from '../../shared/types'
 import type { JSX } from 'react'
@@ -98,6 +99,8 @@ function installSelectionOverride(term: Terminal, host: HTMLElement): void {
 export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  // Claude Code's dark-theme colours, translated for light themes (see claude-colors.ts).
+  const remapRef = useRef<Remap | null>(claudeDarkOnLight(theme))
   const fitRef = useRef<FitAddon | null>(null)
   const lastSize = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 })
 
@@ -168,7 +171,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     })
 
     const offData = window.term.pty.onData((id, data) => {
-      if (id === ptyId) term.write(data)
+      if (id === ptyId) term.write(remapRef.current ? remapRef.current(data) : data)
     })
     const offExit = window.term.pty.onExit((id) => {
       if (id === ptyId) term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n')
@@ -229,6 +232,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     const term = termRef.current
     if (!term) return
     term.options.theme = toXtermTheme(theme)
+    remapRef.current = claudeDarkOnLight(theme)
   }, [theme])
 
   useEffect(() => {

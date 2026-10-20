@@ -1,0 +1,15 @@
+// Claude Code's dark-theme colours translated for light TerminAI themes (src/shared/claude-colors.ts).
+const { buildSync } = require('esbuild'), assert = require('assert/strict'), os = require('os'), path = require('path'), fs = require('fs')
+const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'claude-colors-')), 'cc.cjs')
+buildSync({ entryPoints: [path.join(__dirname, '../src/shared/claude-colors.ts')], outfile: out, format: 'cjs', bundle: true, platform: 'node', logLevel: 'error' })
+const { claudeDarkOnLight } = require(out)
+const linen = { name: 'linen', dark: false, foreground: '#33312d', surface: '#e9e6e0' }
+const r = claudeDarkOnLight(linen)
+assert.equal(r('\x1b[38;2;255;255;255mQ\x1b[39m'), '\x1b[38;2;51;49;45mQ\x1b[39m', 'white text becomes the ink')
+assert.equal(r('\x1b[48;2;55;55;55m\x1b[38;2;255;255;255mP\x1b[0m'), '\x1b[48;2;55;55;55m\x1b[38;2;255;255;255mP\x1b[0m', 'the prompt bar keeps its white text')
+assert.equal(r('\x1b[48;2;177;185;249mC\x1b[49m\x1b[38;2;177;185;249mL\x1b[39m'), '\x1b[48;2;232;220;198mC\x1b[49m\x1b[38;2;138;98;57mL\x1b[39m', 'lavender chip and text turn warm')
+assert.equal(r('\x1b[48;2;55;55;55m\x1b[38;2;177;185;249mL\x1b[0m'), '\x1b[48;2;55;55;55m\x1b[38;2;177;185;249mL\x1b[0m', 'lavender on the prompt bar stays as it is')
+assert.equal(r('x\x1b[38;2;255;255'), 'x', 'a split sequence waits for the rest')
+assert.equal(r(';255mY'), '\x1b[38;2;51;49;45mY', 'and is translated once complete')
+assert.equal(claudeDarkOnLight({ name: 'dusk', dark: true, foreground: '#fff', surface: '#000' }), null, 'dark themes are untouched')
+console.log('PASS claude-colors: 7 cases')
