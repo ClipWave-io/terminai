@@ -39,8 +39,8 @@ test('personal tasks stay in one local file and never touch git',async()=>{
   assert.deepEqual([task.title,task.status,task.assignee,task.product,task.createdBy,task.updatedBy],['Buy milk','open',null,'Home','livio','livio']);
   assert.match(task.id,/^[0-9a-f-]{36}$/);assert.ok(task.createdAt.endsWith('+02:00')||task.createdAt.endsWith('+01:00'));
   list=await app.save('personal',{id:task.id,status:'done'});assert.equal(list.personal[0].status,'done');assert.equal(list.personal[0].title,'Buy milk');
-  assert.deepEqual(read(app.personalFile).map(x=>x.status),['done']);
-  assert.equal(fs.existsSync(app.personalFile+'.tmp'),false);
+  assert.deepEqual(read(app.personalFile('livio')).map(x=>x.status),['done']);
+  assert.equal(fs.existsSync(app.personalFile('livio')+'.tmp'),false);
   await assert.rejects(app.save('personal',{id:'../../etc',title:'x'}),/Invalid task id/);
   list=await app.remove('personal',task.id);assert.equal(list.personal.length,0);
   assert.equal(fs.existsSync(path.join(t.root,'livio-app','build-tasks')),false,'personal work must not clone the shared repo');
@@ -130,6 +130,68 @@ test('an unreachable repo keeps the commit and the next sync pushes it',async()=
   list=await app.sync();assert.equal(list.sync.error,null);
   assert.equal(t.show(list.shared[0].id).title,'Offline task');
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
+
+test('private ⇄ shared moves keep the task, its id and dates',async()=>{
+ const t=setup();try{
+  const app=t.app('livio');await app.sync();
+  const task=(await app.save('personal',{title:'Draft the pitch',notes:'two slides'})).personal[0];
+  let list=await app.move('personal',task.id);
+  assert.equal(list.sync.error,null);assert.equal(list.personal.length,0);assert.deepEqual(read(app.personalFile('livio')),[]);
+  const shared=t.show(task.id);
+  assert.deepEqual([shared.id,shared.title,shared.notes,shared.assignee,shared.createdAt,shared.createdBy,shared.updatedBy],[task.id,'Draft the pitch','two slides','livio',task.createdAt,'livio','livio']);
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: share Draft the pitch');
+  list=await app.move('shared',task.id);
+  assert.equal(list.shared.length,0);assert.throws(()=>git(t.bare,'cat-file','-e',`main:tasks/${task.id}.json`));
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: make private Draft the pitch');
+  assert.deepEqual(read(app.personalFile('livio')).map(x=>[x.id,x.title,x.assignee,x.createdAt]),[[task.id,'Draft the pitch',null,task.createdAt]]);
+  // To someone else's column: shared and assigned in one step.
+  list=await app.move('personal',task.id,'both');assert.equal(t.show(task.id).assignee,'both');assert.equal(list.personal.length,0);
+  await assert.rejects(app.move('shared',task.id,'everyone'),/Invalid assignee/);
+  await assert.rejects(app.move('personal','missing-id'),/no longer exists/);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
+
+test('a move that fails leaves the task where it was',async()=>{
+ const t=setup();try{
+  const app=t.app('livio');await app.sync();
+  const clone=path.join(t.root,'livio-app','build-tasks'),lock=path.join(clone,'.git','index.lock');
+  // To shared, the commit fails (index locked): still private, and the clone is left clean for the next sync.
+  const mine=(await app.save('personal',{title:'Stay private'})).personal[0];
+  fs.writeFileSync(lock,'');
+  await assert.rejects(app.move('personal',mine.id),/index\.lock/);
+  fs.rmSync(lock);
+  assert.deepEqual(read(app.personalFile('livio')).map(x=>x.id),[mine.id]);
+  assert.equal(git(clone,'status','--porcelain').trim(),'');
+  // To private, the delete commit fails: still shared, file back in the clone, not in the private list.
+  const ours=(await app.save('shared',{title:'Stay shared',assignee:'both'})).shared[0];
+  fs.writeFileSync(lock,'');
+  await assert.rejects(app.move('shared',ours.id),/index\.lock/);
+  fs.rmSync(lock);
+  assert.deepEqual(read(app.personalFile('livio')).map(x=>x.id),[mine.id]);
+  assert.equal(git(clone,'status','--porcelain').trim(),'');assert.equal(t.show(ours.id).title,'Stay shared');
+  // To private, the private file cannot be written: nothing leaves the repo.
+  fs.rmSync(app.personalFile('livio'));fs.mkdirSync(app.personalFile('livio'));
+  await assert.rejects(app.move('shared',ours.id));
+  fs.rmdirSync(app.personalFile('livio'));
+  assert.equal(t.show(ours.id).title,'Stay shared');assert.equal(git(clone,'status','--porcelain').trim(),'');
+  const list=await app.sync();assert.equal(list.sync.error,null);
+  assert.deepEqual(git(t.bare,'log','--format=%s','main').trim().split('\n'),['livio: add Stay shared','seed']);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
+
+test('private tasks are per user; the old per-Mac file is split by who created each task',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'terminai-todos-users-'));try{
+  const now=romeIso(),task=(id,createdBy)=>({id,title:id,notes:'',status:'open',assignee:null,product:'',createdAt:now,createdBy,updatedAt:now,updatedBy:createdBy});
+  fs.writeFileSync(path.join(root,'todos-personal.json'),JSON.stringify([task('a','livio'),task('b','ilai'),task('c','')]));
+  let user='livio';const app=createTodos(root,{remote:'',user:()=>user,changed:()=>{}});
+  assert.deepEqual(app.list().personal.map(x=>x.id),['a','c']);
+  assert.equal(fs.existsSync(path.join(root,'todos-personal.json')),false);assert.equal(fs.existsSync(path.join(root,'todos-personal.json.migrated')),true);
+  user='ilai';assert.deepEqual(app.list().personal.map(x=>x.id),['b']);
+  await app.save('personal',{title:'Ilai only'});
+  user='livio';assert.deepEqual(app.list().personal.map(x=>x.title),['a','c']);
+  user='';assert.deepEqual(app.list().personal,[]);
+ }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
 test('no repository configured: shared work is refused, personal still works',async()=>{

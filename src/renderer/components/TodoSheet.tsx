@@ -12,10 +12,16 @@ type MenuItem = { label: string; checked?: boolean; danger?: boolean; run: () =>
 /** `up`: where the menu's bottom goes when it does not fit below `y` (the top of the button that opened it). */
 type Menu = { x: number; y: number; up?: number; items: MenuItem[] }
 type Row = { kind: 'task'; task: Task } | { kind: 'pending'; pending: Pending } | { kind: 'draft' }
+/** Asked under the row: deleting, and making a shared task private (the other one loses sight of it). */
+type Confirm = { id: string; kind: 'delete' | 'private' }
+/** One checklist in a column: where its rows are saved and where a row typed into it goes. */
+type Part = { scope: TaskScope; section: string; assignee: Assignee; label?: string; list: Task[]; placeholder?: string }
+type Column = { key: string; label: string; parts: Part[]; done: { task: Task; scope: TaskScope }[] }
 
 /** Livio is Matteo in the BUILD note; the files keep the id 'livio'. */
 const NAME = { livio: 'Matteo', ilai: 'Ilai' } as const
-const SECTIONS: { assignee: Assignee; key: string; label: string }[] = [{ assignee: 'both', key: 'both', label: 'Together' }, { assignee: 'livio', key: 'livio', label: 'Matteo' }, { assignee: 'ilai', key: 'ilai', label: 'Ilai' }, { assignee: null, key: 'none', label: 'Unassigned' }]
+/** Completed tasks shown per column before "Show all". */
+const DONE_SHOWN = 5
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 const rome = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('de-DE', { timeZone: 'Europe/Rome', ...opts })
 const day = (iso: string) => rome(iso, { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -24,6 +30,7 @@ const clock = (iso: string) => rome(iso, { hour: '2-digit', minute: '2-digit' })
 const byCreated = (a: Task, b: Task) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 const byDone = (a: Task, b: Task) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
 const rowKey = (row: Row) => row.kind === 'task' ? row.task.id : row.kind === 'pending' ? row.pending.key : 'draft'
+const Lock = () => <svg className="todo-lock" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7.2" width="9" height="6.3" rx="1.6" /><path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8" /></svg>
 
 /** createdAt order, then what was added this session put back under the row where Enter was pressed. */
 function arrange(tasks: Task[], layout: Layout, scope: TaskScope, section: string): Row[] {
@@ -46,14 +53,16 @@ function settle(layout: Layout, key: string, id: string | null): Layout {
   return { pending: layout.pending.filter(p => p.key !== key).map(p => ({ ...p, after: swap(p.after) })), placed, draft: layout.draft && draftAfter ? { ...layout.draft, after: draftAfter } : null }
 }
 
-/** Personal to-dos (this Mac only) and shared ones (the build-tasks repo) as one note each, like the BUILD note in Apple Notes. */
+/**
+ * The BUILD note of Apple Notes in three columns: mine (my private tasks, kept on this Mac, and the
+ * shared ones assigned to me), Together, and the other one's. Shared tasks live in the build-tasks repo.
+ */
 export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onUser: (user: TasksUser) => void; onClose: () => void }): JSX.Element {
   const [data, setData] = useState<TaskList | null>(null)
-  const [scope, setScope] = useState<TaskScope>('shared')
-  const [showDone, setShowDone] = useState(false)
+  const [allDone, setAllDone] = useState<Record<string, boolean>>({})
   const [error, setError] = useState('')
   const [layout, setLayout] = useState<Layout>({ pending: [], placed: {}, draft: null })
-  const [confirm, setConfirm] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [noteFor, setNoteFor] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const seq = useRef(0)
@@ -81,10 +90,11 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   }
   const save: Save = (target, input) => act(() => window.term.todos.save(target, input))
   const remove = async (target: TaskScope, id: string) => !!(await act(() => window.term.todos.remove(target, id)))
+  const move = async (from: TaskScope, id: string, assignee?: Assignee) => !!(await act(() => window.term.todos.move(from, id, assignee)))
 
   /** Shows the row at once and clears the field, so the next task can be typed while git commits and pushes this one. */
-  async function add(section: string, assignee: Assignee, title: string, fromDraft: boolean) {
-    const key = `new-${++seq.current}`, target = scope, known = new Set((data?.[target] ?? []).map(task => task.id))
+  async function add(target: TaskScope, section: string, assignee: Assignee, title: string, fromDraft: boolean) {
+    const key = `new-${++seq.current}`, known = new Set((data?.[target] ?? []).map(task => task.id))
     setLayout(l => ({ ...l, pending: [...l.pending, { key, scope: target, section, title, assignee, after: fromDraft ? l.draft?.after ?? null : null }], draft: fromDraft && l.draft ? { ...l.draft, after: key } : l.draft }))
     let made: Task | undefined
     try {
@@ -95,38 +105,68 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     setLayout(l => settle(l, key, made?.id ?? null))
   }
 
-  function openMenu(task: Task, x: number, y: number, up?: number) {
+  const me: TasksUser = user || 'livio', other: TasksUser = me === 'livio' ? 'ilai' : 'livio'
+  const label = (assignee: Assignee) => assignee === 'both' ? 'Together' : assignee ? NAME[assignee] : 'Unassigned'
+
+  function openMenu(task: Task, scope: TaskScope, x: number, y: number, up?: number) {
     const set = (input: Omit<TaskInput, 'id'>) => () => void save(scope, { id: task.id, ...input })
+    const share = (assignee: Assignee) => () => void move('personal', task.id, assignee)
     const items: (MenuItem | false)[] = [
       task.status === 'done' ? { label: 'Reopen', run: set({ status: 'open' }) } : { label: 'Mark done', run: set({ status: 'done' }) },
       task.status !== 'done' && { label: 'In progress', checked: task.status === 'doing', run: set({ status: task.status === 'doing' ? 'open' : 'doing' }) },
-      ...(scope === 'shared' ? [null, { heading: 'Assign to' }, ...SECTIONS.map(s => ({ label: s.assignee ? s.label : 'Nobody', checked: task.assignee === s.assignee, run: set({ assignee: s.assignee }) }))] : []),
+      // A private task that goes to another column becomes shared on the way.
+      ...(scope === 'personal'
+        ? [null, { label: 'Make shared', run: share(me) }, { heading: 'Move to' }, ...(['both', other] as const).map(a => ({ label: label(a), run: share(a) }))]
+        : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm({ id: task.id, kind: 'private' }) }]),
       null, { heading: 'Product' }, { input: task.product, placeholder: 'e.g. ManyMotions', run: (product: string) => void save(scope, { id: task.id, product }) },
       !task.notes && { label: 'Add note', run: () => setNoteFor(task.id) },
-      null, { label: 'Delete…', danger: true, run: () => setConfirm(task.id) },
+      null, { label: 'Delete…', danger: true, run: () => setConfirm({ id: task.id, kind: 'delete' }) },
     ]
     setMenu({ x, y, up, items: items.filter((item): item is MenuItem => item !== false) })
   }
 
   const sync = data?.sync
-  const tasks = data?.[scope] ?? []
-  const open = tasks.filter(task => task.status !== 'done').sort(byCreated)
-  const done = tasks.filter(task => task.status === 'done').sort(byDone)
-  const row = (task: Task, section?: string) => <TaskRow key={task.id} task={task} scope={scope} confirming={confirm === task.id} openNote={noteFor === task.id}
-    onSave={save} onRemove={remove} onConfirm={on => setConfirm(on ? task.id : null)} onNoteOpened={() => setNoteFor(null)}
-    onMenu={(x, y, up) => openMenu(task, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
-  const checklist = (section: string, assignee: Assignee, list: Task[]) => <ul className="todo-check">
-    {arrange(list, layout, scope, section).map(item => item.kind === 'task' ? row(item.task, section)
+  const personal = data?.personal ?? [], shared = data?.shared ?? []
+  const open = (list: Task[]) => list.filter(task => task.status !== 'done').sort(byCreated)
+  const done = (list: Task[], scope: TaskScope) => list.filter(task => task.status === 'done').map(task => ({ task, scope }))
+  const to = (assignee: Assignee) => shared.filter(task => task.assignee === assignee)
+  const columns: Column[] = [
+    { key: me, label: NAME[me], parts: [
+      { scope: 'personal', section: 'private', assignee: null, label: 'Private', list: open(personal), placeholder: 'New private task' },
+      { scope: 'shared', section: me, assignee: me, label: 'Shared', list: open(to(me)), placeholder: 'New shared task' },
+    ], done: [...done(personal, 'personal'), ...done(to(me), 'shared')] },
+    { key: 'both', label: 'Together', parts: [
+      { scope: 'shared', section: 'both', assignee: 'both', list: open(to('both')), placeholder: 'New task' },
+      { scope: 'shared', section: 'none', assignee: null, label: 'Unassigned', list: open(to(null)) },
+    ], done: [...done(to('both'), 'shared'), ...done(to(null), 'shared')] },
+    { key: other, label: NAME[other], parts: [{ scope: 'shared', section: other, assignee: other, list: open(to(other)), placeholder: 'New task' }], done: done(to(other), 'shared') },
+  ]
+  const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]}
+    confirming={confirm?.id === task.id ? confirm.kind : null} openNote={noteFor === task.id}
+    onSave={save} onRemove={remove} onPrivate={() => move('shared', task.id)} onConfirm={kind => setConfirm(kind ? { id: task.id, kind } : null)} onNoteOpened={() => setNoteFor(null)}
+    onMenu={(x, y, up) => openMenu(task, scope, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
+  const checklist = ({ scope, section, assignee, list, placeholder }: Part) => <ul className="todo-check">
+    {arrange(list, layout, scope, section).map(item => item.kind === 'task' ? row(item.task, scope, section)
       : item.kind === 'pending' ? <li key={item.pending.key} className="todo-row pending"><span className="todo-circle" /><div className="todo-body"><div className="todo-line"><span className="todo-text">{item.pending.title}</span></div></div></li>
-      : <DraftRow key="draft" autoFocus onAdd={title => void add(section, assignee, title, true)} onLeave={how => {
+      : <DraftRow key="draft" autoFocus onAdd={title => void add(scope, section, assignee, title, true)} onLeave={how => {
           const anchor = layout.draft?.after
           setLayout(l => ({ ...l, draft: null }))
           const text = how === 'backspace' && anchor ? document.querySelector<HTMLTextAreaElement>(`[data-id="${anchor}"] .todo-text`) : null
           if (text) { text.focus(); text.setSelectionRange(text.value.length, text.value.length) }
         }} />)}
-    <DraftRow key="new" placeholder="New task" onAdd={title => void add(section, assignee, title, false)} />
+    {placeholder && <DraftRow key="new" placeholder={placeholder} onAdd={title => void add(scope, section, assignee, title, false)} />}
   </ul>
-  const sections = scope === 'personal' ? [] : SECTIONS.filter(s => s.assignee !== null || open.some(task => task.assignee === null) || layout.pending.some(p => p.scope === scope && p.section === s.key) || layout.draft?.section === s.key)
+  // A part with no "New task" row (Unassigned) shows only while it has rows.
+  const shown = (part: Part) => !!part.placeholder || !!part.list.length || layout.pending.some(p => p.scope === part.scope && p.section === part.section) || layout.draft?.section === part.section
+  /** Newest first, so a task just ticked lands at the top. */
+  const completed = (col: Column) => {
+    const list = [...col.done].sort((a, b) => byDone(a.task, b.task)), all = allDone[col.key] || list.length <= DONE_SHOWN
+    return !!list.length && <section className="todo-done" aria-label={`${col.label} tasks done`}>
+      <h4 className="todo-done-head">{col.label} tasks done</h4>
+      <ul className="todo-check">{(all ? list : list.slice(0, DONE_SHOWN)).map(({ task, scope }) => row(task, scope, undefined, scope === 'personal'))}</ul>
+      {list.length > DONE_SHOWN && <button className="todo-show-done" aria-expanded={all} onClick={() => setAllDone(value => ({ ...value, [col.key]: !all }))}>{all ? 'Show fewer' : `Show all (${list.length})`}</button>}
+    </section>
+  }
   const syncText = !sync ? '' : !sync.enabled ? 'Shared sync is off' : sync.syncing ? 'Syncing…' : sync.error ? 'Sync failed' : sync.lastSync ? `Synced ${clock(sync.lastSync)}` : 'Not synced yet'
 
   return <div className="workspace-overlay todo-overlay" role="presentation"
@@ -134,10 +174,6 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose() } }}>
     <section ref={sheet} tabIndex={-1} className="todo-sheet" role="dialog" aria-modal="true" aria-label="To-do">
       <header className="todo-head">
-        {user && <div className="todo-segment" role="group" aria-label="List">
-          <button aria-pressed={scope === 'shared'} onClick={() => setScope('shared')}>Shared</button>
-          <button aria-pressed={scope === 'personal'} onClick={() => setScope('personal')}>Personal</button>
-        </div>}
         <div className="todo-sync">
           {user && <>
             <span className={sync?.error ? 'failed' : ''} title={sync?.error ?? undefined} aria-live="polite">{syncText}</span>
@@ -152,43 +188,39 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         <h1>To-do</h1>
         <p>Who are you on this Mac?</p>
         <div className="todo-who" role="group" aria-label="You are">{(['livio', 'ilai'] as const).map(name => <button key={name} className="btn" onClick={() => onUser(name)}>{NAME[name]}</button>)}</div>
-        <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; personal ones stay here.</p>
-      </div> : <article className="todo-note" aria-label={scope === 'shared' ? 'Shared' : 'Personal'}>
+        <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; private ones stay here.</p>
+      </div> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
-        {scope === 'shared' && sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
-        <h1>{scope === 'shared' ? 'BUILD' : 'Personal'}</h1>
-        {scope === 'shared' ? <>
-          <p className="todo-rule">— Status last updated: {sync?.lastSync ? day(sync.lastSync) : 'not synced yet'} —</p>
-          <p className="todo-rule">— Priority Tasks —</p>
-          {sections.map(s => <section key={s.key} aria-label={s.label}>
-            <h3 className={`todo-at ${s.key}`}>{s.assignee ? `@${s.label}` : s.label}</h3>
-            {checklist(s.key, s.assignee, open.filter(task => task.assignee === s.assignee))}
+        {sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
+        <h1>BUILD</h1>
+        <p className="todo-rule">— Status last updated: {sync?.lastSync ? day(sync.lastSync) : 'not synced yet'} —</p>
+        <p className="todo-rule">— Priority Tasks —</p>
+        <div className="todo-cols">
+          {columns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>
+            <h3 className={`todo-at ${col.key}`}>@{col.label}</h3>
+            {col.parts.filter(shown).map(part => <div key={part.section} className="todo-part" data-part={part.section} role="group" aria-label={part.label ?? col.label}>
+              {part.label && <h4 className="todo-sub">{part.scope === 'personal' && <Lock />}{part.label}</h4>}
+              {checklist(part)}
+            </div>)}
+            {completed(col)}
           </section>)}
-        </> : checklist('personal', null, open)}
-        <p className="todo-rule todo-rule-done">— COMPLETED TASKS —</p>
-        {!done.length ? <p className="todo-muted">Nothing completed yet.</p> : <>
-          <button className="todo-show-done" aria-expanded={showDone} onClick={() => setShowDone(value => !value)}>{showDone ? 'Hide completed' : `Show completed (${done.length})`}</button>
-          {showDone && (scope === 'personal' ? <ul className="todo-check">{done.map(task => row(task))}</ul>
-            : SECTIONS.map(s => { const list = done.filter(task => task.assignee === s.assignee); return !!list.length && <section key={s.key} aria-label={`${s.label} tasks done`}>
-                <h4 className="todo-done-head">{s.label} tasks done</h4>
-                <ul className="todo-check">{list.map(task => row(task))}</ul>
-              </section> }))}
-        </>}
+        </div>
       </article>}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </section>
   </div>
 }
 
-function TaskRow({ task, scope, confirming, openNote, onSave, onRemove, onConfirm, onNoteOpened, onMenu, onEnter }: {
-  task: Task; scope: TaskScope; confirming: boolean; openNote: boolean; onSave: Save; onRemove: (scope: TaskScope, id: string) => Promise<boolean>
-  onConfirm: (on: boolean) => void; onNoteOpened: () => void; onMenu: (x: number, y: number, up?: number) => void; onEnter?: () => void
+/** `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private. */
+function TaskRow({ task, scope, lock, other, confirming, openNote, onSave, onRemove, onPrivate, onConfirm, onNoteOpened, onMenu, onEnter }: {
+  task: Task; scope: TaskScope; lock: boolean; other: string; confirming: Confirm['kind'] | null; openNote: boolean; onSave: Save; onRemove: (scope: TaskScope, id: string) => Promise<boolean>
+  onPrivate: () => Promise<boolean>; onConfirm: (kind: Confirm['kind'] | null) => void; onNoteOpened: () => void; onMenu: (x: number, y: number, up?: number) => void; onEnter?: () => void
 }): JSX.Element {
   const [title, setTitle] = useState(task.title)
   const [notes, setNotes] = useState(task.notes)
   const [noteEditing, setNoteEditing] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+  const [busy, setBusy] = useState(false)
   const editing = useRef(false)
   const cancel = useRef(false)
   const caret = useRef<number | null>(null)
@@ -235,10 +267,11 @@ function TaskRow({ task, scope, confirming, openNote, onSave, onRemove, onConfir
             if (event.nativeEvent.isComposing) return
             if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); onEnter?.() }
             else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel.current = true; setTitle(task.title); event.currentTarget.blur() }
-            else if (event.key === 'Backspace' && !title) { event.preventDefault(); onConfirm(true) }
+            else if (event.key === 'Backspace' && !title) { event.preventDefault(); onConfirm('delete') }
           }} />
         {task.status === 'doing' && <span className="todo-tag doing">in progress</span>}
         {task.product && <span className="todo-tag">{task.product}</span>}
+        {lock && <span className="todo-tag" title="Private" aria-label="Private"><Lock /></span>}
       </div>
       {noteEditing
         ? <textarea className="todo-notes" value={notes} maxLength={20000} aria-label="Note" placeholder="Note" spellCheck={false}
@@ -251,11 +284,12 @@ function TaskRow({ task, scope, confirming, openNote, onSave, onRemove, onConfir
         : notes && <div className="todo-note-text" role="button" tabIndex={0} aria-label="Edit note"
             onMouseDown={event => { const range = document.caretRangeFromPoint(event.clientX, event.clientY); caret.current = range && event.currentTarget.contains(range.startContainer) ? range.startOffset : notes.length; event.preventDefault(); setNoteEditing(true) }}
             onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); caret.current = notes.length; setNoteEditing(true) } }}>{notes}</div>}
-      {confirming && <div className="todo-confirm" role="group" aria-label="Confirm delete"
-        onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onConfirm(false) } }}>
-        Delete this task?
-        <button className="danger" autoFocus disabled={deleting} onClick={async () => { setDeleting(true); if (await onRemove(scope, task.id)) onConfirm(false); else setDeleting(false) }}>Delete</button>
-        <button onClick={() => onConfirm(false)}>Keep</button>
+      {confirming && <div className={`todo-confirm ${confirming}`} role="group" aria-label={confirming === 'delete' ? 'Confirm delete' : 'Confirm make private'}
+        onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onConfirm(null) } }}>
+        {confirming === 'delete' ? 'Delete this task?' : `Make it private? ${other} will no longer see it.`}
+        <button className={confirming === 'delete' ? 'danger' : 'primary'} autoFocus disabled={busy}
+          onClick={async () => { setBusy(true); if (await (confirming === 'delete' ? onRemove(scope, task.id) : onPrivate())) onConfirm(null); else setBusy(false) }}>{confirming === 'delete' ? 'Delete' : 'Make private'}</button>
+        <button onClick={() => onConfirm(null)}>{confirming === 'delete' ? 'Keep' : 'Keep shared'}</button>
       </div>}
     </div>
     <span className="todo-actions">

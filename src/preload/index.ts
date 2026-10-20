@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
-import type { Prefs, TabStatus, TaskInput, TaskList, TaskScope, VoiceClip } from '../shared/types'
+import type { Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, VoiceClip } from '../shared/types'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -107,6 +107,8 @@ const api = {
     list: (): Promise<TaskList> => ipcRenderer.invoke('todos:list'),
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => ipcRenderer.invoke('todos:save', scope, input),
     remove: (scope: TaskScope, id: string): Promise<TaskList> => ipcRenderer.invoke('todos:remove', scope, id),
+    /** Private ⇄ shared; to shared it goes to `assignee`, by default the user. */
+    move: (from: TaskScope, id: string, assignee?: Task['assignee']): Promise<TaskList> => ipcRenderer.invoke('todos:move', from, id, assignee),
     sync: (): Promise<TaskList> => ipcRenderer.invoke('todos:sync'),
     onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('todos:changed', cb); return () => { ipcRenderer.removeListener('todos:changed', cb) } },
   },

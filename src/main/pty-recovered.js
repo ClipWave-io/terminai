@@ -131,8 +131,9 @@ function ptyEnv(tabId) {
   const cliDir = node_path.join(electron.app.getPath("userData"), "bin");
   env.TERMINAI_CLI = node_path.join(cliDir, "terminai");
   // The To-do files (src/main/todos.ts), for `terminai todo`; sessions only read them.
+  // Private tasks are todos-personal-<user>.json in TERMINAI_TODO_DIR, next to prefs.json.
   env.TERMINAI_TASKS_DIR = node_path.join(electron.app.getPath("userData"), "build-tasks", "tasks");
-  env.TERMINAI_TODO_PERSONAL = node_path.join(electron.app.getPath("userData"), "todos-personal.json");
+  env.TERMINAI_TODO_DIR = electron.app.getPath("userData");
   env.PATH = `${cliDir}:${env.PATH ?? ""}`;
   if (ensureShim()) {
     env.CLIPWAVE_SHIM = shimDir();

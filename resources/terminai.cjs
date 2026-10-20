@@ -8,7 +8,7 @@
 //   terminai focus <id>
 //   terminai todo [--shared|--personal] [--open] [--mine]   read-only, straight from the files
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
-const {readFileSync,readdirSync}=require('node:fs'),{join,resolve,dirname}=require('node:path'),{homedir}=require('node:os');
+const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
 const COMMANDS=['list','open','send','read','close','focus','todo'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
@@ -25,17 +25,19 @@ function parse(argv){
  return {command,flags,words};
 }
 const number=v=>v===undefined?undefined:Number(v);
-// The To-do lists without the app: TERMINAI_TASKS_DIR and TERMINAI_TODO_PERSONAL are set in every tab (src/main/todos.ts writes them).
+// The To-do lists without the app: TERMINAI_TASKS_DIR and TERMINAI_TODO_DIR are set in every tab (src/main/todos.ts writes the files).
 function todo(flags){
- const data=join(homedir(),'Library/Application Support/clipwave-term'),json=file=>{try{return JSON.parse(readFileSync(file,'utf8'))}catch{return null}};
- const dir=process.env.TERMINAI_TASKS_DIR||join(data,'build-tasks','tasks'),personal=process.env.TERMINAI_TODO_PERSONAL||join(data,'todos-personal.json');
- const user=flags.mine?(json(join(dirname(personal),'prefs.json'))||{}).tasksUser:'';
+ const data=process.env.TERMINAI_TODO_DIR||join(homedir(),'Library/Application Support/clipwave-term'),json=file=>{try{return JSON.parse(readFileSync(file,'utf8'))}catch{return null}};
+ const dir=process.env.TERMINAI_TASKS_DIR||join(data,'build-tasks','tasks');
+ const user=(json(join(data,'prefs.json'))||{}).tasksUser;
  if(flags.mine&&!user)throw Error('Choose who you are in the TerminAI To-do sheet first');
+ const open=t=>t&&typeof t==='object'&&(!flags.open||t.status!=='done');
  // Same rule as isMine in src/shared/types.ts.
- const keep=t=>t&&typeof t==='object'&&(!flags.open||t.status!=='done')&&(!flags.mine||t.assignee===user||t.assignee==='both'||(t.assignee===null&&t.createdBy===user));
+ const keep=t=>open(t)&&(!flags.mine||t.assignee===user||t.assignee==='both'||(t.assignee===null&&t.createdBy===user));
  const out={};
  if(!flags.personal){let names=[];try{names=readdirSync(dir).filter(n=>n.endsWith('.json'))}catch{}out.shared=names.map(n=>json(join(dir,n))).filter(keep)}
- if(!flags.shared){const list=json(personal);out.personal=(Array.isArray(list)?list:[]).filter(keep)}
+ // Private tasks are one file per user, so all of them are the user's own.
+ if(!flags.shared){const list=user==='livio'||user==='ilai'?json(join(data,`todos-personal-${user}.json`)):null;out.personal=(Array.isArray(list)?list:[]).filter(open)}
  return out;
 }
 function request(command,flags,words){

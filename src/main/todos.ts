@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import type { Task, TaskInput, TaskList, TaskScope, TasksSync, TasksUser } from '../shared/types'
 
 /**
- * The To-do sheet's data. Personal tasks are one JSON file in userData and never leave the Mac.
+ * The To-do sheet's data. Personal tasks are one JSON file per user in userData and never leave the Mac.
  * Shared tasks live in a clone of the build-tasks repo (one file per task, see its README) that
  * this module pulls, commits and pushes by itself, with the user's own git and credential helper.
  * Sessions read the same files through `terminai todo`; nothing else writes them.
@@ -35,20 +35,39 @@ function git(cwd: string, ...args: string[]): Promise<string> {
 }
 
 export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void }) {
-  const personalFile = join(dir, 'todos-personal.json')
+  // Before private tasks were per user they were one file per Mac (todos-personal.json).
+  const legacyFile = join(dir, 'todos-personal.json')
+  const personalFile = (user: TasksUser) => join(dir, `todos-personal-${user}.json`)
   const clone = join(dir, 'build-tasks')
   const tasksDir = join(clone, 'tasks')
   const status: TasksSync = { enabled: Boolean(opts.remote), syncing: false, lastSync: null, error: opts.remote ? null : 'No shared repository is set for this build.' }
 
-  function readPersonal(): Task[] {
-    try { const list = JSON.parse(readFileSync(personalFile, 'utf8')); return Array.isArray(list) ? list : [] } catch { return [] }
+  function readList(file: string): Task[] {
+    try { const list = JSON.parse(readFileSync(file, 'utf8')); return Array.isArray(list) ? list : [] } catch { return [] }
   }
-  function writePersonal(list: Task[]): void {
+  function writeList(file: string, list: Task[]): void {
     // Write-then-rename, as store.ts does for prefs.
-    const tmp = `${personalFile}.tmp`
+    const tmp = `${file}.tmp`
     writeFileSync(tmp, JSON.stringify(list, null, 2) + '\n', 'utf8')
-    renameSync(tmp, personalFile)
+    renameSync(tmp, file)
   }
+  /** The old per-Mac file, split once: each task goes to whoever created it, the rest to the current user. */
+  function migrate(user: TasksUser): void {
+    if (!existsSync(legacyFile)) return
+    const old = readList(legacyFile)
+    for (const owner of ['livio', 'ilai'] as const) {
+      const moving = old.filter(task => (task?.createdBy === 'livio' || task?.createdBy === 'ilai' ? task.createdBy : user) === owner)
+      if (!moving.length) continue
+      const have = readList(personalFile(owner)), ids = new Set(have.map(task => task.id))
+      writeList(personalFile(owner), [...have, ...moving.filter(task => !ids.has(task.id))])
+    }
+    renameSync(legacyFile, `${legacyFile}.migrated`)
+  }
+  function readPersonal(user: TasksUser): Task[] {
+    migrate(user)
+    return readList(personalFile(user))
+  }
+  const writePersonal = (user: TasksUser, list: Task[]) => writeList(personalFile(user), list)
   function readTask(file: string): Task | undefined {
     try { const task = JSON.parse(readFileSync(file, 'utf8')); return task && typeof task === 'object' ? task : undefined } catch { return undefined }
   }
@@ -57,7 +76,10 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     try { names = readdirSync(tasksDir).filter(name => name.endsWith('.json')) } catch { return [] }
     return names.flatMap(name => readTask(join(tasksDir, name)) ?? [])
   }
-  const list = (): TaskList => ({ personal: readPersonal(), shared: readShared(), sync: { ...status } })
+  const list = (): TaskList => {
+    const user = opts.user()
+    return { personal: user ? readPersonal(user) : [], shared: readShared(), sync: { ...status } }
+  }
 
   function who(): TasksUser {
     const user = opts.user()
@@ -227,11 +249,11 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       const user = who()
       check(input)
       if (scope === 'personal') {
-        const tasks = readPersonal(), at = input.id === undefined ? -1 : tasks.findIndex(task => task.id === input.id)
+        const tasks = readPersonal(user), at = input.id === undefined ? -1 : tasks.findIndex(task => task.id === input.id)
         if (input.id !== undefined && at < 0) throw Error('That task no longer exists.')
         const task = build(input, tasks[at], user)
         if (at < 0) tasks.push(task); else tasks[at] = task
-        writePersonal(tasks)
+        writePersonal(user, tasks)
         return list()
       }
       // The old copy is read inside the job, after any sync that was already running.
@@ -248,17 +270,66 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
 
     async remove(scope: TaskScope, id: string): Promise<TaskList> {
       if (!validId(id)) throw Error('Invalid task id')
+      const user = who()
       if (scope === 'personal') {
-        writePersonal(readPersonal().filter(task => task.id !== id))
+        writePersonal(user, readPersonal(user).filter(task => task.id !== id))
         return list()
       }
-      const user = who()
       await change(() => {
         const file = join(tasksDir, `${id}.json`), old = readTask(file)
         if (!old) return null
         rmSync(file, { force: true })
         return { path: `tasks/${id}.json`, message: `${user}: delete ${old.title}` }
       })
+      return list()
+    },
+
+    /**
+     * Private to shared (assigned to `assignee`, by default the user) or shared to private, keeping
+     * the id and dates. The task is written where it goes before it leaves where it was, and a step
+     * that fails puts back what it changed: a failed move leaves the task where it was, never nowhere.
+     */
+    async move(from: TaskScope, id: string, assignee?: Task['assignee']): Promise<TaskList> {
+      if (!validId(id)) throw Error('Invalid task id')
+      if (assignee !== undefined && assignee !== null && !ASSIGNEES.includes(assignee)) throw Error('Invalid assignee')
+      const user = who(), file = join(tasksDir, `${id}.json`), path = `tasks/${id}.json`
+      // Set inside the git job; `as` keeps TypeScript from treating them as never assigned.
+      let before = undefined as string | null | undefined, added = false as boolean
+      if (from === 'personal') {
+        const task = readPersonal(user).find(t => t.id === id)
+        if (!task) throw Error('That task no longer exists.')
+        try {
+          await change(() => {
+            before = existsSync(file) ? readFileSync(file, 'utf8') : null
+            mkdirSync(tasksDir, { recursive: true })
+            writeFileSync(file, JSON.stringify({ ...task, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }, null, 2) + '\n', 'utf8')
+            return { path, message: `${user}: share ${task.title}` }
+          })
+        } catch (err) {
+          // Not committed: the next sync would commit the copy while the task is still private.
+          if (before === null) rmSync(file, { force: true })
+          else if (before !== undefined) writeFileSync(file, before)
+          throw err
+        }
+        writePersonal(user, readPersonal(user).filter(t => t.id !== id))
+        return list()
+      }
+      try {
+        await change(() => {
+          const old = readTask(file)
+          if (!old) throw Error('That task no longer exists.')
+          before = readFileSync(file, 'utf8')
+          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), { ...old, assignee: null, updatedAt: romeIso(), updatedBy: user }])
+          added = true
+          rmSync(file)
+          return { path, message: `${user}: make private ${old.title}` }
+        })
+      } catch (err) {
+        // Not committed: the next sync would commit the delete as "save unsynced changes".
+        if (typeof before === 'string' && !existsSync(file)) writeFileSync(file, before)
+        if (added) writePersonal(user, readPersonal(user).filter(t => t.id !== id))
+        throw err
+      }
       return list()
     },
   }
