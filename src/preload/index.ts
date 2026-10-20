@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
-import type { Prefs, TabStatus, VoiceClip } from '../shared/types'
+import type { Prefs, TabStatus, TaskInput, TaskList, TaskScope, VoiceClip } from '../shared/types'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -100,6 +100,15 @@ const api = {
       ipcRenderer.on('tab:request', h)
       return () => ipcRenderer.removeListener('tab:request', h)
     },
+  },
+
+  /** Personal and shared to-dos; src/main/todos.ts does the files and the git sync. */
+  todos: {
+    list: (): Promise<TaskList> => ipcRenderer.invoke('todos:list'),
+    save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => ipcRenderer.invoke('todos:save', scope, input),
+    remove: (scope: TaskScope, id: string): Promise<TaskList> => ipcRenderer.invoke('todos:remove', scope, id),
+    sync: (): Promise<TaskList> => ipcRenderer.invoke('todos:sync'),
+    onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('todos:changed', cb); return () => { ipcRenderer.removeListener('todos:changed', cb) } },
   },
 
   prefs: {

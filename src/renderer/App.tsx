@@ -8,6 +8,7 @@ import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
 import { WelcomeSheet } from './components/WelcomeSheet'
 import { WorkspaceSheet } from './components/WorkspaceSheet'
+import { TodoSheet } from './components/TodoSheet'
 import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
@@ -27,9 +28,9 @@ import {
 } from '../shared/types'
 import type { JSX } from 'react'
 
-function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal'}) {
+function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal' | 'todo'}) {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
+    {kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : kind==='todo' ? <><path d="M11 6h9M11 12h9M11 18h9"/><path d="m3.5 6 1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
   </svg>
 }
 
@@ -120,6 +121,7 @@ export function App(): JSX.Element {
   useEffect(() => { void window.term.window.fullscreen().then(setFullscreen); return window.term.window.onFullscreen(setFullscreen) }, [])
   const [showSettings, setShowSettings] = useState(false)
   const [showTeam, setShowTeam] = useState(false)
+  const [showTodos, setShowTodos] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
   const closedTabs = useRef<SavedTab[]>([])
@@ -740,6 +742,7 @@ export function App(): JSX.Element {
           </div>
           {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
           <span className="topbar-spacer" />
+          {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag" aria-label="To-do" title="To-do" aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" /></button>}
           {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
           {!prefs.hiddenToolbarItems.includes('sessions') && <button
             className="btn icon"
@@ -790,7 +793,7 @@ export function App(): JSX.Element {
           ))}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
@@ -820,7 +823,7 @@ export function App(): JSX.Element {
       {showToolbar && <div className="toolbar-customize-backdrop" onClick={() => setShowToolbar(false)}>
         <section className="toolbar-customize" role="dialog" aria-label="Customize toolbar" onClick={event => event.stopPropagation()}>
           <strong>Customize toolbar</strong><p>Choose icons to show. Drag the pane icons to reorder them.</p>
-          {(['terminal','browser','files','team','sessions','maximize','sidebar'] as const).map(item => <label key={item}><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item.charAt(0).toUpperCase() + item.slice(1)}</label>)}
+          {(['terminal','browser','files','team','todo','sessions','maximize','sidebar'] as const).map(item => <label key={item}><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'todo' ? 'To-do' : item.charAt(0).toUpperCase() + item.slice(1)}</label>)}
           <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [] })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
         </section>
       </div>}
@@ -872,6 +875,7 @@ export function App(): JSX.Element {
       })()}
 
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} onClose={() => setShowTeam(false)} />}
+      {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} />}
       {showSettings && (
         <SettingsSheet
           prefs={prefs}

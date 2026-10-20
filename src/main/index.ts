@@ -11,6 +11,7 @@ import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
 import { startControl, controlReply } from './control'
+import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
@@ -27,7 +28,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 import { getTheme } from '../shared/themes'
-import type { Prefs, VoicePrefs } from '../shared/types'
+import type { Prefs, TaskInput, TaskScope, VoicePrefs } from '../shared/types'
 
 /** Injected by electron-vite at build time; see electron.vite.config.ts. */
 declare const __REPO_ROOT__: string
@@ -285,10 +286,31 @@ function registerIpc(): void {
     activeTabId = id
   })
 
+  // ---- to-do -------------------------------------------------------------
+  const todos = createTodos(app.getPath('userData'), {
+    // The test build never falls back to the real shared repo: it syncs only with TERMINAI_TASKS_REMOTE.
+    remote: process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
+    user: () => store.load().tasksUser,
+    changed: () => { if (win && !win.isDestroyed()) win.webContents.send('todos:changed') },
+  })
+  const scopeOf = (scope: unknown): TaskScope => {
+    if (scope !== 'personal' && scope !== 'shared') throw new Error('Invalid task list')
+    return scope
+  }
+  appIpc.handle('todos:list', () => todos.list())
+  appIpc.handle('todos:save', (_e, scope: unknown, input: TaskInput) => todos.save(scopeOf(scope), input && typeof input === 'object' ? input : {}))
+  appIpc.handle('todos:remove', (_e, scope: unknown, id: string) => todos.remove(scopeOf(scope), id))
+  appIpc.handle('todos:sync', () => todos.sync())
+  // Pull on open and every 3 minutes, quietly; pushes happen on every change.
+  void todos.sync()
+  setInterval(() => void todos.sync(), 3 * 60_000)
+
   // ---- prefs -------------------------------------------------------------
   appIpc.handle('prefs:get', () => store.load())
   appIpc.handle('prefs:set', (_e, patch: Partial<Prefs>) => {
     const next = store.save(patch)
+    // The first clone waits for the user to say who they are in the To-do sheet.
+    if (patch.tasksUser) void todos.sync()
     if (win && patch.theme) {
       const theme = getTheme(next.theme)
       win.setBackgroundColor(theme.background)

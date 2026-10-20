@@ -130,6 +130,9 @@ function ptyEnv(tabId) {
   // The `terminai` CLI that index.ts copies out of the asar at startup.
   const cliDir = node_path.join(electron.app.getPath("userData"), "bin");
   env.TERMINAI_CLI = node_path.join(cliDir, "terminai");
+  // The To-do files (src/main/todos.ts), for `terminai todo`; sessions only read them.
+  env.TERMINAI_TASKS_DIR = node_path.join(electron.app.getPath("userData"), "build-tasks", "tasks");
+  env.TERMINAI_TODO_PERSONAL = node_path.join(electron.app.getPath("userData"), "todos-personal.json");
   env.PATH = `${cliDir}:${env.PATH ?? ""}`;
   if (ensureShim()) {
     env.CLIPWAVE_SHIM = shimDir();

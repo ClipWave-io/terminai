@@ -58,6 +58,49 @@ export function normalizePaneOrder(value: unknown): WorkspacePane[] {
 
 export type RailSide = 'left' | 'right'
 
+export type TasksUser = 'livio' | 'ilai'
+export type TaskStatus = 'open' | 'doing' | 'done'
+export type TaskScope = 'personal' | 'shared'
+
+/** One to-do, in the format of the build-tasks repo README (one file per task there). */
+export interface Task {
+  id: string
+  title: string
+  notes: string
+  status: TaskStatus
+  assignee: TasksUser | 'both' | null
+  /** free text, e.g. ManyMotions, Abracadabrax, ResumeNext */
+  product: string
+  /** ISO with the Europe/Rome offset */
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+  updatedBy: string
+}
+
+export interface TasksSync {
+  /** false when no shared repository is configured (the test build without TERMINAI_TASKS_REMOTE) */
+  enabled: boolean
+  syncing: boolean
+  /** last successful pull/push, ISO with the Europe/Rome offset */
+  lastSync: string | null
+  error: string | null
+}
+
+export interface TaskList {
+  personal: Task[]
+  shared: Task[]
+  sync: TasksSync
+}
+
+/** What the To-do sheet sends; the main process stamps the dates and authors. */
+export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product'>>
+
+/** Assigned to me or to both, or unassigned and created by me. resources/terminai.cjs repeats it for --mine. */
+export function isMine(task: Task, user: string): boolean {
+  return task.assignee === user || task.assignee === 'both' || (task.assignee === null && task.createdBy === user)
+}
+
 /**
  * What the tab's dot reports, in the terms that matter while you are running
  * agents in several tabs at once: green you can use, yellow is busy, blue wants
@@ -179,6 +222,8 @@ export interface Prefs {
   seenWelcome: boolean
   /** sidebar sessions bucketed under a heading per folder */
   groupByFolder: boolean
+  /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
+  tasksUser: TasksUser | ''
   /** restored on launch, in the user's chosen priority order */
   tabs: SavedTab[]
 }
@@ -209,5 +254,6 @@ export const DEFAULT_PREFS: Prefs = {
   },
   seenWelcome: false,
   groupByFolder: true,
+  tasksUser: '',
   tabs: [],
 }

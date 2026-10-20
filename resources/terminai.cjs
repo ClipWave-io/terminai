@@ -6,9 +6,10 @@
 //   terminai read <id> [--lines N]
 //   terminai close <id>
 //   terminai focus <id>
+//   terminai todo [--shared|--personal] [--open] [--mine]   read-only, straight from the files
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
-const {readFileSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus'],SWITCHES=['foreground','no-enter'];
+const {readFileSync,readdirSync}=require('node:fs'),{join,resolve,dirname}=require('node:path'),{homedir}=require('node:os');
+const COMMANDS=['list','open','send','read','close','focus','todo'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -24,6 +25,19 @@ function parse(argv){
  return {command,flags,words};
 }
 const number=v=>v===undefined?undefined:Number(v);
+// The To-do lists without the app: TERMINAI_TASKS_DIR and TERMINAI_TODO_PERSONAL are set in every tab (src/main/todos.ts writes them).
+function todo(flags){
+ const data=join(homedir(),'Library/Application Support/clipwave-term'),json=file=>{try{return JSON.parse(readFileSync(file,'utf8'))}catch{return null}};
+ const dir=process.env.TERMINAI_TASKS_DIR||join(data,'build-tasks','tasks'),personal=process.env.TERMINAI_TODO_PERSONAL||join(data,'todos-personal.json');
+ const user=flags.mine?(json(join(dirname(personal),'prefs.json'))||{}).tasksUser:'';
+ if(flags.mine&&!user)throw Error('Choose who you are in the TerminAI To-do sheet first');
+ // Same rule as isMine in src/shared/types.ts.
+ const keep=t=>t&&typeof t==='object'&&(!flags.open||t.status!=='done')&&(!flags.mine||t.assignee===user||t.assignee==='both'||(t.assignee===null&&t.createdBy===user));
+ const out={};
+ if(!flags.personal){let names=[];try{names=readdirSync(dir).filter(n=>n.endsWith('.json'))}catch{}out.shared=names.map(n=>json(join(dir,n))).filter(keep)}
+ if(!flags.shared){const list=json(personal);out.personal=(Array.isArray(list)?list:[]).filter(keep)}
+ return out;
+}
 function request(command,flags,words){
  const id=words[0];if(command!=='list'&&command!=='open'&&!id)throw Error(`usage: terminai ${command} <id>`);
  if(command==='list')return {};
@@ -34,7 +48,8 @@ function request(command,flags,words){
 }
 async function main(){
  const {command,flags,words}=parse(process.argv.slice(2));
- if(!COMMANDS.includes(command))throw Error('usage: terminai list|open|send|read|close|focus ...');
+ if(!COMMANDS.includes(command))throw Error('usage: terminai list|open|send|read|close|focus|todo ...');
+ if(command==='todo'){process.stdout.write(JSON.stringify(todo(flags),null,1)+'\n');return}
  const args=request(command,flags,words);
  const file=process.env.TERMINAI_CONTROL||join(homedir(),'Library/Application Support/clipwave-term/control.json');
  let config;try{config=JSON.parse(readFileSync(file,'utf8'))}catch{throw Error(`TerminAI is not running (no ${file})`)}
