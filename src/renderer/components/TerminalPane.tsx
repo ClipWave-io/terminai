@@ -118,6 +118,10 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       scrollback: 20000,
       // Keep the pane background matching the theme even where no cell is drawn.
       theme: toXtermTheme(theme),
+      // A program that assumes the opposite background (Claude Code's dark theme on linen
+      // printed white-on-white questions) still stays readable: xterm darkens or lightens
+      // any foreground below WCAG AA contrast against the cell background.
+      minimumContrastRatio: 4.5,
       macOptionIsMeta: true,
       macOptionClickForcesSelection: true,
       // Claude Code and every other TUI rely on these; do not turn them off.
