@@ -148,7 +148,10 @@ app.whenReady().then(() => {
       return browser.automate(command,args,owner)
     })
     app.once('will-quit',bridge.close)
-    registerBrowserMcp(join(process.env.CODEX_HOME||join(homedir(),'.codex'),'config.toml'),process.execPath,script,join(directory,'browser-bridge.json'))
+    // Only the installed app, with its default data folder, may write the user's real Codex config:
+    // tests and the test build point userData elsewhere and must pass CODEX_HOME explicitly.
+    const codexHome=process.env.CODEX_HOME||(directory===join(app.getPath('appData'),'clipwave-term')?join(homedir(),'.codex'):'')
+    if(codexHome)registerBrowserMcp(join(codexHome,'config.toml'),process.execPath,script,join(directory,'browser-bridge.json'))
   })().catch(()=>{console.error('Embedded browser MCP setup needs attention. See the browser setup guide.')})
 
   app.on('activate', () => {
