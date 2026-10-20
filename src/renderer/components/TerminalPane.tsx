@@ -43,6 +43,55 @@ function urlAtCell(term: Terminal, col: number, row: number): string {
   return ''
 }
 /**
+ * Claude Code and Codex both switch on mouse tracking (DECSET 1000/1002/1003),
+ * and xterm then forwards every click and drag to the TUI instead of selecting
+ * text — so nothing in those boxes could be selected without holding ⌥.
+ *
+ * This inverts the default: a plain drag always selects. A plain click with no
+ * drag is still delivered to the app as a press+release, so Codex's
+ * click-to-place-cursor keeps working. ⌥ continues to force selection.
+ *
+ * Reaches into xterm's private core (pinned to @xterm/xterm 5.5.0); there is no
+ * public option for this.
+ */
+function installSelectionOverride(term: Terminal, host: HTMLElement): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const core = (term as any)._core
+  const selection = core?._selectionService
+  const mouse = core?.coreMouseService
+  const mouseUtil = core?._mouseService
+  if (!selection || !mouse || !mouseUtil) return
+
+  selection.shouldForceSelection = (ev: MouseEvent): boolean =>
+    ev.button === 0 && !ev.ctrlKey
+
+  let downAt: { x: number; y: number } | null = null
+  host.addEventListener(
+    'mousedown',
+    (ev) => {
+      downAt = ev.button === 0 ? { x: ev.clientX, y: ev.clientY } : null
+    },
+    true,
+  )
+  host.addEventListener(
+    'mouseup',
+    (ev) => {
+      const start = downAt
+      downAt = null
+      if (!start || ev.button !== 0 || ev.altKey || !mouse.areMouseEventsActive) return
+      const moved = Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > 3
+      if (moved || term.hasSelection()) return
+      const pos = mouseUtil.getMouseReportCoords(ev, core.screenElement)
+      if (!pos) return
+      // button 0 = left; action 1 = down, 0 = up (xterm's CoreMouseAction).
+      mouse.triggerMouseEvent({ col: pos.col, row: pos.row, x: pos.x, y: pos.y, button: 0, action: 1 })
+      mouse.triggerMouseEvent({ col: pos.col, row: pos.row, x: pos.x, y: pos.y, button: 0, action: 0 })
+    },
+    true,
+  )
+}
+
+/**
  * One xterm bound to one PTY. Instances for inactive tabs stay mounted (hidden
  * via CSS) so background sessions keep drawing and scrollback survives a switch.
  */
@@ -99,6 +148,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
 
     termRef.current = term
     fitRef.current = fit
+    installSelectionOverride(term, host)
 
     // Cheap text preview for the grid: read straight off the buffer rather than
     // keeping a second renderer alive per tab.
