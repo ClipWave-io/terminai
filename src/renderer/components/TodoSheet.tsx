@@ -24,7 +24,6 @@ const NAME = { livio: 'Matteo', ilai: 'Ilai' } as const
 const DONE_SHOWN = 5
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 const rome = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('de-DE', { timeZone: 'Europe/Rome', ...opts })
-const day = (iso: string) => rome(iso, { day: '2-digit', month: '2-digit', year: 'numeric' })
 const clock = (iso: string) => rome(iso, { hour: '2-digit', minute: '2-digit' })
 // The 39 tasks imported from BUILD share one createdAt: the id breaks the tie and, unlike the title, never changes.
 const byCreated = (a: Task, b: Task) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
@@ -192,12 +191,9 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
       </div> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
         {sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
-        <h1>BUILD</h1>
-        <p className="todo-rule">— Status last updated: {sync?.lastSync ? day(sync.lastSync) : 'not synced yet'} —</p>
-        <p className="todo-rule">— Priority Tasks —</p>
         <div className="todo-cols">
           {columns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>
-            <h3 className={`todo-at ${col.key}`}>@{col.label}</h3>
+            <h3 className={`todo-at ${col.key}`}>{col.label.toUpperCase()}</h3>
             {col.parts.filter(shown).map(part => <div key={part.section} className="todo-part" data-part={part.section} role="group" aria-label={part.label ?? col.label}>
               {part.label && <h4 className="todo-sub">{part.scope === 'personal' && <Lock />}{part.label}</h4>}
               {checklist(part)}
