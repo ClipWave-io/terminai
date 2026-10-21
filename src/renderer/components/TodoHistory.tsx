@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { Task, TaskVersion } from '../../shared/types'
 
@@ -71,6 +71,13 @@ export function TodoHistory({ task, onClose }: { task: Task; onClose: () => void
   const [at, setAt] = useState(0)
   const [error, setError] = useState('')
   useEffect(() => { void window.term.todos.history(task.id).then(setVersions, (err: Error) => setError(err.message)) }, [task.id])
+  const diff = useRef<HTMLDivElement>(null)
+  // A change at the end of a long note would sit out of sight: bring the first one into view.
+  useEffect(() => {
+    const box = diff.current, first = box?.querySelector<HTMLElement>('.add, .del')
+    if (!box || !first) return
+    box.scrollTop = Math.max(0, first.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 40)
+  }, [versions, at])
   const shown = versions?.[at]
   return <div className="sheet-backdrop" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
     <div className="sheet todo-history" role="dialog" aria-label={`History of ${task.title}`}>
@@ -89,7 +96,7 @@ export function TodoHistory({ task, onClose }: { task: Task; onClose: () => void
             </button>
           </li>)}
         </ol>
-        <div className="todo-history-diff">{shown && <Change before={versions[at + 1] ?? null} after={shown} beforeBy={NAME[versions[at + 1]?.by] ?? versions[at + 1]?.by ?? ''} afterBy={NAME[shown.by] ?? shown.by} />}</div>
+        <div ref={diff} className="todo-history-diff">{shown && <Change before={versions[at + 1] ?? null} after={shown} beforeBy={NAME[versions[at + 1]?.by] ?? versions[at + 1]?.by ?? ''} afterBy={NAME[shown.by] ?? shown.by} />}</div>
       </div>}
       <div className="recovery-actions"><button className="btn primary" autoFocus onClick={onClose}>Done</button></div>
     </div>
