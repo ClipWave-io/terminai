@@ -56,6 +56,7 @@ const state = () => JSON.parse(fs.readFileSync(path.join(dir, 'accounts', 'accou
 const LOG = path.join(WORK, 'fake.log')
 const starts = () => { try { return fs.readFileSync(LOG, 'utf8').split('\n').filter(l => l.startsWith('start ')) } catch { return [] } }
 async function waitFor(what, pred, ms) { const t = Date.now(); while (Date.now() - t < ms) { if (await pred()) return; await delay(200) } throw new Error(`timeout waiting for ${what}`) }
+// Never execFileSync here: the control server answers from this very process, which would be blocked.
 const cli = (...args) => new Promise((resolve, reject) => execFile(process.execPath, [path.join(REPO, 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => e ? reject(new Error(err || e.message)) : resolve(String(out))))
 
 app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
