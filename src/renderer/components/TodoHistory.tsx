@@ -33,29 +33,36 @@ function lineDiff(before: string, after: string): Line[] {
   return out
 }
 
-/** One version against the one before it: changed fields as before → after, the note line by line. */
-function Change({ before, after }: { before: Task | null; after: Task | null }): JSX.Element {
-  if (!after) return <p className="todo-history-what">Deleted{before ? <> · it was “{before.title}”</> : null}</p>
-  const fields: [string, string, string][] = [
-    ['Task', before?.title ?? '', after.title],
-    ['Status', before ? STATUS[before.status] : '', STATUS[after.status]],
-    ['Column', before ? WHO[before.assignee ?? ''] ?? 'Unassigned' : '', WHO[after.assignee ?? ''] ?? 'Unassigned'],
-    ['Product', before?.product ?? '', after.product],
-  ]
-  const changed = fields.filter(([, was, is]) => was !== is)
-  const notes = (before?.notes ?? '') !== after.notes ? lineDiff(before?.notes ?? '', after.notes) : null
-  return <>
-    <p className="todo-history-what">{before ? 'Changed' : 'Created'}</p>
-    {changed.map(([label, was, is]) => <div key={label} className="todo-history-field">
-      <span className="todo-history-label">{label}</span>
-      {before && was ? <><del>{was}</del><span aria-hidden="true"> → </span></> : null}<ins>{is || '—'}</ins>
-    </div>)}
-    {notes && <div className="todo-history-field notes">
-      <span className="todo-history-label">Note</span>
-      <pre className="todo-history-notes">{notes.map((line, k) => <span key={k} className={line.kind}>{line.kind === 'del' ? '− ' : line.kind === 'add' ? '+ ' : '  '}{line.text || ' '}{'\n'}</span>)}</pre>
-    </div>}
-    {!changed.length && !notes && <p className="todo-muted">Moved in its list, nothing else changed.</p>}
-  </>
+const fields = (task: Task): [string, string][] => [
+  ['Task', task.title],
+  ['Status', STATUS[task.status]],
+  ['Column', WHO[task.assignee ?? ''] ?? 'Unassigned'],
+  ['Product', task.product || '—'],
+]
+
+/** One version next to the one before it: BEFORE and AFTER side by side, what changed highlighted. */
+function Change({ before, after, beforeBy, afterBy }: { before: TaskVersion | null; after: TaskVersion; beforeBy: string; afterBy: string }): JSX.Element {
+  const was = before?.task ?? null, is = after.task
+  const lines = lineDiff(was?.notes ?? '', is?.notes ?? '')
+  const side = (task: Task | null, keep: 'del' | 'add', other: Task | null, empty: string) => <div className="todo-history-side">
+    {task ? <>
+      {fields(task).map(([label, value], k) => <div key={label} className={`todo-history-field${other && fields(other)[k][1] !== value ? ` ${keep}` : ''}`}>
+        <span className="todo-history-label">{label}</span><span className="todo-history-value">{value}</span>
+      </div>)}
+      <div className="todo-history-field notes">
+        <span className="todo-history-label">Note</span>
+        {lines.some(line => line.kind !== (keep === 'del' ? 'add' : 'del'))
+          ? <pre className="todo-history-notes">{lines.filter(line => line.kind === 'same' || line.kind === keep).map((line, k) => <span key={k} className={line.kind === 'same' || !other ? 'same' : keep}>{line.text || ' '}{'\n'}</span>)}</pre>
+          : <span className="todo-muted">No note</span>}
+      </div>
+    </> : <p className="todo-muted">{empty}</p>}
+  </div>
+  return <div className="todo-history-compare">
+    <h4>Before{before && <span> · {beforeBy}, {when(before.at)}</span>}</h4>
+    <h4>After<span> · {afterBy}, {when(after.at)}</span></h4>
+    {side(was, 'del', is, before ? 'Deleted at this point.' : `Did not exist yet: ${afterBy} created it here.`)}
+    {side(is, 'add', was, 'Deleted here.')}
+  </div>
 }
 
 /** Every version of a shared task from the build-tasks history, each one against the one before. */
@@ -69,6 +76,7 @@ export function TodoHistory({ task, onClose }: { task: Task; onClose: () => void
     <div className="sheet todo-history" role="dialog" aria-label={`History of ${task.title}`}>
       <h2>History</h2>
       <p className="todo-history-title">{task.title}</p>
+      <p className="todo-muted todo-history-hint">Pick a version on the left: it shows next to the one before it.</p>
       {error && <p className="todo-error" role="alert">{error}</p>}
       {versions && !versions.length && <p className="todo-muted">No history yet: it has not been synced.</p>}
       {!!versions?.length && <div className="todo-history-body">
@@ -81,7 +89,7 @@ export function TodoHistory({ task, onClose }: { task: Task; onClose: () => void
             </button>
           </li>)}
         </ol>
-        <div className="todo-history-diff">{shown && <Change before={versions[at + 1]?.task ?? null} after={shown.task} />}</div>
+        <div className="todo-history-diff">{shown && <Change before={versions[at + 1] ?? null} after={shown} beforeBy={NAME[versions[at + 1]?.by] ?? versions[at + 1]?.by ?? ''} afterBy={NAME[shown.by] ?? shown.by} />}</div>
       </div>}
       <div className="recovery-actions"><button className="btn primary" autoFocus onClick={onClose}>Done</button></div>
     </div>

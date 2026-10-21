@@ -154,13 +154,17 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-history-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
 .todo-history-when { grid-column: 1 / -1; font-size: 11px; color: var(--dim); }
 .todo-history-diff { overflow: auto; font-size: 13px; }
-.todo-history-what { margin: 2px 0 10px; font-weight: 600; }
-.todo-history-field { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 0 0 8px; }
-.todo-history-field.notes { flex-direction: column; align-items: stretch; }
-.todo-history-label { min-width: 64px; font-size: 11.5px; color: var(--dim); }
-.todo-history-field del { color: var(--danger); }
-.todo-history-field ins { text-decoration: none; color: var(--fg); }
+.todo-history-hint { margin: -6px 0 10px; font-size: 12px; }
+.todo-history-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; align-items: start; }
+.todo-history-compare h4 { margin: 2px 0 4px; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--fg); }
+.todo-history-compare h4 span { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--dim); }
+.todo-history-side { min-width: 0; }
+.todo-history-field { display: flex; flex-direction: column; gap: 1px; margin: 0 0 8px; padding: 3px 6px; border-radius: 6px; }
+.todo-history-field.del { background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.todo-history-field.add { background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.todo-history-label { font-size: 11px; color: var(--dim); }
+.todo-history-value { overflow-wrap: anywhere; }
 .todo-history-notes { margin: 0; padding: 8px 10px; font: 12.5px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
-.todo-history-notes .del { display: block; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); text-decoration: line-through; }
+.todo-history-notes .del { display: block; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); }
 .todo-history-notes .add { display: block; color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
-.todo-history-notes .same { display: block; color: var(--dim); }
+.todo-history-notes .same { display: block; color: var(--fg); }
