@@ -11,6 +11,7 @@ import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } fro
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
+import { writeAgentGuide } from './agent-guide'
 import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -179,6 +180,10 @@ app.whenReady().then(() => {
     // tests and the test build point userData elsewhere and must pass CODEX_HOME explicitly.
     const codexHome=process.env.CODEX_HOME||(directory===join(app.getPath('appData'),'clipwave-term')?join(homedir(),'.codex'):'')
     if(codexHome)registerBrowserMcp(join(codexHome,'config.toml'),process.execPath,script,join(directory,'browser-bridge.json'))
+    // The terminai commands in the agents' own global instructions, the same way: the real files only
+    // for the installed app, tests name theirs with CLAUDE_CONFIG_DIR and CODEX_HOME.
+    const claudeHome=process.env.CLAUDE_CONFIG_DIR||(directory===join(app.getPath('appData'),'clipwave-term')?join(homedir(),'.claude'):'')
+    for(const file of [claudeHome&&join(claudeHome,'CLAUDE.md'),codexHome&&join(codexHome,'AGENTS.md')])if(file)try{writeAgentGuide(file)}catch(e){console.error('[agent-guide]',e)}
   })().catch(()=>{console.error('Embedded browser MCP setup needs attention. See the browser setup guide.')})
 
   app.on('activate', () => {

@@ -12,3 +12,4 @@ build/icon.png
 .browser-smoke.cjs
 .ui-smoke-bootstrap.cjs
 release-test/
+.agent-guide.cjs
