@@ -12,6 +12,7 @@ import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
 import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
+import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import * as store from './store'
 import * as voice from './voice'
@@ -312,6 +313,22 @@ function registerIpc(): void {
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()
   setInterval(() => void todos.sync(), 3 * 60_000)
+
+  // ---- Claude accounts ---------------------------------------------------
+  const accounts = createAccounts(app.getPath('userData'), {
+    changed: () => { if (win && !win.isDestroyed()) win.webContents.send('accounts:changed') },
+    flowChanged: (flow) => { if (win && !win.isDestroyed()) win.webContents.send('accounts:flow', flow) },
+  })
+  appIpc.handle('accounts:list', () => accounts.listing())
+  appIpc.handle('accounts:forTab', (_e, ptyId: unknown) => accounts.forTab(String(ptyId)))
+  appIpc.handle('accounts:use', (_e, ptyId: unknown, id: unknown) => accounts.use(String(ptyId), String(id)))
+  appIpc.handle('accounts:mode', (_e, mode: unknown) => accounts.setMode(mode))
+  appIpc.handle('accounts:add', (_e, label: unknown) => accounts.add(label))
+  appIpc.handle('accounts:open', (_e, flowId: unknown, profileDir: unknown) => accounts.openInChrome(String(flowId), String(profileDir)))
+  appIpc.handle('accounts:cancel', (_e, flowId: unknown) => accounts.cancel(String(flowId)))
+  appIpc.handle('accounts:remove', (_e, id: unknown) => accounts.remove(String(id)))
+  appIpc.handle('accounts:rename', (_e, id: unknown, label: unknown) => accounts.rename(String(id), label))
+  appIpc.handle('accounts:chromeProfiles', () => chromeProfiles())
 
   // ---- prefs -------------------------------------------------------------
   appIpc.handle('prefs:get', () => store.load())

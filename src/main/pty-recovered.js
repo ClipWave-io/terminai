@@ -30,6 +30,28 @@ const SHIM = `#!/bin/sh
 PATH=\${PATH#"$CLIPWAVE_SHIM":}
 export PATH
 
+# The Claude account TerminAI picked for this tab (src/main/accounts.ts): a
+# one-year token kept in the keychain, or nothing for the /login sign-in. Read at
+# every launch, so switching account means launching claude again.
+acct=$(cat "$TERMINAI_ACCOUNTS/tabs/$TERMINAI_WORKSPACE_ID" 2>/dev/null || cat "$TERMINAI_ACCOUNTS/default" 2>/dev/null)
+case $acct in
+  ''|login) ;;
+  *)
+    tok=$(/usr/bin/security find-generic-password -s 'TerminAI Claude account' -a "$acct" -w 2>/dev/null)
+    if [ -n "$tok" ]; then
+      CLAUDE_CODE_OAUTH_TOKEN=$tok
+      export CLAUDE_CODE_OAUTH_TOKEN
+    else
+      echo "TerminAI: no token saved for this account, running on the /login account" >&2
+    fi
+    unset tok ;;
+esac
+
+# Subcommands take no session flag, and setup-token refuses one.
+case \${1-} in
+  agents|attach|auth|auto-mode|doctor|gateway|import|install|logs|mcp|plugin|plugins|purge|respawn|rm|setup-token|stop|kill|ultrareview|update|upgrade) exec claude "$@" ;;
+esac
+
 # Resuming by id, or naming one yourself: that id *is* this tab's conversation
 # from here on, so record it and get out of the way.
 prev=
@@ -134,6 +156,8 @@ function ptyEnv(tabId) {
   // Private tasks are todos-personal-<user>.json in TERMINAI_TODO_DIR, next to prefs.json.
   env.TERMINAI_TASKS_DIR = node_path.join(electron.app.getPath("userData"), "build-tasks", "tasks");
   env.TERMINAI_TODO_DIR = electron.app.getPath("userData");
+  // Which Claude account each tab runs on, for the shim (src/main/accounts.ts).
+  env.TERMINAI_ACCOUNTS = node_path.join(electron.app.getPath("userData"), "accounts");
   env.PATH = `${cliDir}:${env.PATH ?? ""}`;
   if (ensureShim()) {
     env.CLIPWAVE_SHIM = shimDir();
@@ -145,15 +169,18 @@ function ptyEnv(tabId) {
 function createSession(opts = {}) {
   const id = node_crypto.randomUUID();
   const cwd = opts.cwd && node_fs.existsSync(opts.cwd) ? opts.cwd : node_os.homedir();
+  // Stays with the tab across restarts, unlike the pty id: the shim keys the tab's Claude account on it.
+  const workspaceKey = typeof opts.browserKey === "string" ? opts.browserKey : id;
   const proc = pty__namespace.spawn(loginShell(), ["-l"], {
     name: "xterm-256color",
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
     cwd,
-    env: { ...ptyEnv(id), TERMINAI_WORKSPACE_ID: typeof opts.browserKey === "string" ? opts.browserKey : id }
+    env: { ...ptyEnv(id), TERMINAI_WORKSPACE_ID: workspaceKey }
   });
   const session = {
     id,
+    workspaceKey,
     proc,
     cwd,
     exited: false,
@@ -904,6 +931,13 @@ async function wrapperFunctionFor(kind, args) {
   return { name: best.name, rest };
 }
 async function resumeCommandFor(d) {
+  const command = await launchCommandFor(d);
+  // A test build runs beside the real app and must never resume the real conversations.
+  if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_ALLOW_AGENTS) return `echo ${shellQuote(`[test build] resume skipped: ${command}`)}`;
+  return command;
+}
+// The command that brings this conversation back in its tab, with the flags it was launched with.
+async function launchCommandFor(d) {
   const kind = d.kind === "codex" ? "codex" : "claude";
   // Tabs saved before launch flags were recorded get the historical default.
   const args = Array.isArray(d.args) ? keepOptions(kind, d.args) : kind === "claude" ? ["--dangerously-skip-permissions"] : [];
@@ -923,10 +957,7 @@ async function resumeCommandFor(d) {
   // way (its threads live where this process cannot see), so the saved id stands.
   const codexKnows = kind === "codex" && Boolean(codexStateDb() || node_fs.existsSync(node_path.join(codexHome(), "sessions")));
   const tail = kind === "claude" ? id && claudeSessionExists(id) ? ["--resume", id] : ["--continue"] : id && (!codexKnows || await codexThreadExists(id)) ? ["resume", id] : [];
-  const command = [head, ...rest.map(shellQuote), ...tail].join(" ");
-  // A test build runs beside the real app and must never resume the real conversations.
-  if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_ALLOW_AGENTS) return `echo ${shellQuote(`[test build] resume skipped: ${command}`)}`;
-  return command;
+  return [head, ...rest.map(shellQuote), ...tail].join(" ");
 }
 // A Codex daemon that is restarting refuses clients until its running turns
 // are over ("Server is draining"), which can be many minutes: the resume typed
@@ -988,5 +1019,13 @@ function sizeOf(id) {
 function bufferOf(id) {
   return sessions.get(id)?.buf ?? "";
 }
+function workspaceKeyOf(id) {
+  return sessions.get(id)?.workspaceKey ?? id;
+}
+// The tab's shell is at its prompt: whatever ran in the foreground has exited.
+function atShellPrompt(id) {
+  const s = sessions.get(id);
+  return !!s && !s.exited && isBareShell(foregroundProcess(id));
+}
 
-export { createSession, list, attach, detachAll, write, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, execWhenReady, pidOf, sizeOf, bufferOf };
+export { createSession, list, attach, detachAll, write, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };

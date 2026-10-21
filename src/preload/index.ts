@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
-import type { Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, VoiceClip } from '../shared/types'
+import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, VoiceClip } from '../shared/types'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -147,6 +147,22 @@ const api = {
       ipcRenderer.on('voice:error', h)
       return () => ipcRenderer.removeListener('voice:error', h)
     },
+  },
+
+  /** Claude accounts per tab; src/main/accounts.ts keeps the tokens in the keychain, never here. */
+  accounts: {
+    list: (): Promise<ClaudeAccounts> => ipcRenderer.invoke('accounts:list'),
+    forTab: (ptyId: string): Promise<string> => ipcRenderer.invoke('accounts:forTab', ptyId),
+    use: (ptyId: string, id: string): Promise<boolean> => ipcRenderer.invoke('accounts:use', ptyId, id),
+    setMode: (mode: ClaudeAccounts['mode']): Promise<void> => ipcRenderer.invoke('accounts:mode', mode),
+    add: (label: string): Promise<AccountFlow> => ipcRenderer.invoke('accounts:add', label),
+    openInChrome: (flowId: string, profileDir: string): Promise<void> => ipcRenderer.invoke('accounts:open', flowId, profileDir),
+    cancel: (flowId: string): Promise<void> => ipcRenderer.invoke('accounts:cancel', flowId),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('accounts:remove', id),
+    rename: (id: string, label: string): Promise<void> => ipcRenderer.invoke('accounts:rename', id, label),
+    chromeProfiles: (): Promise<ChromeProfile[]> => ipcRenderer.invoke('accounts:chromeProfiles'),
+    onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('accounts:changed', cb); return () => { ipcRenderer.removeListener('accounts:changed', cb) } },
+    onFlow: (cb: (flow: AccountFlow) => void): (() => void) => { const handler = (_e: IpcRendererEvent, flow: AccountFlow) => cb(flow); ipcRenderer.on('accounts:flow', handler); return () => { ipcRenderer.removeListener('accounts:flow', handler) } },
   },
 
   design: {

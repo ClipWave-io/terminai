@@ -12,6 +12,7 @@ import { TodoSheet } from './components/TodoSheet'
 import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
+import { AccountMenu } from './components/AccountMenu'
 import { getTheme, nextTheme } from '../shared/themes'
 import * as snapshots from './snapshots'
 import {
@@ -452,6 +453,7 @@ export function App(): JSX.Element {
                   cwd: s.cwd,
                   status: s.status,
                   agent, agentSession, agentArgs: s.agent.kind ? s.agent.args : t.agentArgs,
+                  agentAlive: s.agent.alive,
                   usedClaude: s.usedClaude,
                   claudeSession: s.claudeSession || t.claudeSession,
                 }
@@ -808,6 +810,7 @@ export function App(): JSX.Element {
               onTitle={(title) => setTitle(tab.id, title)}
             />
           ))}
+          {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
         </div>
 
         {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}

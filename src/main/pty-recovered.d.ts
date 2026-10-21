@@ -25,3 +25,6 @@ export function execWhenReady(id: string, cmd: string): void;
 export function pidOf(id: string): number;
 export function sizeOf(id: string): {cols: number; rows: number} | null;
 export function bufferOf(id: string): string;
+export function launchCommandFor(desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string>;
+export function workspaceKeyOf(id: string): string;
+export function atShellPrompt(id: string): boolean;

@@ -148,6 +148,39 @@ export interface TabInfo {
   notes: string
   /** Claude Code session id minted for this tab; '' until `claude` has run */
   claudeSession: string
+  /** the claude/codex under this tab is running right now, not just remembered */
+  agentAlive?: boolean
+}
+
+/** A Claude Code account a tab can run on (src/main/accounts.ts). */
+export interface ClaudeAccount {
+  /** 'login' is the sign-in `/login` saved on this Mac; the others are setup-token accounts */
+  id: string
+  label: string
+  login: boolean
+  /** epoch ms until which this account's plan is out of usage; 0 when it can be used */
+  exhaustedUntil: number
+}
+
+export interface ClaudeAccounts {
+  /** auto: a tab whose plan runs out moves by itself to the next account with usage left */
+  mode: 'manual' | 'auto'
+  accounts: ClaudeAccount[]
+}
+
+/** Adding an account: `claude setup-token` runs out of sight and the user approves it in Chrome. */
+export interface AccountFlow {
+  id: string
+  label: string
+  stage: 'starting' | 'waiting' | 'saved' | 'error'
+  /** the sign-in link, once claude has made it */
+  url?: string
+  error?: string
+}
+
+export interface ChromeProfile {
+  dir: string
+  name: string
 }
 
 /** What survives a restart. Order in the array is the user's priority order. */
