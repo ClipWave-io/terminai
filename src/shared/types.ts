@@ -67,6 +67,8 @@ export interface Task {
   id: string
   title: string
   notes: string
+  /** Pictures under the note, file names in the task's own folder (images/<id>/ in the repo, todo-images/<id>/ for a private task). */
+  images?: string[]
   status: TaskStatus
   assignee: TasksUser | 'both' | null
   /** free text, e.g. ManyMotions, Abracadabrax, ResumeNext */

@@ -119,6 +119,13 @@ const api = {
     /** The shared tasks the user has now looked at, so their "edited by" mark goes. */
     markSeen: (ids: string[]): Promise<TaskList> => ipcRenderer.invoke('todos:markSeen', ids),
     history: (id: string): Promise<TaskVersion[]> => ipcRenderer.invoke('todos:history', id),
+    /** Images under a task's note: bytes from a paste or a drop, or picked in a file dialog. */
+    addImage: (scope: TaskScope, id: string, bytes: ArrayBuffer): Promise<TaskList> => ipcRenderer.invoke('todos:addImage', scope, id, new Uint8Array(bytes)),
+    pickImages: (scope: TaskScope, id: string): Promise<TaskList> => ipcRenderer.invoke('todos:pickImages', scope, id),
+    removeImage: (scope: TaskScope, id: string, name: string): Promise<TaskList> => ipcRenderer.invoke('todos:removeImage', scope, id, name),
+    imageThumb: (scope: TaskScope, id: string, name: string): Promise<string> => ipcRenderer.invoke('todos:imageThumb', scope, id, name),
+    imageFull: (scope: TaskScope, id: string, name: string): Promise<string> => ipcRenderer.invoke('todos:imageFull', scope, id, name),
+    showImage: (scope: TaskScope, id: string, name: string): Promise<void> => ipcRenderer.invoke('todos:showImage', scope, id, name),
     onOpen: (cb: () => void): (() => void) => { ipcRenderer.on('todos:open', cb); return () => { ipcRenderer.removeListener('todos:open', cb) } },
     onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('todos:changed', cb); return () => { ipcRenderer.removeListener('todos:changed', cb) } },
   },

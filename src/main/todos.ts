@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Task, TaskInput, TaskList, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion } from '../shared/types'
 
@@ -15,6 +15,9 @@ export const DEFAULT_TASKS_REMOTE = 'https://github.com/ClipWave-io/build-tasks.
 const STATUSES = ['open', 'doing', 'done']
 const ASSIGNEES = ['livio', 'ilai', 'both']
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(id)
+// An image is named after its content, so the same screenshot pasted twice is one file.
+const validImage = (name: unknown): name is string => typeof name === 'string' && /^[0-9a-f]{12}\.(png|jpg)$/.test(name)
+const MAX_IMAGES = 12, MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 /** ISO time with the Europe/Rome offset, e.g. 2026-10-20T16:21:03.120+02:00. */
 export function romeIso(date = new Date()): string {
@@ -40,6 +43,28 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   const personalFile = (user: TasksUser) => join(dir, `todos-personal-${user}.json`)
   const clone = join(dir, 'build-tasks')
   const tasksDir = join(clone, 'tasks')
+  /** A task's images: beside it in the repo when shared (so they sync), in userData when private. */
+  const imagesDir = (scope: TaskScope, id: string) => scope === 'shared' ? join(clone, 'images', id) : join(dir, 'todo-images', id)
+  // Images of a deleted task wait here, so Undo can put them back; a day later they go.
+  const trashDir = (scope: TaskScope, id: string) => join(dir, 'todo-images-trash', `${scope}-${id}`)
+  function trash(scope: TaskScope, id: string): boolean {
+    const from = imagesDir(scope, id)
+    if (!existsSync(from)) return false
+    rmSync(trashDir(scope, id), { recursive: true, force: true })
+    mkdirSync(dirname(trashDir(scope, id)), { recursive: true })
+    renameSync(from, trashDir(scope, id))
+    return true
+  }
+  function untrash(scope: TaskScope, id: string): boolean {
+    if (!existsSync(trashDir(scope, id)) || existsSync(imagesDir(scope, id))) return false
+    mkdirSync(dirname(imagesDir(scope, id)), { recursive: true })
+    renameSync(trashDir(scope, id), imagesDir(scope, id))
+    return true
+  }
+  try {
+    const root = join(dir, 'todo-images-trash')
+    for (const name of readdirSync(root)) if (Date.now() - statSync(join(root, name)).mtimeMs > 86400_000) rmSync(join(root, name), { recursive: true, force: true })
+  } catch {}
   const status: TasksSync = { enabled: Boolean(opts.remote), syncing: false, lastSync: null, error: opts.remote ? null : 'No shared repository is set for this build.' }
 
   function readList(file: string): Task[] {
@@ -121,8 +146,8 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if (input.order !== undefined && !Number.isFinite(input.order)) throw Error('Invalid order')
   }
   /** The fields of a task in the order the files have them; `order` only when it is set. */
-  const clean = ({ id, title, notes, status, assignee, product, order, createdAt, createdBy, updatedAt, updatedBy }: Task): Task =>
-    ({ id, title, notes, status, assignee, product, ...(order === undefined ? {} : { order }), createdAt, createdBy, updatedAt, updatedBy })
+  const clean = ({ id, title, notes, images, status, assignee, product, order, createdAt, createdBy, updatedAt, updatedBy }: Task): Task =>
+    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(order === undefined ? {} : { order }), createdAt, createdBy, updatedAt, updatedBy })
   function build(input: TaskInput, old: Task | undefined, user: TasksUser): Task {
     const now = romeIso()
     // Moving a task up or down its list is not an edit: in a conflict, a change to its content on the other Mac still wins.
@@ -131,6 +156,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       id: old?.id ?? randomUUID(),
       title: input.title?.trim() ?? old?.title ?? '',
       notes: input.notes?.trim() ?? old?.notes ?? '',
+      images: old?.images,
       status: input.status ?? old?.status ?? 'open',
       assignee: input.assignee === undefined ? old?.assignee ?? null : input.assignee,
       product: input.product?.trim() ?? old?.product ?? '',
@@ -301,13 +327,15 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     const user = who()
     if (scope === 'personal') {
       writePersonal(user, readPersonal(user).filter(task => !ids.includes(task.id)))
+      for (const id of ids) trash('personal', id)
       return list()
     }
     await change(() => {
       const gone = ids.flatMap(id => { const task = readTask(join(tasksDir, `${id}.json`)); return task ? [{ ...task, id }] : [] })
       if (!gone.length) return null
       for (const task of gone) rmSync(join(tasksDir, `${task.id}.json`), { force: true })
-      return { paths: gone.map(task => `tasks/${task.id}.json`), message: `${user}: delete ${titles(gone)}` }
+      const pictures = gone.filter(task => trash('shared', task.id)).map(task => `images/${task.id}`)
+      return { paths: [...gone.map(task => `tasks/${task.id}.json`), ...pictures], message: `${user}: delete ${titles(gone)}` }
     })
     return list()
   }
@@ -360,6 +388,62 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       return versions
     },
 
+    /** Adds an image under a task's note (bytes already made small by the caller). The same picture twice is kept once. */
+    async addImage(scope: TaskScope, id: string, data: Buffer, ext: 'png' | 'jpg'): Promise<TaskList> {
+      if (!validId(id)) throw Error('Invalid task id')
+      if (!Buffer.isBuffer(data) || !data.length || data.length > MAX_IMAGE_BYTES || (ext !== 'png' && ext !== 'jpg')) throw Error('That image is too large.')
+      const user = who(), name = `${createHash('sha256').update(data).digest('hex').slice(0, 12)}.${ext}`
+      const attach = (task: Task): Task | null => {
+        if (task.images?.includes(name)) return null
+        if ((task.images?.length ?? 0) >= MAX_IMAGES) throw Error(`A task holds up to ${MAX_IMAGES} images.`)
+        return clean({ ...task, images: [...(task.images ?? []), name], updatedAt: romeIso(), updatedBy: user })
+      }
+      const put = () => { mkdirSync(imagesDir(scope, id), { recursive: true }); writeFileSync(join(imagesDir(scope, id), name), data) }
+      if (scope === 'personal') {
+        const tasks = readPersonal(user), at = tasks.findIndex(task => task.id === id)
+        if (at < 0) throw Error('That task no longer exists.')
+        const next = attach(tasks[at])
+        if (next) { put(); tasks[at] = next; writePersonal(user, tasks) }
+        return list()
+      }
+      await change(() => {
+        const file = join(tasksDir, `${id}.json`), old = readTask(file)
+        if (!old) throw Error('That task no longer exists.')
+        const next = attach(old)
+        if (!next) return null
+        put()
+        writeFileSync(file, JSON.stringify(next, null, 2) + '\n', 'utf8')
+        return { paths: [`tasks/${id}.json`, `images/${id}/${name}`], message: `${user}: add image to ${old.title}` }
+      })
+      return list()
+    },
+
+    async removeImage(scope: TaskScope, id: string, name: string): Promise<TaskList> {
+      if (!validId(id) || !validImage(name)) throw Error('Invalid image')
+      const user = who()
+      const detach = (task: Task): Task | null => task.images?.includes(name) ? clean({ ...task, images: task.images.filter(n => n !== name), updatedAt: romeIso(), updatedBy: user }) : null
+      if (scope === 'personal') {
+        const tasks = readPersonal(user), at = tasks.findIndex(task => task.id === id), next = at < 0 ? null : detach(tasks[at])
+        if (next) { tasks[at] = next; writePersonal(user, tasks); rmSync(join(imagesDir(scope, id), name), { force: true }) }
+        return list()
+      }
+      await change(() => {
+        const file = join(tasksDir, `${id}.json`), old = readTask(file), next = old && detach(old)
+        if (!old || !next) return null
+        writeFileSync(file, JSON.stringify(next, null, 2) + '\n', 'utf8')
+        rmSync(join(imagesDir(scope, id), name), { force: true })
+        return { paths: [`tasks/${id}.json`, `images/${id}/${name}`], message: `${user}: remove image from ${old.title}` }
+      })
+      return list()
+    },
+
+    /** Where an image of a task is on disk, or '' when it is not there (yet: the other Mac may not have pushed it). */
+    imagePath(scope: TaskScope, id: string, name: string): string {
+      if (!validId(id) || !validImage(name)) throw Error('Invalid image')
+      const file = join(imagesDir(scope, id), name)
+      return existsSync(file) ? file : ''
+    },
+
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => saveMany(scope, [input]),
     saveMany,
     remove: (scope: TaskScope, id: string): Promise<TaskList> => removeMany(scope, [id]),
@@ -375,17 +459,20 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         if (!task || typeof task !== 'object' || !validId(task.id) || !STATUSES.includes(task.status) || task.assignee === undefined) throw Error('Invalid task')
         if (!(['title', 'notes', 'product', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'] as const).every(field => typeof task[field] === 'string')) throw Error('Invalid task')
         check({ title: task.title, notes: task.notes, status: task.status, assignee: task.assignee, product: task.product, order: task.order })
+        if (task.images !== undefined && !(Array.isArray(task.images) && task.images.length <= MAX_IMAGES && task.images.every(validImage))) throw Error('Invalid task')
       }
       const user = who(), back = tasks.map(clean)
       if (scope === 'personal') {
         const have = readPersonal(user), ids = new Set(have.map(task => task.id))
         writePersonal(user, [...have.map(task => back.find(t => t.id === task.id) ?? task), ...back.filter(task => !ids.has(task.id))])
+        for (const task of back) untrash('personal', task.id)
         return list()
       }
       await change(() => {
         mkdirSync(tasksDir, { recursive: true })
         for (const task of back) writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
-        return { paths: back.map(task => `tasks/${task.id}.json`), message: `${user}: restore ${titles(back)}` }
+        const pictures = back.filter(task => untrash('shared', task.id)).map(task => `images/${task.id}`)
+        return { paths: [...back.map(task => `tasks/${task.id}.json`), ...pictures], message: `${user}: restore ${titles(back)}` }
       })
       return list()
     },
@@ -412,15 +499,18 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
             before = existsSync(file) ? readFileSync(file, 'utf8') : null
             mkdirSync(tasksDir, { recursive: true })
             writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }), null, 2) + '\n', 'utf8')
-            return { paths: [path], message: `${user}: share ${task.title}` }
+            const pictures = existsSync(imagesDir('personal', id))
+            if (pictures) cpSync(imagesDir('personal', id), imagesDir('shared', id), { recursive: true })
+            return { paths: pictures ? [path, `images/${id}`] : [path], message: `${user}: share ${task.title}` }
           })
         } catch (err) {
           // Not committed: the next sync would commit the copy while the task is still private.
-          if (before === null) rmSync(file, { force: true })
+          if (before === null) { rmSync(file, { force: true }); rmSync(imagesDir('shared', id), { recursive: true, force: true }) }
           else if (before !== undefined) writeFileSync(file, before)
           throw err
         }
         writePersonal(user, readPersonal(user).filter(t => t.id !== id))
+        rmSync(imagesDir('personal', id), { recursive: true, force: true })
         return list()
       }
       try {
@@ -430,13 +520,15 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           before = readFileSync(file, 'utf8')
           writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), clean({ ...old, ...placed, assignee: null, updatedAt: romeIso(), updatedBy: user })])
           added = true
+          const pictures = existsSync(imagesDir('shared', id))
+          if (pictures) { cpSync(imagesDir('shared', id), imagesDir('personal', id), { recursive: true }); rmSync(imagesDir('shared', id), { recursive: true, force: true }) }
           rmSync(file)
-          return { paths: [path], message: `${user}: make private ${old.title}` }
+          return { paths: pictures ? [path, `images/${id}`] : [path], message: `${user}: make private ${old.title}` }
         })
       } catch (err) {
         // Not committed: the next sync would commit the delete as "save unsynced changes".
-        if (typeof before === 'string' && !existsSync(file)) writeFileSync(file, before)
-        if (added) writePersonal(user, readPersonal(user).filter(t => t.id !== id))
+        if (typeof before === 'string' && !existsSync(file)) { writeFileSync(file, before); if (existsSync(imagesDir('personal', id)) && !existsSync(imagesDir('shared', id))) cpSync(imagesDir('personal', id), imagesDir('shared', id), { recursive: true }) }
+        if (added) { writePersonal(user, readPersonal(user).filter(t => t.id !== id)); rmSync(imagesDir('personal', id), { recursive: true, force: true }) }
         throw err
       }
       return list()

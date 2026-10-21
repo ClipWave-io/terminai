@@ -85,6 +85,17 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-tag.doing { font-style: italic; }
 .todo-note-text, .todo-notes { display: block; margin: 0 0 1px; font-size: 11.5px; line-height: 1.35; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
 .todo-note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; cursor: text; outline: none; }
+.todo-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.todo-image { position: relative; display: inline-flex; }
+.todo-image-open { display: block; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg); cursor: zoom-in; }
+.todo-image-open img { display: block; height: 56px; max-width: 160px; object-fit: cover; }
+.todo-image-missing { display: inline-flex; align-items: center; height: 56px; padding: 0 8px; font-size: 11px; color: var(--dim); border: 1px dashed var(--border); border-radius: 6px; }
+.todo-image-remove { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; font-size: 12px; line-height: 16px; color: var(--fg); background: var(--pane); border: 1px solid var(--border); border-radius: 50%; cursor: pointer; opacity: 0; }
+.todo-image:hover .todo-image-remove, .todo-image-remove:focus-visible { opacity: 1; }
+.todo-lightbox { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px; background: rgba(0, 0, 0, 0.62); outline: none; }
+.todo-lightbox img { max-width: 100%; max-height: calc(100% - 56px); object-fit: contain; border-radius: 6px; background: var(--bg); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35); }
+.todo-lightbox-bar { display: flex; gap: 8px; }
+.todo-row.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
 .todo-notes { field-sizing: content; width: 100%; min-height: 18px; padding: 0; font-family: inherit; background: transparent; border: 0; outline: none; resize: none; }
 .todo-actions { position: absolute; top: 2px; right: 0; display: flex; gap: 2px; opacity: 0; }
 .todo-row:hover .todo-actions, .todo-row:focus-within .todo-actions { opacity: 1; }

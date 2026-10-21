@@ -37,10 +37,12 @@ function todo(flags){
  const keep=t=>open(t)&&(!flags.mine||t.assignee===user||t.assignee==='both'||(t.assignee===null&&t.createdBy===user));
  // The order the To-do sheet shows (rank in TodoSheet.tsx): `order` when set, else creation time, then id.
  const rank=t=>t.order??Date.parse(t.createdAt),byOrder=(a,b)=>rank(a)-rank(b)||(a.id<b.id?-1:a.id>b.id?1:0);
+ // Where each image under a note is on disk, for a session that wants to look at it.
+ const withFiles=root=>t=>t.images?.length?{...t,imageFiles:t.images.map(n=>join(root,t.id,n))}:t;
  const out={};
- if(!flags.personal){let names=[];try{names=readdirSync(dir).filter(n=>n.endsWith('.json'))}catch{}out.shared=names.map(n=>json(join(dir,n))).filter(keep).sort(byOrder)}
+ if(!flags.personal){let names=[];try{names=readdirSync(dir).filter(n=>n.endsWith('.json'))}catch{}out.shared=names.map(n=>json(join(dir,n))).filter(keep).sort(byOrder).map(withFiles(join(dir,'..','images')))}
  // Private tasks are one file per user, so all of them are the user's own.
- if(!flags.shared){const list=user==='livio'||user==='ilai'?json(join(data,`todos-personal-${user}.json`)):null;out.personal=(Array.isArray(list)?list:[]).filter(open)}
+ if(!flags.shared){const list=user==='livio'||user==='ilai'?json(join(data,`todos-personal-${user}.json`)):null;out.personal=(Array.isArray(list)?list:[]).filter(open).map(withFiles(join(data,'todo-images')))}
  return out;
 }
 function request(command,flags,words){

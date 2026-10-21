@@ -38,6 +38,7 @@ const fields = (task: Task): [string, string][] => [
   ['Status', STATUS[task.status]],
   ['Column', WHO[task.assignee ?? ''] ?? 'Unassigned'],
   ['Product', task.product || '—'],
+  ['Images', task.images?.length ? String(task.images.length) : '—'],
 ]
 
 /** One version next to the one before it: BEFORE and AFTER side by side, what changed highlighted. */

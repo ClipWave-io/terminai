@@ -333,6 +333,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm(task.id) }]),
       null, { heading: 'Product' }, { input: task.product, placeholder: 'e.g. ManyMotions', run: (product: string) => void save(scope, { id: task.id, product }) },
       !task.notes && { label: 'Add note', run: () => setNoteFor(task.id) },
+      { label: 'Add image…', run: () => void act(() => window.term.todos.pickImages(scope, task.id)) },
       scope === 'shared' && { label: 'History…', run: () => openHistory(task) },
       null, { label: 'Delete…', danger: true, run: () => setAsk([task.id]) },
     ]
@@ -359,7 +360,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]}
     fresh={scope === 'shared' && unseen.includes(task.id) ? { by: NAME[task.updatedBy as TasksUser] ?? task.updatedBy, at: task.updatedAt, added: task.createdAt === task.updatedAt } : null} onHistory={() => openHistory(task)}
     confirming={confirm === task.id} openNote={noteFor === task.id} selected={sel.includes(task.id)} cut={clip?.mode === 'cut' && clip.ids.includes(task.id)}
-    onSave={save} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
+    onSave={save} onImage={act} onLeave={onClose} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
     onSelect={how => select(task.id, how)} onMenu={(x, y, up) => openMenu(task, scope, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
   const checklist = ({ scope, section, assignee, list, placeholder }: Part) => <ul className="todo-check">
     {arrange(list, layout, scope, section).map(item => item.kind === 'task' ? row(item.task, scope, section)
@@ -493,8 +494,12 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
  * `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private.
  * `confirming`: the row asks "Make it private?"; deleting is asked by the sheet (onDelete).
  */
-function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openNote, selected, cut, onSave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
+function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openNote, selected, cut, onSave, onImage, onLeave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
   task: Task; scope: TaskScope; lock: boolean; other: string; confirming: boolean; openNote: boolean; selected: boolean; cut: boolean; onSave: Save
+  /** Adding or removing an image, with the sheet's error line. */
+  onImage: (work: () => Promise<TaskList>) => Promise<TaskList | null>
+  /** Closes the sheet, for an image sent to the Files pane behind it. */
+  onLeave: () => void
   /** Changed by the other person since this one last looked: who, when, and whether it is a new task. */
   fresh: { by: string; at: string; added: boolean } | null; onHistory: () => void
   onPrivate: () => Promise<boolean>; onConfirm: (on: boolean) => void; onDelete: () => void; onNoteOpened: () => void; onSelect: (how: 'toggle' | 'range') => void
@@ -505,6 +510,7 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
   const [noteEditing, setNoteEditing] = useState(false)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [dropping, setDropping] = useState(false)
   const editing = useRef(false)
   const cancel = useRef(false)
   const caret = useRef<number | null>(null)
@@ -535,11 +541,23 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
     await new Promise(resolve => setTimeout(resolve, 280))
     if (!(await onSave(scope, { id: task.id, status: 'done' }))) setChecking(false)
   }
+  // A screenshot pasted into the title or the note, or pictures dropped on the row, go under the note.
+  const pictures = (files: FileList) => [...files].filter(file => file.type.startsWith('image/') || /\.(heic|heif)$/i.test(file.name))
+  const addPictures = (files: File[]) => { for (const file of files) void onImage(async () => window.term.todos.addImage(scope, task.id, await file.arrayBuffer())) }
+  const pasteImages = (event: React.ClipboardEvent) => {
+    const files = pictures(event.clipboardData.files)
+    if (!files.length) return
+    event.preventDefault()
+    addPictures(files)
+  }
   const status = checking ? 'done' : task.status
   // ⌘-click and ⇧-click select the row: no editing, no tick. ⇧-click inside the text being edited still extends its selection.
   const picking = (event: { button: number; metaKey: boolean; shiftKey: boolean; target: EventTarget }) => event.button === 0 && (event.metaKey || (event.shiftKey && event.target !== document.activeElement))
 
-  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}${fresh ? ' fresh' : ''}`} data-id={task.id}
+  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}${fresh ? ' fresh' : ''}${dropping ? ' dropping' : ''}`} data-id={task.id}
+    onDragOver={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropping(true) } }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false) }}
+    onDrop={event => { setDropping(false); const files = pictures(event.dataTransfer.files); if (files.length) { event.preventDefault(); addPictures(files) } }}
     onMouseDownCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation(); onSelect(event.shiftKey ? 'range' : 'toggle') } }}
     onClickCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation() } }}
     onContextMenu={event => { event.preventDefault(); onMenu(event.clientX, event.clientY) }}>
@@ -551,6 +569,7 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
         <textarea ref={text} className="todo-text" rows={1} value={title} maxLength={300} aria-label="Task" spellCheck={false}
           onFocus={() => { editing.current = true }}
           onChange={event => setTitle(event.target.value.replace(/\n/g, ' '))}
+          onPaste={pasteImages}
           onBlur={() => { editing.current = false; commitTitle() }}
           onKeyDown={event => {
             if (event.nativeEvent.isComposing) return
@@ -566,7 +585,7 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
       {noteEditing
         ? <textarea className="todo-notes" value={notes} maxLength={20000} aria-label="Note" placeholder="Note" spellCheck={false}
             ref={el => { if (el && caret.current !== null) { el.focus(); el.setSelectionRange(caret.current, caret.current); caret.current = null } }}
-            onChange={event => setNotes(event.target.value)} onBlur={commitNotes}
+            onChange={event => setNotes(event.target.value)} onBlur={commitNotes} onPaste={pasteImages}
             onKeyDown={event => {
               if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel.current = true; setNotes(task.notes); event.currentTarget.blur() }
               else if (event.key === 'Enter' && event.metaKey) { event.preventDefault(); event.currentTarget.blur() }
@@ -574,6 +593,9 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
         : notes && <div className="todo-note-text" role="button" tabIndex={0} aria-label="Edit note"
             onMouseDown={event => { const range = document.caretRangeFromPoint(event.clientX, event.clientY); caret.current = range && event.currentTarget.contains(range.startContainer) ? range.startOffset : notes.length; event.preventDefault(); setNoteEditing(true) }}
             onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); caret.current = notes.length; setNoteEditing(true) } }}>{notes}</div>}
+      {!!task.images?.length && <div className="todo-images">
+        {task.images.map(name => <TaskImage key={name} scope={scope} id={task.id} name={name} onLeave={onLeave} onRemove={() => void onImage(() => window.term.todos.removeImage(scope, task.id, name))} />)}
+      </div>}
       {confirming && <div className="todo-confirm" role="group" aria-label="Confirm make private"
         onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onConfirm(false) } }}>
         Make it private? {other} will no longer see it.
@@ -585,6 +607,33 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
       <button className="todo-icon" aria-label="Task actions" title="More" onClick={event => { const b = event.currentTarget.getBoundingClientRect(); onMenu(b.right - 200, b.bottom + 4, b.top - 4) }}>•••</button>
     </span>
   </li>
+}
+
+/** A picture under a task's note: a click shows it whole over the sheet, × takes it off the task. */
+function TaskImage({ scope, id, name, onRemove, onLeave }: { scope: TaskScope; id: string; name: string; onRemove: () => void; onLeave: () => void }): JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  const [full, setFull] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void window.term.todos.imageThumb(scope, id, name).then(url => { if (live) setSrc(url) }, () => { if (live) setSrc('') })
+    return () => { live = false }
+  }, [scope, id, name])
+  const view = () => { setFull(''); void window.term.todos.imageFull(scope, id, name).then(setFull, () => setFull(null)) }
+  const close = () => setFull(null)
+  return <span className="todo-image">
+    {src ? <button className="todo-image-open" title="View" onClick={view}><img src={src} alt="" /></button>
+      : <span className="todo-image-missing">{src === '' ? 'Not synced yet' : ''}</span>}
+    <button className="todo-image-remove" aria-label="Remove image" title="Remove image" onClick={onRemove}>×</button>
+    {full !== null && createPortal(<div className="todo-lightbox" role="dialog" aria-modal="true" aria-label="Image" tabIndex={-1} ref={el => el?.focus()}
+      onMouseDown={event => { if (event.target === event.currentTarget) close() }}
+      onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+      {full ? <img src={full} alt="" /> : <span className="todo-muted">Loading…</span>}
+      <div className="todo-lightbox-bar">
+        <button className="btn" onClick={() => void window.term.todos.showImage(scope, id, name).then(() => { close(); onLeave() }, () => {})}>Open in the Files pane</button>
+        <button className="btn primary" autoFocus onClick={close}>Close</button>
+      </div>
+    </div>, document.body)}
+  </span>
 }
 
 /** The empty line at the end of a section, or the one Enter opens under a row. Enter adds and keeps typing. */

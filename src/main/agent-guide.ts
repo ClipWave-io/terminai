@@ -10,7 +10,7 @@ export const AGENT_GUIDE = `## TerminAI
 This Mac runs TerminAI, a terminal app whose tabs run Claude Code and Codex sessions. Its \`terminai\` command works in every TerminAI tab and prints JSON.
 - "Open or run something in the terminal", "start a session that does X": a TerminAI tab, \`terminai open --cwd "$PWD" --name <name> -- <command>\`. It starts in the background without taking the user's view. Keep the command short: hand a long prompt over as a file path, never inline. Never Terminal.app, iTerm or osascript.
 - "Open/show me file X" (any kind: PDF, Word, Excel, Pages, images including HEIC, video, audio, text, code): \`terminai show <absolute path>\` opens it in TerminAI's Files pane beside the chat. Another app only when the user asks for it.
-- The team's tasks are TerminAI's To-do, shared with the partner plus each person's private list: \`terminai todo --shared\` (read-only JSON; also \`--open\`, \`--mine\`, \`--personal\`), in the order of the \`order\` field. Read them there, not in note apps or older boards; changes are made in the app.
+- The team's tasks are TerminAI's To-do, shared with the partner plus each person's private list: \`terminai todo --shared\` (read-only JSON; also \`--open\`, \`--mine\`, \`--personal\`), in the order of the \`order\` field; \`imageFiles\` are the screenshots and photos under a task's note, to look at when they matter. Read them there, not in note apps or older boards; changes are made in the app.
 - Other tabs: \`terminai list\`, \`terminai send <id> <text>\`, \`terminai read <id>\`, \`terminai focus <id>\`, \`terminai close <id>\`.
 - If \`terminai\` is missing or does not answer (no \`$TERMINAI_CONTROL\`), say so instead of falling back to another app.`
 

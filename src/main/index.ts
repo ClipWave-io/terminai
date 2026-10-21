@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { chmod, copyFile, mkdir, stat } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
@@ -345,6 +345,49 @@ function registerIpc(): void {
   appIpc.handle('todos:sync', () => todos.sync())
   appIpc.handle('todos:markSeen', (_e, ids: unknown) => todos.markSeen(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
   appIpc.handle('todos:history', (_e, id: unknown) => todos.history(String(id)))
+  // Pictures for a task's note, small enough for the repo: at most 2000 px a side, PNG while that stays
+  // under 1.5 MB (a screenshot keeps its text sharp), else JPEG.
+  async function todoImage(bytes: Buffer): Promise<[Buffer, 'png' | 'jpg']> {
+    let image = nativeImage.createFromBuffer(bytes)
+    if (image.isEmpty()) {
+      // HEIC and the like: macOS's sips turns them into a JPEG first.
+      const tmp = join(app.getPath('temp'), `terminai-image-${process.pid}-${Date.now()}`)
+      try { writeFileSync(tmp, bytes); await execFileAsync('/usr/bin/sips', ['-s', 'format', 'jpeg', tmp, '--out', `${tmp}.jpg`], { timeout: 30_000 }); image = nativeImage.createFromPath(`${tmp}.jpg`) }
+      catch {} finally { rmSync(tmp, { force: true }); rmSync(`${tmp}.jpg`, { force: true }) }
+    }
+    if (image.isEmpty()) throw Error('That file is not an image.')
+    const { width, height } = image.getSize()
+    if (Math.max(width, height) > 2000) image = image.resize(width >= height ? { width: 2000, quality: 'best' } : { height: 2000, quality: 'best' })
+    const png = image.toPNG()
+    return png.length <= 1.5 * 1024 * 1024 ? [png, 'png'] : [image.toJPEG(85), 'jpg']
+  }
+  appIpc.handle('todos:addImage', async (_e, scope: unknown, id: unknown, bytes: unknown) => {
+    if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > 40 * 1024 * 1024) throw Error('That image is too large.')
+    return todos.addImage(scopeOf(scope), String(id), ...await todoImage(Buffer.from(bytes)))
+  })
+  appIpc.handle('todos:pickImages', async (_e, scope: unknown, id: unknown) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win!, { title: 'Add images to the task', properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'gif', 'webp', 'tiff', 'tif', 'bmp'] }] })
+    let list = todos.list()
+    if (!canceled) for (const path of filePaths) list = await todos.addImage(scopeOf(scope), String(id), ...await todoImage(await readFile(path)))
+    return list
+  })
+  appIpc.handle('todos:removeImage', (_e, scope: unknown, id: unknown, name: unknown) => todos.removeImage(scopeOf(scope), String(id), String(name)))
+  appIpc.handle('todos:imageThumb', (_e, scope: unknown, id: unknown, name: unknown) => {
+    const file = todos.imagePath(scopeOf(scope), String(id), String(name)), image = file ? nativeImage.createFromPath(file) : null
+    if (!image || image.isEmpty()) return ''
+    return (image.getSize().height > 240 ? image.resize({ height: 240, quality: 'good' }) : image).toDataURL()
+  })
+  appIpc.handle('todos:imageFull', (_e, scope: unknown, id: unknown, name: unknown) => {
+    const file = todos.imagePath(scopeOf(scope), String(id), String(name)), image = file ? nativeImage.createFromPath(file) : null
+    return !image || image.isEmpty() ? '' : image.toDataURL()
+  })
+  // Or in the Files pane, the way `terminai show` opens a file.
+  appIpc.handle('todos:showImage', (_e, scope: unknown, id: unknown, name: unknown) => {
+    const file = todos.imagePath(scopeOf(scope), String(id), String(name))
+    if (!file) throw Error('That image has not arrived on this Mac yet.')
+    queueOpenFile(file)
+  })
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()
   setInterval(() => void todos.sync(), 3 * 60_000)

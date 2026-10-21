@@ -294,3 +294,45 @@ test('what the other Mac changed shows as unseen, is notified once, and keeps it
   assert.deepEqual((await other.sync()).unseen,[],'a first clone takes everything as seen');
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
 });
+
+test('images: a shared task carries its pictures through the repo, once each, and back after an undo',async()=>{
+ const t=setup();try{
+  const livio=t.app('livio'),ilai=t.app('ilai');
+  let list=await livio.save('shared',{title:'Fix the logo',assignee:'both'});const id=list.shared[0].id;
+  const png=Buffer.from('fake png bytes for the test');
+  await assert.rejects(livio.addImage('shared',id,Buffer.alloc(0),'png'),/too large/);
+  await assert.rejects(livio.addImage('shared','../x',png,'png'),/Invalid task id/);
+  list=await livio.addImage('shared',id,png,'png');
+  const name=list.shared[0].images[0];assert.match(name,/^[0-9a-f]{12}\.png$/);
+  assert.equal(git(t.bare,'show',`main:images/${id}/${name}`),png.toString(),'the picture is in the repo');
+  assert.deepEqual(t.show(id).images,[name]);assert.match(git(t.bare,'log','-1','--format=%s','main').trim(),/^livio: add image to Fix the logo$/);
+  list=await livio.addImage('shared',id,png,'png');assert.deepEqual(list.shared[0].images,[name],'the same picture twice is kept once');
+  await livio.save('shared',{id,title:'Fix the new logo'});assert.deepEqual(t.show(id).images,[name],'editing the task keeps its images');
+  list=await ilai.sync();assert.deepEqual(list.shared[0].images,[name]);
+  const there=ilai.imagePath('shared',id,name);assert.ok(there&&fs.readFileSync(there).equals(png),'the other Mac has the file');
+  assert.equal(ilai.imagePath('shared',id,'000000000000.png'),'');assert.throws(()=>ilai.imagePath('shared',id,'../../x.png'),/Invalid image/);
+  const jpg=Buffer.from('second picture');list=await ilai.addImage('shared',id,jpg,'jpg');const second=list.shared[0].images[1];
+  list=await ilai.removeImage('shared',id,name);assert.deepEqual(list.shared[0].images,[second]);
+  assert.throws(()=>git(t.bare,'cat-file','-e',`main:images/${id}/${name}`),'removed from the repo');
+  // Deleted, then put back by Undo: the picture comes back with the task.
+  const task=list.shared[0];
+  await ilai.remove('shared',id);assert.throws(()=>git(t.bare,'cat-file','-e',`main:images/${id}/${second}`));
+  list=await ilai.restore('shared',[task]);assert.deepEqual(list.shared[0].images,[second]);
+  assert.equal(git(t.bare,'show',`main:images/${id}/${second}`),'second picture');
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
+
+test('images: a private task keeps them on this Mac, and they travel when it is shared and made private again',async()=>{
+ const t=setup();try{
+  const app=t.app('livio');
+  let list=await app.save('personal',{title:'Screenshot of the bug'});const id=list.personal[0].id;
+  list=await app.addImage('personal',id,Buffer.from('private picture'),'png');const name=list.personal[0].images[0];
+  const local=app.imagePath('personal',id,name);assert.ok(local.includes(`${path.sep}todo-images${path.sep}`),local);
+  assert.equal(git(t.bare,'log','--all','--format=%s').includes('image'),false,'nothing private reaches git');
+  list=await app.move('personal',id,'livio');assert.deepEqual(list.shared[0].images,[name]);
+  assert.equal(git(t.bare,'show',`main:images/${id}/${name}`),'private picture');assert.equal(app.imagePath('personal',id,name),'','gone from the private folder');
+  list=await app.move('shared',id);assert.deepEqual(list.personal[0].images,[name]);
+  assert.throws(()=>git(t.bare,'cat-file','-e',`main:images/${id}/${name}`),'out of the repo once private');
+  assert.ok(app.imagePath('personal',id,name));
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
