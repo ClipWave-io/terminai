@@ -1,8 +1,10 @@
-import { execFile, spawn } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
+import { execFile, execFileSync, spawn } from 'node:child_process'
+import { createHash, randomUUID, X509Certificate } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
+import net from 'node:net'
+import tls from 'node:tls'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
@@ -16,11 +18,13 @@ import type { AccountFlow, ChromeProfile, ClaudeAccount, ClaudeAccounts } from '
  * kept in the login keychain under KEYCHAIN_SERVICE and nowhere else: not in a file, not in the
  * renderer, not in a log.
  *
- * Claude Code in a TerminAI tab sends its model requests through the relay below (the claude shim
- * sets ANTHROPIC_BASE_URL to it, with the tab's workspace key in the path). The relay forwards them
- * to Anthropic unchanged, except that it signs /v1/messages with the account picked for the tab:
- * switching account takes effect on the next request, with nothing restarted. The saved login stays
- * Claude Code's credential for everything else, so connectors and Remote Control keep working.
+ * Claude Code in a TerminAI tab reaches Anthropic through the relay below, as its HTTPS proxy with
+ * the tab's workspace key as the proxy user name (see proxyEnv in pty-recovered.js). The relay
+ * forwards its requests to Anthropic unchanged, except that it signs /v1/messages with the account
+ * picked for the tab: switching account takes effect on the next request, with nothing restarted.
+ * The saved login stays Claude Code's credential for everything else, so connectors and Remote
+ * Control keep working, on the login account. Not ANTHROPIC_BASE_URL: any base URL other than
+ * api.anthropic.com turns Remote Control off (code.claude.com/docs/en/remote-control#requirements).
  */
 export const KEYCHAIN_SERVICE = 'TerminAI Claude account'
 const SECURITY = '/usr/bin/security'
@@ -28,6 +32,10 @@ const SECURITY = '/usr/bin/security'
 const UPSTREAM = new URL(process.env.TERMINAI_RELAY_UPSTREAM || 'https://api.anthropic.com')
 const TOKEN = /sk-ant-oat01-[A-Za-z0-9_-]{20,}(?=[^A-Za-z0-9_-])/
 const FLOW_TIMEOUT_MS = 10 * 60_000
+const API_HOST = 'api.anthropic.com'
+// The program whose connections the relay opens: Claude Code's native binary runs as `claude`.
+// Tests name another one.
+const CLIENT = process.env.TERMINAI_RELAY_CLIENT || 'claude'
 // What statusline.sh keeps of /api/oauth/usage for the login account, refreshed every 5 minutes.
 const LOGIN_USAGE_FILE = process.env.TERMINAI_LOGIN_USAGE_FILE || join(homedir(), '.claude', 'cache', 'usage-limits.json')
 const USAGE_STALE_MS = 5 * 60_000
@@ -239,11 +247,102 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       })
     })
   })
-  // Loopback only. The shim routes claude here only while this file exists, so a relay that
-  // failed to start leaves the tabs on a direct connection.
+  // Loopback only. New tabs are routed here only while this file exists (and names the CA), so a
+  // relay that failed to start leaves them on a direct connection.
   relay.listen(0, '127.0.0.1', () => {
     const address = relay.address()
-    if (address && typeof address === 'object') writeFileSync(relayUrlFile, `http://127.0.0.1:${address.port}`)
+    if (address && typeof address === 'object') writeFileSync(relayUrlFile, `http://127.0.0.1:${address.port}${cert ? `\n${cert.ca}` : ''}`)
+  })
+
+  // ---- the HTTPS proxy ------------------------------------------------------------
+  // A certificate for api.anthropic.com from a CA of our own that may sign nothing else (name
+  // constraint), trusted by the tabs through NODE_EXTRA_CA_CERTS. The CA key is deleted once the
+  // certificate is signed; both are made again when it nears its end.
+  const tlsDir = join(root, 'tls')
+  const cert = (() => {
+    const pem = join(tlsDir, 'cert.pem'), key = join(tlsDir, 'key.pem'), ca = join(tlsDir, 'ca.pem')
+    try {
+      const c = { cert: readFileSync(pem), key: readFileSync(key), ca }
+      if (Date.parse(new X509Certificate(c.cert).validTo) - Date.now() > 30 * 86400_000) return c
+    } catch {}
+    try {
+      rmSync(tlsDir, { recursive: true, force: true })
+      mkdirSync(tlsDir, { recursive: true, mode: 0o700 })
+      const at = (f: string) => join(tlsDir, f), ssl = (...a: string[]) => execFileSync('/usr/bin/openssl', a, { cwd: tlsDir, stdio: 'ignore', timeout: 20_000 })
+      writeFileSync(at('ca.cnf'), `[req]\ndistinguished_name=dn\nx509_extensions=v3\nprompt=no\n[dn]\nCN=TerminAI local relay\n[v3]\nbasicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,permitted;DNS:${API_HOST}\nsubjectKeyIdentifier=hash\n`)
+      writeFileSync(at('cert.ext'), `basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:${API_HOST}\nauthorityKeyIdentifier=keyid\n`)
+      ssl('req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.pem', '-days', '900', '-config', 'ca.cnf')
+      ssl('req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'key.pem', '-out', 'cert.csr', '-subj', `/CN=${API_HOST}`)
+      ssl('x509', '-req', '-in', 'cert.csr', '-CA', 'ca.pem', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'cert.pem', '-days', '825', '-extfile', 'cert.ext')
+      for (const f of ['ca.key', 'ca.srl', 'ca.cnf', 'cert.csr', 'cert.ext']) rmSync(at(f), { force: true })
+      return { cert: readFileSync(pem), key: readFileSync(key), ca }
+    } catch (err) {
+      console.error('[accounts] no certificate for the proxy, tabs connect directly:', err)
+      return null
+    }
+  })()
+  /** Whether the loopback connection from this port was opened by Claude Code itself. */
+  const clientCache = new Map<number, boolean>()
+  setInterval(() => clientCache.clear(), 10 * 60_000).unref()
+  function fromClaude(port: number): Promise<boolean> {
+    return new Promise(resolve => execFile('/usr/sbin/lsof', ['-nP', `-iTCP@127.0.0.1:${port}`, '-sTCP:ESTABLISHED', '-Fp'], { timeout: 5_000 }, (_e, out) => {
+      const pids = [...new Set(String(out).split('\n').filter(l => l.startsWith('p')).map(l => Number(l.slice(1))))].filter(p => p !== process.pid)
+      if (pids.length !== 1) { resolve(false); return }
+      if (clientCache.has(pids[0])) { resolve(clientCache.get(pids[0])!); return }
+      execFile('/bin/ps', ['-o', 'comm=', '-p', String(pids[0])], { timeout: 5_000 }, (_e2, comm) => {
+        const is = String(comm).trim().split('/').pop() === CLIENT
+        clientCache.set(pids[0], is)
+        resolve(is)
+      })
+    }))
+  }
+  // Requests on a connection opened below: the same forward() as the relay's, keyed by the tab.
+  const opened = http.createServer((req, res) => {
+    const key = (req.socket as tls.TLSSocket & { tabKey?: string }).tabKey ?? ''
+    const chunks: Buffer[] = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => {
+      forward(key, req.url || '/', req, res, Buffer.concat(chunks)).catch(err => {
+        if (res.headersSent) { res.destroy(); return }
+        res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `TerminAI relay: ${String(err?.message || err)}` } }))
+      })
+    })
+  })
+  opened.on('upgrade', (req, sock, head) => {
+    const plain = UPSTREAM.protocol === 'http:', port = Number(UPSTREAM.port) || (plain ? 80 : 443)
+    const up = plain ? net.connect(port, UPSTREAM.hostname) : tls.connect({ host: UPSTREAM.hostname, port, servername: UPSTREAM.hostname })
+    up.once(plain ? 'connect' : 'secureConnect', () => {
+      up.write(`${req.method} ${req.url} HTTP/1.1\r\n${req.rawHeaders.map((v, i) => i % 2 ? `${v}\r\n` : `${v}: `).join('')}\r\n`)
+      up.write(head); up.pipe(sock); sock.pipe(up)
+    })
+    up.on('error', () => sock.destroy()); sock.on('error', () => up.destroy())
+  })
+  // Claude Code's connections to api.anthropic.com are opened here; any other program in the tab, and
+  // any other host, gets a plain tunnel and its own end-to-end TLS.
+  relay.on('connect', (req: http.IncomingMessage, sock: net.Socket, head: Buffer) => {
+    const [host, portText] = String(req.url).split(':'), port = Number(portText) || 443
+    const auth = String(req.headers['proxy-authorization'] || '').replace(/^Basic /i, '')
+    const key = Buffer.from(auth, 'base64').toString().split(':')[0]
+    sock.on('error', () => sock.destroy())
+    void (cert && host === API_HOST && port === 443 && validKey(key) ? fromClaude(sock.remotePort ?? 0) : Promise.resolve(false)).then(open => {
+      if (sock.destroyed) return
+      if (open && cert) {
+        sock.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        if (head.length) sock.unshift(head)
+        const t = Object.assign(new tls.TLSSocket(sock, { isServer: true, cert: cert.cert, key: cert.key, ALPNProtocols: ['http/1.1'] }), { tabKey: key })
+        t.on('error', () => t.destroy())
+        opened.emit('connection', t)
+        return
+      }
+      const up = net.connect(port, host, () => {
+        sock.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+        if (head.length) up.write(head)
+        up.pipe(sock); sock.pipe(up)
+      })
+      up.on('error', () => { if (!sock.destroyed) sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n') })
+      sock.on('close', () => up.destroy())
+    })
   })
 
   // ---- every plan's usage, for the menu -----------------------------------------

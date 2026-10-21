@@ -152,13 +152,17 @@ function ptyEnv(tabId) {
 // Claude Code in this tab reaches Anthropic through the relay of src/main/accounts.ts, which signs its
 // requests with the account picked for the tab. Set in the tab's environment rather than by the shim:
 // a ~/.zshrc that puts claude's own folder first on the PATH, as its installer does, skips the shim.
+// As a proxy, not ANTHROPIC_BASE_URL, which turns Remote Control off; the relay opens only claude's
+// own connections to api.anthropic.com and tunnels every other program's untouched.
 function relayEnv(key) {
-  if (process.env.ANTHROPIC_BASE_URL) return {};
+  const env = process.env;
+  if (env.ANTHROPIC_BASE_URL || env.HTTPS_PROXY || env.https_proxy || env.NODE_EXTRA_CA_CERTS) return {};
   try {
-    const relay = node_fs.readFileSync(node_path.join(electron.app.getPath("userData"), "accounts", "relay-url"), "utf8").trim();
-    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(relay)) return {};
-    // A custom base URL turns these off by default; keep what a direct connection does.
-    return { ANTHROPIC_BASE_URL: `${relay}/${key}`, CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1", CLAUDE_CODE_GATEWAY_HINT_HEADERS: "1" };
+    const [relay, ca] = node_fs.readFileSync(node_path.join(electron.app.getPath("userData"), "accounts", "relay-url"), "utf8").trim().split("\n");
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(relay) || !ca || !node_fs.existsSync(ca)) return {};
+    const proxy = relay.replace("//", `//${key}:tab@`);
+    const local = [env.NO_PROXY || env.no_proxy, "localhost,127.0.0.1,::1"].filter(Boolean).join(",");
+    return { HTTPS_PROXY: proxy, https_proxy: proxy, NODE_EXTRA_CA_CERTS: ca, NO_PROXY: local, no_proxy: local };
   } catch {
     return {};
   }

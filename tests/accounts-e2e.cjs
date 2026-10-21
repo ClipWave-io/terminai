@@ -40,7 +40,7 @@ const upstream = http.createServer((req, res) => {
   })
 })
 const delay = ms => new Promise(r => setTimeout(r, ms))
-let relay = ''
+let relay = '', ca = ''
 /** One request through the relay, as Claude Code would send it; resolves with status, body and when the first byte came. */
 function call(key, urlPath, { method = 'POST', body = '{"model":"x","stream":true}', headers = { authorization: `Bearer ${LOGIN}` } } = {}) {
   return new Promise((resolve, reject) => {
@@ -65,8 +65,10 @@ const cli = (...args) => new Promise((resolve, reject) => execFile(process.execP
 
 app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
   await waitFor('relay', () => fs.existsSync(path.join(dir, 'accounts', 'relay-url')), 10000)
-  relay = fs.readFileSync(path.join(dir, 'accounts', 'relay-url'), 'utf8').trim()
+  ;[relay, ca] = fs.readFileSync(path.join(dir, 'accounts', 'relay-url'), 'utf8').trim().split('\n')
   assert.match(relay, /^http:\/\/127\.0\.0\.1:\d+$/)
+  assert.ok(ca && fs.existsSync(ca), 'the relay names the CA its tabs trust')
+  assert.equal(fs.readdirSync(path.dirname(ca)).sort().join(' '), 'ca.pem cert.pem key.pem', 'the CA key is gone once the certificate is signed')
 
   // Numbers for the menu before any request: the login's from statusline.sh's cache, the others asked with the smallest request.
   await win.webContents.executeJavaScript(`window.term.accounts.refreshUsage()`)
@@ -118,6 +120,22 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   assert.ok(list.accounts.every(a => a.exhaustedUntil === reset * 1000))
   assert.equal(state().usage[A].fiveHour, 0.6, 'usage is kept across restarts')
 
+  // As an HTTPS proxy, the way tabs use it (no ANTHROPIC_BASE_URL, so Remote Control stays on). Claude
+  // Code's connections to api.anthropic.com are opened with the local CA and signed like the relay's;
+  // here curl plays claude (TERMINAI_RELAY_CLIENT). Any other program gets a tunnel to the real host.
+  setTab('k9', A)
+  const n9 = seen.length
+  const viaProxy = await new Promise(resolve => execFile('/usr/bin/curl', ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '--cacert', ca, '--proxy', relay.replace('//', '//k9:tab@'),
+    '-H', `authorization: Bearer ${LOGIN}`, '-H', 'content-type: application/json', '--data', '{"model":"x"}', 'https://api.anthropic.com/v1/messages?beta=true'], (e, out, err) => resolve(String(out) + String(err))))
+  assert.equal(viaProxy, '200', `curl as claude through the proxy: ${viaProxy}`)
+  assert.deepEqual(seen.slice(n9).map(s => [s.by, s.path]), [['A', '/v1/messages?beta=true']], 'opened, and signed with the tab\'s account')
+  const tunnelled = await new Promise(resolve => execFile('/usr/bin/python3', ['-I', '-c', `import urllib.request,urllib.error,sys
+o=urllib.request.build_opener(urllib.request.ProxyHandler({'https':sys.argv[1]}))
+try: print(o.open('https://api.anthropic.com/v1/models',timeout=20).status)
+except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:tab@')], (e, out, err) => resolve((String(out) + String(err)).trim())))
+  assert.match(tunnelled, /^(401|403|404)$/, `another program reaches the real api.anthropic.com, its TLS untouched: ${tunnelled}`)
+  assert.equal(seen.length, n9 + 1, 'and nothing of it reaches the relay')
+
   // A real tab where claude's own folder comes first on the PATH, as ~/.zshrc does on this Mac: claude
   // still reaches the relay with the tab's key, and the menu moves the tab.
   fs.mkdirSync(path.join(WORK, 'fakebin'))
@@ -125,8 +143,8 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const line = `export PATH="${WORK}/fakebin:$PATH" FAKE_CLAUDE_LOG=${LOG}; claude`
   const { id } = JSON.parse(await cli('open', '--cwd', '/tmp', '--name', 'acct-e2e', '--command', line))
   await waitFor('fake claude', () => starts().length === 1, 15000)
-  const key = /base=http:\/\/127\.0\.0\.1:\d+\/(\S+)/.exec(starts()[0])?.[1]
-  assert.ok(key && starts()[0].includes(`base=${relay}/`), starts()[0])
+  const key = /proxy=http:\/\/([^:\s]+):tab@127\.0\.0\.1:\d+ /.exec(starts()[0])?.[1]
+  assert.ok(key && starts()[0].includes(`proxy=${relay.replace('//', `//${key}:tab@`)} ca=${ca} `) && starts()[0].includes('base=none'), starts()[0])
   await cli('focus', id)
   await waitFor('account pill', () => win.webContents.executeJavaScript(`!!document.querySelector('.account-pill')`), 10000)
   await win.webContents.executeJavaScript(`document.querySelector('.account-pill').click()`)
@@ -143,5 +161,6 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
 setTimeout(() => { console.error('e2e timeout'); cleanup(); app.exit(1) }, 120000).unref()
 upstream.listen(0, '127.0.0.1', () => {
   process.env.TERMINAI_RELAY_UPSTREAM = `http://127.0.0.1:${upstream.address().port}`
+  process.env.TERMINAI_RELAY_CLIENT = 'curl'
   require(path.join(REPO, 'out/main/index.js'))
 })
