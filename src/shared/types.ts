@@ -186,6 +186,8 @@ export interface ClaudeAccount {
 export interface ClaudeAccounts {
   /** auto: a tab whose plan runs out moves by itself to the next account with usage left */
   mode: 'manual' | 'auto'
+  /** the account new tabs start on */
+  defaultId: string
   accounts: ClaudeAccount[]
 }
 

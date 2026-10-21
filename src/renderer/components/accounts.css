@@ -21,6 +21,8 @@
 .account-rename input { width: 100%; font: inherit; padding: 2px 6px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 5px; }
 .account-auto { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 7px 8px 5px; border-top: 1px solid var(--border); color: var(--fg); cursor: pointer; }
 .account-auto input { accent-color: var(--accent); margin: 0; }
+.account-default { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; color: var(--fg); }
+.account-default select { font: inherit; font-size: 12.5px; padding: 3px 6px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .account-add { display: block; width: 100%; padding: 6px 8px; font: inherit; text-align: left; color: var(--accent); background: none; border: 0; border-radius: 6px; cursor: pointer; }
 .account-add:hover { background: var(--surface); }
 .account-error { max-width: 280px; padding: 5px 9px; font-size: 12px; color: var(--danger); background: var(--pane); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }

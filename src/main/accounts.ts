@@ -45,7 +45,7 @@ const PROBE = JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 1, system:
 
 type Usage = NonNullable<ClaudeAccount['usage']>
 interface Saved { id: string; label: string; fp: string; addedAt: number }
-interface State { mode: 'manual' | 'auto'; loginLabel?: string; accounts: Saved[]; exhausted: Record<string, number>; usage: Record<string, Usage> }
+interface State { mode: 'manual' | 'auto'; loginLabel?: string; defaultId?: string; accounts: Saved[]; exhausted: Record<string, number>; usage: Record<string, Usage> }
 
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id)
 const validKey = (key: unknown): key is string => typeof key === 'string' && /^[0-9A-Za-z-]{1,80}$/.test(key)
@@ -104,6 +104,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       return {
         mode: j.mode === 'auto' ? 'auto' : 'manual',
         loginLabel: cleanLabel(j.loginLabel) || undefined,
+        defaultId: typeof j.defaultId === 'string' ? j.defaultId : undefined,
         accounts: Array.isArray(j.accounts) ? j.accounts.filter((a: any) => validId(a?.id) && cleanLabel(a.label)) : [],
         exhausted: j.exhausted && typeof j.exhausted === 'object' ? j.exhausted : {},
         usage: j.usage && typeof j.usage === 'object' ? j.usage : {},
@@ -117,12 +118,18 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   const ids = () => ['login', ...state.accounts.map(a => a.id)]
   const usable = (id: string) => !(state.exhausted[id] > Date.now())
   const labelOf = (id: string) => id === 'login' ? state.loginLabel || loginName() : state.accounts.find(a => a.id === id)?.label ?? ''
-  // New tabs start on the login account; in automatic mode, on the first one with usage left.
-  const defaultAccount = () => (state.mode === 'auto' ? ids().find(usable) : undefined) ?? 'login'
+  // New tabs start on the account picked as the default, the login until one is; in automatic mode, on
+  // the first one from there in menu order with usage left.
+  const chosenDefault = () => state.defaultId && ids().includes(state.defaultId) ? state.defaultId : 'login'
+  const defaultAccount = () => {
+    const chosen = chosenDefault()
+    return state.mode === 'auto' && !usable(chosen) ? nextUsable(chosen) || chosen : chosen
+  }
   const save = () => {
     const now = Date.now()
     for (const [id, until] of Object.entries(state.exhausted)) if (!(until > now) || !ids().includes(id)) delete state.exhausted[id]
     for (const id of Object.keys(state.usage)) if (!ids().includes(id)) delete state.usage[id]
+    if (state.defaultId && !ids().includes(state.defaultId)) delete state.defaultId
     writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 })
     renameSync(`${file}.tmp`, file)
     // Read by statusline.sh, like the tab files: which account a tab is on when it has none of its own.
@@ -157,6 +164,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     const now = Date.now()
     return {
       mode: state.mode,
+      defaultId: chosenDefault(),
       accounts: ids().map(id => {
         const u = state.usage[id]
         // A window that has reset since the last answer starts again from zero.
@@ -464,6 +472,16 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     }
     save()
   }
+  /** Where new tabs start. A tab already open that never picked an account keeps the one it is on. */
+  function setDefault(id: string) {
+    if (!ids().includes(id)) throw new Error('Unknown account')
+    for (const ptyId of ptys.liveIds()) {
+      const key = ptys.workspaceKeyOf(ptyId)
+      if (validKey(key)) try { readFileSync(join(tabsDir, key)) } catch { writeFileSync(join(tabsDir, key), accountOfKey(key)) }
+    }
+    state.defaultId = id
+    save()
+  }
   function setMode(mode: unknown) {
     state.mode = mode === 'auto' ? 'auto' : 'manual'
     save()
@@ -471,5 +489,5 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   // A reset passing by changes what the menu shows and where new tabs start.
   setInterval(() => { if (Object.values(state.exhausted).some(until => !(until > Date.now()))) save() }, 30_000)
 
-  return { listing, forTab, use, add, openInChrome, cancel, remove, rename, setMode, refreshUsage }
+  return { listing, forTab, use, add, openInChrome, cancel, remove, rename, setDefault, setMode, refreshUsage }
 }

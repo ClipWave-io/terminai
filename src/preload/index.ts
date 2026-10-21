@@ -160,6 +160,7 @@ const api = {
     forTab: (ptyId: string): Promise<string> => ipcRenderer.invoke('accounts:forTab', ptyId),
     use: (ptyId: string, id: string): Promise<void> => ipcRenderer.invoke('accounts:use', ptyId, id),
     setMode: (mode: ClaudeAccounts['mode']): Promise<void> => ipcRenderer.invoke('accounts:mode', mode),
+    setDefault: (id: string): Promise<void> => ipcRenderer.invoke('accounts:default', id),
     add: (label: string): Promise<AccountFlow> => ipcRenderer.invoke('accounts:add', label),
     openInChrome: (flowId: string, profileDir: string): Promise<void> => ipcRenderer.invoke('accounts:open', flowId, profileDir),
     cancel: (flowId: string): Promise<void> => ipcRenderer.invoke('accounts:cancel', flowId),

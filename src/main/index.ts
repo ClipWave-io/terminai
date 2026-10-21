@@ -353,6 +353,7 @@ function registerIpc(): void {
   appIpc.handle('accounts:forTab', (_e, ptyId: unknown) => accounts.forTab(String(ptyId)))
   appIpc.handle('accounts:use', (_e, ptyId: unknown, id: unknown) => accounts.use(String(ptyId), String(id)))
   appIpc.handle('accounts:mode', (_e, mode: unknown) => accounts.setMode(mode))
+  appIpc.handle('accounts:default', (_e, id: unknown) => accounts.setDefault(String(id)))
   appIpc.handle('accounts:add', (_e, label: unknown) => accounts.add(label))
   appIpc.handle('accounts:open', (_e, flowId: unknown, profileDir: unknown) => accounts.openInChrome(String(flowId), String(profileDir)))
   appIpc.handle('accounts:cancel', (_e, flowId: unknown) => accounts.cancel(String(flowId)))

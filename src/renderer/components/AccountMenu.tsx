@@ -102,6 +102,12 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
             <input type="checkbox" checked={data.mode === 'auto'} onChange={(e) => void run(window.term.accounts.setMode(e.target.checked ? 'auto' : 'manual'))} />
             <span>Switch automatically when a plan runs out</span>
           </label>
+          <label className="account-default">
+            <span>New tabs start on</span>
+            <select value={data.defaultId} onChange={(e) => void run(window.term.accounts.setDefault(e.target.value))} aria-label="Account new tabs start on">
+              {data.accounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+          </label>
           <button className="account-add" onClick={() => { setOpen(false); setAdding(true) }}>Add account…</button>
         </div>
       )}
