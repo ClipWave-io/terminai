@@ -72,8 +72,9 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       if(s.exited)throw Error('The tab has exited')
       if(typeof a.text!=='string'||a.text.length>100000)throw Error('Invalid text')
       if(a.text)ptys.write(s.id,a.text)
-      // A TUI takes an Enter glued to the text as part of a paste; on its own it submits.
-      if(a.enter!==false){await new Promise(r=>setTimeout(r,150));ptys.write(s.id,'\r')}
+      // A TUI takes an Enter glued to the text as part of a paste; on its own it submits. Long text goes
+      // in as the program reads it, so the Enter waits for that (within the CLI's 30 s).
+      if(a.enter!==false){await Promise.race([ptys.written(s.id),new Promise(r=>setTimeout(r,2e4))]);await new Promise(r=>setTimeout(r,150));ptys.write(s.id,'\r')}
       return {ok:true}
     }
     case 'read':{

@@ -22,6 +22,7 @@ export function liveIds(): string[];
 export function agentOf(id: string): AgentSession;
 export function resumeCommandFor(desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string>;
 export function execWhenReady(id: string, cmd: string): void;
+export function written(id: string): Promise<void>;
 export function pidOf(id: string): number;
 export function sizeOf(id: string): {cols: number; rows: number} | null;
 export function bufferOf(id: string): string;

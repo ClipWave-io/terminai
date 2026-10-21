@@ -202,7 +202,13 @@ function createSession(opts = {}) {
     // the shell prints before then is held rather than dropped on the floor.
     wc: null,
     buf: "",
-    pendingExit: null
+    pendingExit: null,
+    // Input the pty has not taken yet, oldest first; see flush().
+    unwritten: [],
+    flushTimer: null,
+    onWritten: [],
+    // The line editor at a prompt has asked for bracketed paste (zsh does from 5.1 on).
+    pasteMode: false
   };
   sessions.set(id, session);
   startSessionSweep();
@@ -210,6 +216,8 @@ function createSession(opts = {}) {
     const chunk = readChunk(session, data);
     if (chunk.painted && Date.now() >= session.quietUntil) session.lastDataAt = Date.now();
     if (chunk.bell) session.belled = true;
+    const on = data.lastIndexOf("\x1b[?2004h"), off = data.lastIndexOf("\x1b[?2004l");
+    if (on !== off) session.pasteMode = on > off;
     session.buf = (session.buf + data).slice(-524288);
     session.outCount += data.length;
     if (!safeSend(session.wc, "pty:data", { id, data })) session.wc = null;
@@ -258,7 +266,41 @@ function write(id, data) {
   }
   // Keystrokes and pastes; what xterm answers on its own starts with ESC.
   if (!data.startsWith("\x1b") || data.startsWith("\x1b[200~")) s.typedAt = Date.now();
-  try { s.proc.write(data); } catch { s.exited = true; }
+  s.unwritten.push(Buffer.from(data, "utf8"));
+  if (!s.flushTimer) flush(s);
+}
+// node-pty writes through a tty stream that libuv drives in "blocking" mode on a pty master: when the
+// program in the tab does not take the input at once, write() retries EAGAIN in a loop on the main
+// thread, the window freezes, and nobody reads the echo that would let the program go on (21/10/2026:
+// a 5 KB `terminai open` command hung the app twice until a force quit). The master fd itself is
+// non-blocking, so write what it takes now and come back for the rest, as node-pty upstream does
+// since December 2025 (CustomWriteStream). Synchronous on this thread, so a closed fd is never reused.
+function flush(s) {
+  s.flushTimer = null;
+  while (s.unwritten.length && !s.exited) {
+    const buf = s.unwritten[0];
+    let n = 0;
+    try {
+      n = node_fs.writeSync(s.proc._fd, buf);
+    } catch (err) {
+      if (err?.code !== "EAGAIN") s.exited = true;
+      if (s.exited) break;
+    }
+    if (n < buf.length) {
+      s.unwritten[0] = buf.subarray(n);
+      s.flushTimer = setTimeout(flush, 5, s);
+      return;
+    }
+    s.unwritten.shift();
+  }
+  s.unwritten.length = 0;
+  for (const done of s.onWritten.splice(0)) done();
+}
+// Resolves once everything written to the tab so far has reached the pty (or the tab is gone).
+function written(id) {
+  const s = sessions.get(id);
+  if (!s || !s.unwritten.length) return Promise.resolve();
+  return new Promise((resolve) => s.onWritten.push(resolve));
 }
 function resize(id, cols, rows) {
   const s = sessions.get(id);
@@ -980,11 +1022,17 @@ function retryWhileDraining(id, cmd, attempt) {
     setTimeout(() => {
       const t = sessions.get(id);
       if (!t || t.exited || t.closing || t.typedAt > typedAt || t.agent?.alive || !isBareShell(foregroundProcess(id))) return;
-      write(id, `${cmd}\r`);
+      typeLine(id, cmd);
       retryWhileDraining(id, cmd, attempt + 1);
     }, Math.min(6e4, 15e3 * 2 ** attempt));
   };
   setTimeout(poll, 1e3);
+}
+// A command line, as a paste when the line editor takes one: zsh with highlighting redraws the whole
+// line on every typed character, so a 5 KB command typed key by key took minutes (21/10/2026); pasted
+// it is in at once.
+function typeLine(id, cmd) {
+  write(id, sessions.get(id)?.pasteMode ? `\x1b[200~${cmd}\x1b[201~\r` : `${cmd}\r`);
 }
 // Type a command once the shell is sitting at a prompt (or after 10s regardless).
 function execWhenReady(id, cmd) {
@@ -992,9 +1040,10 @@ function execWhenReady(id, cmd) {
   const tick = () => {
     const s = sessions.get(id);
     if (!s || s.exited) return;
-    const settled = Date.now() - s.spawnedAt >= 900 && isBareShell(foregroundProcess(id));
+    // At a prompt the line editor asks for bracketed paste; a shell that never does gets 3 s.
+    const settled = (s.pasteMode || Date.now() - s.spawnedAt >= 3e3) && Date.now() - s.spawnedAt >= 900 && isBareShell(foregroundProcess(id));
     if (settled || Date.now() - started > 1e4) {
-      write(id, `${cmd}\r`);
+      typeLine(id, cmd);
       retryWhileDraining(id, cmd, 0);
       return;
     }
@@ -1025,4 +1074,4 @@ function atShellPrompt(id) {
   return !!s && !s.exited && isBareShell(foregroundProcess(id));
 }
 
-export { createSession, list, attach, detachAll, write, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };
+export { createSession, list, attach, detachAll, write, written, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };
