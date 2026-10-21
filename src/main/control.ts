@@ -8,12 +8,12 @@ import * as store from './store'
 import type {SavedTab} from '../shared/types'
 
 /**
- * Local command channel for the terminal tabs, behind `terminai list|open|send|read|close|focus`
+ * Local command channel for the terminal tabs, behind `terminai list|open|send|read|close|focus|show`
  * (resources/terminai.cjs). Same boundary as the browser bridge: loopback only, a random token
  * in a 0600 file next to prefs, the file gone on quit. Every PTY gets its path as TERMINAI_CONTROL.
  */
-type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void}
-const COMMANDS=['list','open','send','read','close','focus']
+type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void}
+const COMMANDS=['list','open','send','read','close','focus','show']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -95,6 +95,14 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       if(await ask(d.window(),'focus',{id})!==true)throw Error('That tab is not in the TerminAI window')
       d.focused(id)
       return {ok:true}
+    }
+    // A file in the Files pane beside the tabs (PDF, image, text, code), as a Finder "Open with" does.
+    case 'show':{
+      if(typeof a.path!=='string'||!isAbsolute(a.path))throw Error('path must be an absolute file path')
+      let file=false;try{file=statSync(a.path).isFile()}catch{}
+      if(!file)throw Error(`No such file: ${a.path}`)
+      d.show(a.path)
+      return {ok:true,path:a.path}
     }
   }
   throw Error('Unknown command')

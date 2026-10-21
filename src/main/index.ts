@@ -140,7 +140,7 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
-  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id } })
+  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile })
     .then((control) => app.once('before-quit', control.close))
     .catch((err) => console.error('[control] could not start:', err))
   void (async()=>{

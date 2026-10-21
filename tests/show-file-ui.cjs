@@ -1,0 +1,33 @@
+// `terminai show <file>`: a session opens a file in the Files pane beside the tabs, not in another app.
+// After `npx electron-vite build`: CODEX_HOME=<scratch dir> TERMINAI_TEST_BUILD=1 npx electron tests/show-file-ui.cjs
+const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), { execFile } = require('child_process')
+if (!process.env.CODEX_HOME) { console.error('Set CODEX_HOME to a scratch folder: the app writes its Codex config there.'); process.exit(1) }
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-show-')); app.setPath('userData', dir)
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false } }))
+const docs = path.join(dir, 'docs folder'); fs.mkdirSync(docs)
+fs.copyFileSync(path.join(__dirname, 'fixtures', 'two-pages.pdf'), path.join(docs, 'two pages.pdf'))
+fs.writeFileSync(path.join(docs, 'notes.md'), '# Notes\n\nOpened by a session.\n')
+const delay = ms => new Promise(r => setTimeout(r, ms))
+// Never execFileSync here: the control server answers from this very process.
+const cli = (...args) => new Promise(resolve => execFile(process.execPath, [path.join(__dirname, '..', 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => resolve({ ok: !e, out: String(out), err: String(err) })))
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = code => win.webContents.executeJavaScript(code)
+  await delay(1500); win.setSize(1400, 860); await delay(300)
+  assert.equal(await js(`!!document.querySelector('.files-slot')`), false, 'no Files pane before')
+  let r = await cli('show', path.join(docs, 'two pages.pdf'))
+  assert.ok(r.ok, r.err)
+  await delay(2500)
+  assert.equal(await js(`!!document.querySelector('.files-slot:not(.workspace-hidden)')`), true, 'the Files pane opens')
+  assert.match(await js(`document.querySelector('.file-preview-title')?.textContent || ''`), /two pages\.pdf/)
+  assert.equal(await js(`document.querySelector('.files-status')?.textContent`), 'PDF viewer')
+  assert.equal(await js(`document.querySelectorAll('.term-host').length > 0`), true, 'the terminal stays beside it')
+  fs.writeFileSync(path.join(os.tmpdir(), 'terminai-show-pdf.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
+  r = await cli('show', path.join(docs, 'notes.md')); assert.ok(r.ok, r.err); await delay(1500)
+  assert.match(await js(`document.querySelector('.file-preview-title')?.textContent || ''`), /notes\.md/)
+  r = await cli('show', path.join(docs, 'missing.pdf')); assert.equal(r.ok, false); assert.match(r.err, /No such file/)
+  r = await cli('show', docs); assert.equal(r.ok, false, 'a folder is not a file'); assert.match(r.err, /No such file/)
+  console.log(`PASS show file: PDF and text open in the Files pane beside the terminal, missing paths and folders refused · ${path.join(os.tmpdir(), 'terminai-show-pdf.png')}`)
+  fs.rmSync(dir, { recursive: true, force: true }); app.quit()
+})().catch(e => { console.error(e); fs.rmSync(dir, { recursive: true, force: true }); app.exit(1) }) }))
+setTimeout(() => { console.error('show timeout'); app.exit(1) }, 60000).unref()
+require(path.join(__dirname, '../out/main/index.js'))

@@ -6,10 +6,11 @@
 //   terminai read <id> [--lines N]
 //   terminai close <id>
 //   terminai focus <id>
+//   terminai show <file>                                   the file in the Files pane beside the tabs (PDF, image, text)
 //   terminai todo [--shared|--personal] [--open] [--mine]   read-only, straight from the files
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus','todo'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
+const COMMANDS=['list','open','send','read','close','focus','show','todo'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -41,16 +42,17 @@ function todo(flags){
  return out;
 }
 function request(command,flags,words){
- const id=words[0];if(command!=='list'&&command!=='open'&&!id)throw Error(`usage: terminai ${command} <id>`);
+ const id=words[0];if(command!=='list'&&command!=='open'&&!id)throw Error(`usage: terminai ${command} ${command==='show'?'<file>':'<id>'}`);
  if(command==='list')return {};
  if(command==='open')return {cwd:resolve(flags.cwd||process.cwd()),name:flags.name,group:flags.group,command:flags.command,background:!flags.foreground,cols:number(flags.cols),rows:number(flags.rows)};
  if(command==='send')return {id,text:words.slice(1).join(' '),enter:!flags['no-enter']};
  if(command==='read')return {id,lines:number(flags.lines)};
+ if(command==='show')return {path:resolve(words.join(' '))};
  return {id};
 }
 async function main(){
  const {command,flags,words}=parse(process.argv.slice(2));
- if(!COMMANDS.includes(command))throw Error('usage: terminai list|open|send|read|close|focus|todo ...');
+ if(!COMMANDS.includes(command))throw Error('usage: terminai list|open|send|read|close|focus|show|todo ...');
  if(command==='todo'){process.stdout.write(JSON.stringify(todo(flags),null,1)+'\n');return}
  const args=request(command,flags,words);
  const file=process.env.TERMINAI_CONTROL||join(homedir(),'Library/Application Support/clipwave-term/control.json');
