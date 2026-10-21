@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
 import { homedir } from 'node:os'
@@ -28,9 +28,16 @@ const SECURITY = '/usr/bin/security'
 const UPSTREAM = new URL(process.env.TERMINAI_RELAY_UPSTREAM || 'https://api.anthropic.com')
 const TOKEN = /sk-ant-oat01-[A-Za-z0-9_-]{20,}(?=[^A-Za-z0-9_-])/
 const FLOW_TIMEOUT_MS = 10 * 60_000
+// What statusline.sh keeps of /api/oauth/usage for the login account, refreshed every 5 minutes.
+const LOGIN_USAGE_FILE = process.env.TERMINAI_LOGIN_USAGE_FILE || join(homedir(), '.claude', 'cache', 'usage-limits.json')
+const USAGE_STALE_MS = 5 * 60_000
+// The smallest request Anthropic answers with a plan's usage: a subscription token is only good for
+// requests that present themselves as Claude Code.
+const PROBE = JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 1, system: "You are Claude Code, Anthropic's official CLI for Claude.", messages: [{ role: 'user', content: '.' }] })
 
+type Usage = NonNullable<ClaudeAccount['usage']>
 interface Saved { id: string; label: string; fp: string; addedAt: number }
-interface State { mode: 'manual' | 'auto'; loginLabel?: string; accounts: Saved[]; exhausted: Record<string, number> }
+interface State { mode: 'manual' | 'auto'; loginLabel?: string; accounts: Saved[]; exhausted: Record<string, number>; usage: Record<string, Usage> }
 
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id)
 const validKey = (key: unknown): key is string => typeof key === 'string' && /^[0-9A-Za-z-]{1,80}$/.test(key)
@@ -91,9 +98,10 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
         loginLabel: cleanLabel(j.loginLabel) || undefined,
         accounts: Array.isArray(j.accounts) ? j.accounts.filter((a: any) => validId(a?.id) && cleanLabel(a.label)) : [],
         exhausted: j.exhausted && typeof j.exhausted === 'object' ? j.exhausted : {},
+        usage: j.usage && typeof j.usage === 'object' ? j.usage : {},
       }
     } catch {
-      return { mode: 'manual', accounts: [], exhausted: {} }
+      return { mode: 'manual', accounts: [], exhausted: {}, usage: {} }
     }
   }
   const state = load()
@@ -106,6 +114,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   const save = () => {
     const now = Date.now()
     for (const [id, until] of Object.entries(state.exhausted)) if (!(until > now) || !ids().includes(id)) delete state.exhausted[id]
+    for (const id of Object.keys(state.usage)) if (!ids().includes(id)) delete state.usage[id]
     writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 })
     renameSync(`${file}.tmp`, file)
     // Read by statusline.sh, like the tab files: which account a tab is on when it has none of its own.
@@ -136,12 +145,16 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     return [...order.slice(at + 1), ...order.slice(0, at)].find(usable) ?? ''
   }
 
-  const usage = new Map<string, NonNullable<ClaudeAccount['usage']>>()
   function listing(): ClaudeAccounts {
     const now = Date.now()
     return {
       mode: state.mode,
-      accounts: ids().map(id => ({ id, label: labelOf(id), login: id === 'login', exhaustedUntil: state.exhausted[id] > now ? state.exhausted[id] : 0, usage: usage.get(id) })),
+      accounts: ids().map(id => {
+        const u = state.usage[id]
+        // A window that has reset since the last answer starts again from zero.
+        const usage = u && { ...u, fiveHour: u.fiveReset && u.fiveReset <= now ? 0 : u.fiveHour, week: u.weekReset && u.weekReset <= now ? 0 : u.week }
+        return { id, label: labelOf(id), login: id === 'login', exhaustedUntil: state.exhausted[id] > now ? state.exhausted[id] : 0, usage }
+      }),
     }
   }
 
@@ -154,6 +167,20 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   const client = UPSTREAM.protocol === 'http:' ? http : https
   const agent = new client.Agent({ keepAlive: true })
   const limitHeader = (h: http.IncomingHttpHeaders, k: string) => Number(h[`anthropic-ratelimit-unified-${k}`])
+  /** The plan's usage as Anthropic reports it on every answer; false when the answer carries none. */
+  function noteUsage(id: string, h: http.IncomingHttpHeaders): boolean {
+    if (!h['anthropic-ratelimit-unified-status']) return false
+    const at = (k: string) => (limitHeader(h, k) || 0) * 1000
+    state.usage[id] = { fiveHour: limitHeader(h, '5h-utilization') || 0, fiveReset: at('5h-reset'), week: limitHeader(h, '7d-utilization') || 0, weekReset: at('7d-reset'), at: Date.now() }
+    return true
+  }
+  /** A plan or spend limit, as opposed to a passing throttle that Claude Code retries by itself. */
+  function noteLimit(id: string, status: number, h: http.IncomingHttpHeaders): boolean {
+    if (status !== 429 || h['anthropic-ratelimit-unified-status'] !== 'rejected') return false
+    const reset = limitHeader(h, 'reset')
+    state.exhausted[id] = reset > 0 ? reset * 1000 : Date.now() + 5 * 3600_000
+    return true
+  }
   function send(req: http.IncomingMessage, res: http.ServerResponse, path: string, headers: http.OutgoingHttpHeaders, body: Buffer): Promise<http.IncomingMessage> {
     return new Promise((resolve, reject) => {
       const up = client.request({ protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port, path, method: req.method, headers, agent }, resolve)
@@ -164,8 +191,9 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     })
   }
   async function forward(key: string, path: string, req: http.IncomingMessage, res: http.ServerResponse, body: Buffer) {
-    // Only model requests are signed with the tab's account; the rest keep the login's own credentials.
-    const model = path.startsWith('/v1/messages')
+    // Only model requests made with the login are signed with the tab's account: the rest, and anything
+    // launched with an API key of its own, go through exactly as they came.
+    const model = path.startsWith('/v1/messages') && /^Bearer sk-ant-oat/.test(String(req.headers.authorization)) && !req.headers['x-api-key']
     const tried = new Set<string>()
     for (;;) {
       let id = model ? accountOfKey(key) : 'login'
@@ -180,10 +208,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       if (token) headers.authorization = `Bearer ${token}`
       const r = await send(req, res, path, headers, body)
       const status = r.statusCode ?? 502
-      // A plan or spend limit, as opposed to a passing throttle that Claude Code retries by itself.
-      if (model && status === 429 && r.headers['anthropic-ratelimit-unified-status'] === 'rejected') {
-        const reset = limitHeader(r.headers, 'reset')
-        state.exhausted[id] = reset > 0 ? reset * 1000 : Date.now() + 5 * 3600_000
+      if (model && noteLimit(id, status, r.headers)) {
         save()
         const next = state.mode === 'auto' ? nextUsable(id) : ''
         if (next && !tried.has(next)) {
@@ -192,9 +217,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
           continue
         }
       }
-      if (model && status < 400 && r.headers['anthropic-ratelimit-unified-status']) {
-        usage.set(id, { fiveHour: limitHeader(r.headers, '5h-utilization') || 0, week: limitHeader(r.headers, '7d-utilization') || 0, at: Date.now() })
-      }
+      if (model && status < 400 && noteUsage(id, r.headers)) save()
       // Streamed through as it arrives: Claude Code stalls on a buffered response.
       res.writeHead(status, r.headers)
       r.pipe(res)
@@ -222,6 +245,42 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     const address = relay.address()
     if (address && typeof address === 'object') writeFileSync(relayUrlFile, `http://127.0.0.1:${address.port}`)
   })
+
+  // ---- every plan's usage, for the menu -----------------------------------------
+  const probing = new Set<string>()
+  function probe(id: string, token: string): Promise<void> {
+    return new Promise(resolve => {
+      const up = client.request({ protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port, path: '/v1/messages?beta=true', method: 'POST', agent, timeout: 20_000,
+        headers: { authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'oauth-2025-04-20', 'content-type': 'application/json' } }, r => {
+        r.resume()
+        if (noteLimit(id, r.statusCode ?? 0, r.headers) || noteUsage(id, r.headers)) save()
+        resolve()
+      })
+      up.on('error', () => resolve())
+      up.on('timeout', () => up.destroy())
+      up.end(PROBE)
+    })
+  }
+  /** Fresh numbers for accounts not seen for a while: the login's from statusline.sh's cache, the others asked for. */
+  async function refreshUsage() {
+    const stale = (id: string) => !(Date.now() - (state.usage[id]?.at ?? 0) < USAGE_STALE_MS) && !probing.has(id)
+    if (stale('login')) {
+      try {
+        const at = statSync(LOGIN_USAGE_FILE).mtimeMs
+        const limits: any[] = JSON.parse(readFileSync(LOGIN_USAGE_FILE, 'utf8')).limits ?? []
+        const kind = (k: string) => limits.find(l => l.kind === k)
+        const session = kind('session'), weekly = kind('weekly_all')
+        if (session && weekly && at > (state.usage.login?.at ?? 0)) {
+          state.usage.login = { fiveHour: session.percent / 100, fiveReset: Date.parse(session.resets_at) || 0, week: weekly.percent / 100, weekReset: Date.parse(weekly.resets_at) || 0, at }
+          save()
+        }
+      } catch {}
+    }
+    await Promise.all(state.accounts.filter(a => stale(a.id)).map(async a => {
+      probing.add(a.id)
+      try { const token = await tokenOf(a.id); if (token) await probe(a.id, token) } finally { probing.delete(a.id) }
+    }))
+  }
 
   // ---- adding an account ------------------------------------------------------
   const flows = new Map<string, { flow: AccountFlow; proc: pty.IPty; timer: NodeJS.Timeout; poll: NodeJS.Timeout; urlFile: string }>()
@@ -292,7 +351,6 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     if (!validId(id) || !state.accounts.some(a => a.id === id)) throw new Error('Unknown account')
     await keychainDelete(id)
     tokens.delete(id)
-    usage.delete(id)
     state.accounts = state.accounts.filter(a => a.id !== id)
     save()
   }
@@ -314,5 +372,5 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   // A reset passing by changes what the menu shows and where new tabs start.
   setInterval(() => { if (Object.values(state.exhausted).some(until => !(until > Date.now()))) save() }, 30_000)
 
-  return { listing, forTab, use, add, openInChrome, cancel, remove, rename, setMode }
+  return { listing, forTab, use, add, openInChrome, cancel, remove, rename, setMode, refreshUsage }
 }

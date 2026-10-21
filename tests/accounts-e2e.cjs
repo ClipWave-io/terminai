@@ -15,6 +15,10 @@ const who = auth => auth === `Bearer ${LOGIN}` ? 'login' : auth === `Bearer ${to
 for (const id of [A, B]) execFileSync('/usr/bin/security', ['add-generic-password', '-U', '-s', SVC, '-a', id, '-l', 'TerminAI e2e', '-w', tok[id]])
 fs.mkdirSync(path.join(dir, 'accounts', 'tabs'), { recursive: true })
 fs.writeFileSync(path.join(dir, 'accounts', 'accounts.json'), JSON.stringify({ mode: 'auto', accounts: [{ id: A, label: 'Alpha', fp: 'x', addedAt: 0 }, { id: B, label: 'Beta', fp: 'y', addedAt: 0 }], exhausted: {} }))
+// The login's usage as statusline.sh caches it from /api/oauth/usage.
+const LOGIN_USAGE = path.join(WORK, 'usage-limits.json')
+fs.writeFileSync(LOGIN_USAGE, JSON.stringify({ limits: [{ kind: 'session', percent: 19, resets_at: '2030-01-01T10:00:00+00:00' }, { kind: 'weekly_all', percent: 37, resets_at: '2030-01-05T10:00:00+00:00' }] }))
+process.env.TERMINAI_LOGIN_USAGE_FILE = LOGIN_USAGE
 const cleanup = () => { for (const id of [A, B]) try { execFileSync('/usr/bin/security', ['delete-generic-password', '-s', SVC, '-a', id], { stdio: 'ignore' }) } catch {} ; fs.rmSync(WORK, { recursive: true, force: true }) }
 
 // ---- a fake Anthropic: who signed each request, and a plan that runs out on demand ----
@@ -29,7 +33,7 @@ const upstream = http.createServer((req, res) => {
       res.writeHead(429, { 'content-type': 'application/json', 'anthropic-ratelimit-unified-status': 'rejected', 'anthropic-ratelimit-unified-reset': String(reset) })
       return res.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: `limit for ${by}` } }))
     }
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'anthropic-ratelimit-unified-status': 'allowed', 'anthropic-ratelimit-unified-5h-utilization': by === 'login' ? '0.2' : '0.6', 'anthropic-ratelimit-unified-7d-utilization': '0.3' })
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'anthropic-ratelimit-unified-status': 'allowed', 'anthropic-ratelimit-unified-5h-utilization': by === 'login' ? '0.2' : by === 'A' ? '0.6' : '0.85', 'anthropic-ratelimit-unified-7d-utilization': '0.3', 'anthropic-ratelimit-unified-5h-reset': String(reset), 'anthropic-ratelimit-unified-7d-reset': String(reset + 86400) })
     res.write(`event: message_start\ndata: {"by":"${by}"}\n\n`)
     setTimeout(() => { res.write('event: ping\ndata: {}\n\n') }, 400)
     setTimeout(() => { res.end('event: message_stop\ndata: {}\n\n') }, 900)
@@ -38,10 +42,10 @@ const upstream = http.createServer((req, res) => {
 const delay = ms => new Promise(r => setTimeout(r, ms))
 let relay = ''
 /** One request through the relay, as Claude Code would send it; resolves with status, body and when the first byte came. */
-function call(key, urlPath, { method = 'POST', body = '{"model":"x","stream":true}' } = {}) {
+function call(key, urlPath, { method = 'POST', body = '{"model":"x","stream":true}', headers = { authorization: `Bearer ${LOGIN}` } } = {}) {
   return new Promise((resolve, reject) => {
     const t0 = Date.now()
-    const req = http.request(`${relay}/${key}${urlPath}`, { method, headers: { authorization: `Bearer ${LOGIN}`, 'anthropic-beta': 'oauth-2025-04-20', 'content-type': 'application/json' } }, res => {
+    const req = http.request(`${relay}/${key}${urlPath}`, { method, headers: { ...headers, 'anthropic-beta': 'oauth-2025-04-20', 'content-type': 'application/json' } }, res => {
       let text = '', first = 0
       res.on('data', c => { if (!first) first = Date.now() - t0; text += c })
       res.on('end', () => resolve({ status: res.statusCode, text, first, total: Date.now() - t0 }))
@@ -64,6 +68,15 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   relay = fs.readFileSync(path.join(dir, 'accounts', 'relay-url'), 'utf8').trim()
   assert.match(relay, /^http:\/\/127\.0\.0\.1:\d+$/)
 
+  // Numbers for the menu before any request: the login's from statusline.sh's cache, the others asked with the smallest request.
+  await win.webContents.executeJavaScript(`window.term.accounts.refreshUsage()`)
+  let list = await win.webContents.executeJavaScript(`window.term.accounts.list()`)
+  assert.deepEqual(list.accounts.map(a => a.usage?.fiveHour), [0.19, 0.6, 0.85])
+  assert.equal(list.accounts[0].usage.weekReset, Date.parse('2030-01-05T10:00:00+00:00'))
+  assert.deepEqual(seen.map(s => s.by).sort(), ['A', 'B'], 'the login is never asked')
+  assert.ok(seen.every(s => JSON.parse(s.body).max_tokens === 1 && /Claude Code/.test(JSON.parse(s.body).system)))
+  seen.length = 0
+
   // A tab with no account of its own runs on the login, untouched, and the answer streams through.
   let r = await call('k1', '/v1/messages?beta=true')
   assert.equal(r.status, 200); assert.equal(seen.at(-1).by, 'login'); assert.equal(seen.at(-1).path, '/v1/messages?beta=true')
@@ -73,6 +86,8 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   setTab('k1', A)
   await call('k1', '/v1/messages?beta=true'); assert.equal(seen.at(-1).by, 'A')
   await call('k1', '/api/hello', { method: 'HEAD' }); assert.equal(seen.at(-1).by, 'login'); assert.equal(seen.at(-1).path, '/api/hello')
+  // A session launched with an API key of its own goes through untouched, whatever the tab's account.
+  await call('k1', '/v1/messages?beta=true', { headers: { 'x-api-key': 'sk-ant-api03-fake' } }); assert.equal(seen.at(-1).by, 'other:undefined')
   // Automatic: the plan runs out mid-request and the same request goes out again on the next account.
   reject.add('A')
   const n = seen.length
@@ -96,15 +111,18 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   reject.clear(); reject.add('B'); setTab('k3', B)
   r = await call('k3', '/v1/messages?beta=true')
   assert.equal(r.status, 429); assert.equal(tabOf('k3'), B)
-  const list = await win.webContents.executeJavaScript(`window.term.accounts.list()`)
+  list = await win.webContents.executeJavaScript(`window.term.accounts.list()`)
   assert.deepEqual(list.accounts.map(a => a.label).slice(1), ['Alpha', 'Beta'])
   assert.equal(list.accounts[0].usage.fiveHour, 0.2, 'usage read from the answer headers')
+  assert.equal(list.accounts[0].usage.fiveReset, reset * 1000)
   assert.ok(list.accounts.every(a => a.exhaustedUntil === reset * 1000))
+  assert.equal(state().usage[A].fiveHour, 0.6, 'usage is kept across restarts')
 
-  // A real tab: the shim points claude at the relay with the tab's key, and the menu moves the tab.
+  // A real tab where claude's own folder comes first on the PATH, as ~/.zshrc does on this Mac: claude
+  // still reaches the relay with the tab's key, and the menu moves the tab.
   fs.mkdirSync(path.join(WORK, 'fakebin'))
   execFileSync('clang', ['-O1', '-o', path.join(WORK, 'fakebin', 'claude'), path.join(__dirname, 'fixtures', 'fake-claude.c')])
-  const line = `export PATH="$CLIPWAVE_SHIM:${WORK}/fakebin:\${PATH#$CLIPWAVE_SHIM:}" FAKE_CLAUDE_LOG=${LOG}; claude`
+  const line = `export PATH="${WORK}/fakebin:$PATH" FAKE_CLAUDE_LOG=${LOG}; claude`
   const { id } = JSON.parse(await cli('open', '--cwd', '/tmp', '--name', 'acct-e2e', '--command', line))
   await waitFor('fake claude', () => starts().length === 1, 15000)
   const key = /base=http:\/\/127\.0\.0\.1:\d+\/(\S+)/.exec(starts()[0])?.[1]
@@ -113,12 +131,13 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await waitFor('account pill', () => win.webContents.executeJavaScript(`!!document.querySelector('.account-pill')`), 10000)
   await win.webContents.executeJavaScript(`document.querySelector('.account-pill').click()`)
   await waitFor('menu rows', async () => (await win.webContents.executeJavaScript(`document.querySelectorAll('.account-row').length`)) === 3, 3000)
+  assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.account-row .usage-bar').length`), 6, 'a 5-hour and a weekly bar per account')
   fs.writeFileSync(path.join(os.tmpdir(), 'terminai-accounts-menu.png'), (await win.capturePage()).toPNG())
   await win.webContents.executeJavaScript(`[...document.querySelectorAll('.account-pick')].find(b => b.textContent.includes('Alpha')).click()`)
   await waitFor('tab moved to Alpha', () => tabOf(key) === A, 3000)
   await waitFor('pill shows Alpha', async () => /Alpha/.test(await win.webContents.executeJavaScript(`document.querySelector('.account-pill')?.textContent || ''`)), 3000)
   assert.equal(starts().length, 1, 'picking an account restarts nothing')
-  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, usage from headers, shim routes claude to the relay, menu moves the tab without a restart')
+  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, usage from headers and probes, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
   cleanup(); app.quit()
 })().catch(e => { console.error(e); cleanup(); app.exit(1) }) }))
 setTimeout(() => { console.error('e2e timeout'); cleanup(); app.exit(1) }, 120000).unref()

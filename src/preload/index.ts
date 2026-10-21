@@ -161,6 +161,7 @@ const api = {
     remove: (id: string): Promise<void> => ipcRenderer.invoke('accounts:remove', id),
     rename: (id: string, label: string): Promise<void> => ipcRenderer.invoke('accounts:rename', id, label),
     chromeProfiles: (): Promise<ChromeProfile[]> => ipcRenderer.invoke('accounts:chromeProfiles'),
+    refreshUsage: (): Promise<void> => ipcRenderer.invoke('accounts:refreshUsage'),
     onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('accounts:changed', cb); return () => { ipcRenderer.removeListener('accounts:changed', cb) } },
     onFlow: (cb: (flow: AccountFlow) => void): (() => void) => { const handler = (_e: IpcRendererEvent, flow: AccountFlow) => cb(flow); ipcRenderer.on('accounts:flow', handler); return () => { ipcRenderer.removeListener('accounts:flow', handler) } },
   },

@@ -329,6 +329,7 @@ function registerIpc(): void {
   appIpc.handle('accounts:remove', (_e, id: unknown) => accounts.remove(String(id)))
   appIpc.handle('accounts:rename', (_e, id: unknown, label: unknown) => accounts.rename(String(id), label))
   appIpc.handle('accounts:chromeProfiles', () => chromeProfiles())
+  appIpc.handle('accounts:refreshUsage', () => accounts.refreshUsage())
 
   // ---- prefs -------------------------------------------------------------
   appIpc.handle('prefs:get', () => store.load())

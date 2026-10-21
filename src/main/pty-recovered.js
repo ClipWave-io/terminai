@@ -30,19 +30,6 @@ const SHIM = `#!/bin/sh
 PATH=\${PATH#"$CLIPWAVE_SHIM":}
 export PATH
 
-# Model requests go through TerminAI's local relay (src/main/accounts.ts), which
-# signs them with the Claude account picked for this tab: switching account takes
-# effect on the next request, nothing restarts. Left alone when something else
-# already routes or signs claude's requests, or when the relay is not running.
-if [ -z "\${ANTHROPIC_BASE_URL-}\${ANTHROPIC_AUTH_TOKEN-}\${ANTHROPIC_API_KEY-}\${CLAUDE_CODE_USE_BEDROCK-}\${CLAUDE_CODE_USE_VERTEX-}\${CLAUDE_CODE_USE_FOUNDRY-}" ] &&
-  relay=$(cat "$TERMINAI_ACCOUNTS/relay-url" 2>/dev/null) && [ -n "$relay" ]; then
-  ANTHROPIC_BASE_URL="$relay/$TERMINAI_WORKSPACE_ID"
-  # A custom base URL turns these off by default; keep what a direct connection does.
-  CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING=\${CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING-1}
-  CLAUDE_CODE_GATEWAY_HINT_HEADERS=\${CLAUDE_CODE_GATEWAY_HINT_HEADERS-1}
-  export ANTHROPIC_BASE_URL CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING CLAUDE_CODE_GATEWAY_HINT_HEADERS
-fi
-
 # Subcommands take no session flag, and setup-token refuses one.
 case \${1-} in
   agents|attach|auth|auto-mode|doctor|gateway|import|install|logs|mcp|plugin|plugins|purge|respawn|rm|setup-token|stop|kill|ultrareview|update|upgrade) exec claude "$@" ;;
@@ -162,6 +149,20 @@ function ptyEnv(tabId) {
   }
   return env;
 }
+// Claude Code in this tab reaches Anthropic through the relay of src/main/accounts.ts, which signs its
+// requests with the account picked for the tab. Set in the tab's environment rather than by the shim:
+// a ~/.zshrc that puts claude's own folder first on the PATH, as its installer does, skips the shim.
+function relayEnv(key) {
+  if (process.env.ANTHROPIC_BASE_URL) return {};
+  try {
+    const relay = node_fs.readFileSync(node_path.join(electron.app.getPath("userData"), "accounts", "relay-url"), "utf8").trim();
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(relay)) return {};
+    // A custom base URL turns these off by default; keep what a direct connection does.
+    return { ANTHROPIC_BASE_URL: `${relay}/${key}`, CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1", CLAUDE_CODE_GATEWAY_HINT_HEADERS: "1" };
+  } catch {
+    return {};
+  }
+}
 function createSession(opts = {}) {
   const id = node_crypto.randomUUID();
   const cwd = opts.cwd && node_fs.existsSync(opts.cwd) ? opts.cwd : node_os.homedir();
@@ -172,7 +173,7 @@ function createSession(opts = {}) {
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
     cwd,
-    env: { ...ptyEnv(id), TERMINAI_WORKSPACE_ID: workspaceKey }
+    env: { ...ptyEnv(id), TERMINAI_WORKSPACE_ID: workspaceKey, ...relayEnv(workspaceKey) }
   });
   const session = {
     id,

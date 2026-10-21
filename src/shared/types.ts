@@ -160,8 +160,8 @@ export interface ClaudeAccount {
   login: boolean
   /** epoch ms until which this account's plan is out of usage; 0 when it can be used */
   exhaustedUntil: number
-  /** plan usage (0-1) from the last answer Anthropic gave this account through TerminAI */
-  usage?: { fiveHour: number; week: number; at: number }
+  /** plan usage (0-1) and window resets (epoch ms) from the last answer Anthropic gave this account */
+  usage?: { fiveHour: number; fiveReset: number; week: number; weekReset: number; at: number }
 }
 
 export interface ClaudeAccounts {

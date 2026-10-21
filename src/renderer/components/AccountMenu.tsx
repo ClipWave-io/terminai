@@ -42,6 +42,9 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
     return () => window.removeEventListener('mousedown', away)
   }, [open])
 
+  // Opening the menu asks for numbers on accounts not seen for a while; they land through onChanged.
+  useEffect(() => { if (open) void window.term.accounts.refreshUsage() }, [open])
+
   if (!data) return null
   const active = data.accounts.find(a => a.id === current) ?? data.accounts[0]
   const pick = async (id: string) => {
@@ -75,11 +78,16 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
               ) : (
                 <button className="account-pick" role="menuitemradio" aria-checked={a.id === active.id} onClick={() => void pick(a.id)}>
                   <span className="account-check">{a.id === active.id ? '✓' : ''}</span>
-                  <span className="account-name">{a.label}</span>
-                  {a.login && <span className="account-tag">login</span>}
-                  {a.exhaustedUntil > 0
-                    ? <span className="account-limit">limit until {resetTime(a.exhaustedUntil)}</span>
-                    : a.usage && <span className="account-usage" title="Plan usage at the last answer: 5-hour window · week">{Math.round(a.usage.fiveHour * 100)}% · {Math.round(a.usage.week * 100)}%</span>}
+                  <span className="account-main">
+                    <span className="account-line">
+                      <span className="account-name">{a.label}</span>
+                      {a.login && <span className="account-tag">login</span>}
+                      {a.exhaustedUntil > 0 && <span className="account-limit">limit until {resetTime(a.exhaustedUntil)}</span>}
+                    </span>
+                    {a.usage
+                      ? <span className="account-bars"><UsageBar label="5h" value={a.usage.fiveHour} reset={a.usage.fiveReset} /><UsageBar label="7d" value={a.usage.week} reset={a.usage.weekReset} /></span>
+                      : <span className="account-nousage">Usage not read yet</span>}
+                  </span>
                 </button>
               )}
               {renaming?.id !== a.id && (
@@ -121,6 +129,18 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
         </div>
       )}
     </div>
+  )
+}
+
+/** One window of a plan, as a short bar: 5-hour or weekly share used, with its reset in the tooltip. */
+function UsageBar({ label, value, reset }: { label: string; value: number; reset: number }): JSX.Element {
+  const pct = Math.max(0, Math.min(100, Math.round(value * 100)))
+  return (
+    <span className="usage-bar" title={reset ? `${label} window resets ${resetTime(reset)}` : undefined}>
+      <span className="usage-label">{label}</span>
+      <span className="usage-track"><span className={`usage-fill${pct >= 80 ? ' high' : pct >= 50 ? ' mid' : ''}`} style={{ width: `${pct}%` }} /></span>
+      <span className="usage-pct">{pct}%</span>
+    </span>
   )
 }
 
