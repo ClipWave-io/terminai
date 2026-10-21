@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
-import { join, basename, resolve, sep, dirname } from 'node:path'
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { chmod, copyFile, mkdir } from 'node:fs/promises'
+import { join, basename, resolve, sep, dirname, extname } from 'node:path'
+import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { chmod, copyFile, mkdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
-import { ProjectFiles } from './project-files'
+import { Readable } from 'node:stream'
+import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
@@ -53,7 +54,22 @@ protocol.registerSchemesAsPrivileged([
     scheme: voice.AUDIO_SCHEME,
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
+  { scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ])
+
+/** The video or audio file the Files pane is playing, by its token only; ranges, so the player can seek. */
+function registerMediaProtocol(): void {
+  protocol.handle(MEDIA_SCHEME, async (request) => {
+    const file = mediaFile(new URL(request.url).pathname.slice(1))
+    if (!file) return new Response('not found', { status: 404 })
+    const size = (await stat(file)).size, type = MEDIA_TYPES[extname(file).slice(1).toLowerCase()] ?? 'application/octet-stream'
+    const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') ?? '')
+    const start = range ? (range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]))) : 0
+    const end = range && range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1
+    const body = Readable.toWeb(createReadStream(file, { start, end })) as unknown as BodyInit
+    return new Response(body, { status: range ? 206 : 200, headers: { 'content-type': type, 'content-length': String(end - start + 1), 'accept-ranges': 'bytes', ...(range ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}) } })
+  })
+}
 
 /** Serves only files that really live inside the voice cache directory. */
 function registerAudioProtocol(): void {
@@ -137,6 +153,7 @@ app.whenReady().then(() => {
   mkdirSync(app.getPath('userData'), { recursive: true })
   writeFileSync(aliveMarker(), String(process.pid))
   registerAudioProtocol()
+  registerMediaProtocol()
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
@@ -239,6 +256,8 @@ function registerIpc(): void {
   appIpc.handle('project:list', (_event, path: string) => projectFiles.list(path))
   appIpc.handle('project:save', (_event, path: string, content: string, version: string) => projectFiles.save(path, content, version))
   appIpc.handle('project:preview', (_event, path: string) => projectFiles.preview(path))
+  // Only from the pane's own button: an app outside TerminAI when the user asks for one.
+  appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {
     if (!win) return

@@ -31,6 +31,7 @@ const api = {
     list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),
     save: (path: string, content: string, version: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:save', path, content, version),
     preview: (path: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:preview', path),
+    openExternal: (path: string): Promise<void> => ipcRenderer.invoke('project:openExternal', path),
   },
   browser: {
     state: (): Promise<BrowserState> => ipcRenderer.invoke('browser:state'),
