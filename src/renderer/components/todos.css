@@ -135,3 +135,32 @@ button.todo-circle:hover { border-color: var(--dim); }
   .todo-col { overflow: visible; padding-bottom: 12px; margin-bottom: 12px; scroll-margin-top: 48px; }
   .todo-at { position: static; }
 }
+
+/* Changed by the other person since this one last looked (TodoSheet fresh, TodoHistory). */
+.todo-row.fresh::before { content: ''; position: absolute; left: -10px; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.todo-tag.todo-fresh { font: inherit; font-size: 11px; padding: 0 5px; border-radius: 4px; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border: 0; cursor: pointer; white-space: nowrap; }
+.todo-tag.todo-fresh:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.todo-link.todo-unseen { color: var(--accent); }
+.todo-button { position: relative; }
+.todo-button-dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.sheet.todo-history { width: min(860px, calc(100vw - 32px)); max-width: none; }
+.todo-history-title { margin: -6px 0 12px; font-weight: 600; color: var(--fg); }
+.todo-history-body { display: grid; grid-template-columns: 210px 1fr; gap: 16px; max-height: min(60vh, 520px); }
+.todo-history-list { list-style: none; margin: 0; padding: 0 6px 0 0; overflow: auto; border-right: 1px solid var(--border); }
+.todo-history-list button { display: grid; grid-template-columns: auto 1fr; gap: 0 6px; width: 100%; padding: 6px 8px; font: inherit; font-size: 12.5px; text-align: left; color: var(--fg); background: none; border: 0; border-radius: 6px; cursor: pointer; }
+.todo-history-list button:hover { background: var(--surface); }
+.todo-history-list button[aria-current="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.todo-history-who { font-weight: 600; }
+.todo-history-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+.todo-history-when { grid-column: 1 / -1; font-size: 11px; color: var(--dim); }
+.todo-history-diff { overflow: auto; font-size: 13px; }
+.todo-history-what { margin: 2px 0 10px; font-weight: 600; }
+.todo-history-field { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 0 0 8px; }
+.todo-history-field.notes { flex-direction: column; align-items: stretch; }
+.todo-history-label { min-width: 64px; font-size: 11.5px; color: var(--dim); }
+.todo-history-field del { color: var(--danger); }
+.todo-history-field ins { text-decoration: none; color: var(--fg); }
+.todo-history-notes { margin: 0; padding: 8px 10px; font: 12.5px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.todo-history-notes .del { display: block; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); text-decoration: line-through; }
+.todo-history-notes .add { display: block; color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.todo-history-notes .same { display: block; color: var(--dim); }

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import type { Task, TaskInput, TaskList, TaskScope, TasksUser } from '../../shared/types'
+import { TodoHistory, when } from './TodoHistory'
 import './todos.css'
 
 type Assignee = Task['assignee']
@@ -110,6 +111,8 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const [ask, setAsk] = useState<string[] | null>(null)
   // An object, so a second "Deleted 3 tasks" restarts the 8 seconds.
   const [toast, setToast] = useState<{ text: string } | null>(null)
+  /** The shared task whose history is open. */
+  const [history, setHistory] = useState<Task | null>(null)
   // App.tsx mounts the top bar slot in the same commit, so it is looked up once the sheet is in the DOM.
   const [slot, setSlot] = useState<HTMLElement | null | undefined>(undefined)
   useLayoutEffect(() => setSlot(document.getElementById('todo-topbar-slot')), [])
@@ -305,6 +308,12 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   }
 
   const me: TasksUser = user || 'livio', other: TasksUser = me === 'livio' ? 'ilai' : 'livio'
+  const unseen = data?.unseen ?? []
+  // Looking at what changed is what makes the "edited by" mark go.
+  function openHistory(task: Task) {
+    setHistory(task)
+    void window.term.todos.markSeen([task.id]).then(show).catch(err => setError(errorText(err)))
+  }
   const label = (assignee: Assignee) => assignee === 'both' ? 'Together' : assignee ? NAME[assignee] : 'Unassigned'
 
   function openMenu(task: Task, scope: TaskScope, x: number, y: number, up?: number) {
@@ -324,6 +333,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm(task.id) }]),
       null, { heading: 'Product' }, { input: task.product, placeholder: 'e.g. ManyMotions', run: (product: string) => void save(scope, { id: task.id, product }) },
       !task.notes && { label: 'Add note', run: () => setNoteFor(task.id) },
+      scope === 'shared' && { label: 'History…', run: () => openHistory(task) },
       null, { label: 'Delete…', danger: true, run: () => setAsk([task.id]) },
     ]
     setMenu({ x, y, up, items: items.filter((item): item is MenuItem => item !== false) })
@@ -347,6 +357,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const shownColumns = view === 'private' ? [privateNotes] : columns
   const pick = (event: { currentTarget: HTMLElement }, items: MenuItem[]) => { const b = event.currentTarget.getBoundingClientRect(); setMenu({ x: b.left, y: b.bottom + 4, up: b.top - 4, items }) }
   const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]}
+    fresh={scope === 'shared' && unseen.includes(task.id) ? { by: NAME[task.updatedBy as TasksUser] ?? task.updatedBy, at: task.updatedAt, added: task.createdAt === task.updatedAt } : null} onHistory={() => openHistory(task)}
     confirming={confirm === task.id} openNote={noteFor === task.id} selected={sel.includes(task.id)} cut={clip?.mode === 'cut' && clip.ids.includes(task.id)}
     onSave={save} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
     onSelect={how => select(task.id, how)} onMenu={(x, y, up) => openMenu(task, scope, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
@@ -445,6 +456,8 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
               onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>
             <span className={sync?.error ? 'failed' : ''} title={sync?.error ?? undefined} aria-live="polite">{syncText}</span>
             <button className="todo-link" disabled={!sync?.enabled || sync.syncing} onClick={() => void act(() => window.term.todos.sync())}>Sync now</button>
+            {view === 'shared' && unseen.length > 0 && <button className="todo-link todo-unseen" title="Each changed task carries its mark; this clears them all"
+              onClick={() => void act(() => window.term.todos.markSeen(unseen))}>{unseen.length} changed by {NAME[other]} · Mark all seen</button>}
           </>}
         </div>
         return slot ? createPortal(controls, slot) : slot === null && <header className="todo-head">{controls}</header>
@@ -469,6 +482,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         </div>
       </article>}
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {history && <TodoHistory task={history} onClose={() => { setHistory(null); focusSheet() }} />}
       {ask && <DeleteDialog titles={ask.flatMap(id => find(data, id)?.task.title ?? [])} onCancel={() => { setAsk(null); focusSheet() }} onDelete={() => void deleteTasks(ask)} />}
       {toast && <div className="todo-toast" role="status">{toast.text}<span aria-hidden="true">·</span><button onClick={() => void undo()}>Undo</button></div>}
     </section>
@@ -479,8 +493,10 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
  * `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private.
  * `confirming`: the row asks "Make it private?"; deleting is asked by the sheet (onDelete).
  */
-function TaskRow({ task, scope, lock, other, confirming, openNote, selected, cut, onSave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
+function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openNote, selected, cut, onSave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
   task: Task; scope: TaskScope; lock: boolean; other: string; confirming: boolean; openNote: boolean; selected: boolean; cut: boolean; onSave: Save
+  /** Changed by the other person since this one last looked: who, when, and whether it is a new task. */
+  fresh: { by: string; at: string; added: boolean } | null; onHistory: () => void
   onPrivate: () => Promise<boolean>; onConfirm: (on: boolean) => void; onDelete: () => void; onNoteOpened: () => void; onSelect: (how: 'toggle' | 'range') => void
   onMenu: (x: number, y: number, up?: number) => void; onEnter?: () => void
 }): JSX.Element {
@@ -523,7 +539,7 @@ function TaskRow({ task, scope, lock, other, confirming, openNote, selected, cut
   // ⌘-click and ⇧-click select the row: no editing, no tick. ⇧-click inside the text being edited still extends its selection.
   const picking = (event: { button: number; metaKey: boolean; shiftKey: boolean; target: EventTarget }) => event.button === 0 && (event.metaKey || (event.shiftKey && event.target !== document.activeElement))
 
-  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}`} data-id={task.id}
+  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}${fresh ? ' fresh' : ''}`} data-id={task.id}
     onMouseDownCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation(); onSelect(event.shiftKey ? 'range' : 'toggle') } }}
     onClickCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation() } }}
     onContextMenu={event => { event.preventDefault(); onMenu(event.clientX, event.clientY) }}>
@@ -545,6 +561,7 @@ function TaskRow({ task, scope, lock, other, confirming, openNote, selected, cut
         {task.status === 'doing' && <span className="todo-tag doing">in progress</span>}
         {task.product && <span className="todo-tag">{task.product}</span>}
         {lock && <span className="todo-tag" title="Private" aria-label="Private"><Lock /></span>}
+        {fresh && <button className="todo-tag todo-fresh" title="See what changed" onClick={onHistory}>{fresh.added ? 'new' : 'edited'} by {fresh.by} · {when(fresh.at)}</button>}
       </div>
       {noteEditing
         ? <textarea className="todo-notes" value={notes} maxLength={20000} aria-label="Note" placeholder="Note" spellCheck={false}

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
-import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, VoiceClip } from '../shared/types'
+import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, TaskVersion, VoiceClip } from '../shared/types'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -115,6 +115,10 @@ const api = {
     /** Private ⇄ shared; to shared it goes to `assignee`, by default the user. `order` places it in the list it goes to. */
     move: (from: TaskScope, id: string, assignee?: Task['assignee'], order?: number): Promise<TaskList> => ipcRenderer.invoke('todos:move', from, id, assignee, order),
     sync: (): Promise<TaskList> => ipcRenderer.invoke('todos:sync'),
+    /** The shared tasks the user has now looked at, so their "edited by" mark goes. */
+    markSeen: (ids: string[]): Promise<TaskList> => ipcRenderer.invoke('todos:markSeen', ids),
+    history: (id: string): Promise<TaskVersion[]> => ipcRenderer.invoke('todos:history', id),
+    onOpen: (cb: () => void): (() => void) => { ipcRenderer.on('todos:open', cb); return () => { ipcRenderer.removeListener('todos:open', cb) } },
     onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('todos:changed', cb); return () => { ipcRenderer.removeListener('todos:changed', cb) } },
   },
 

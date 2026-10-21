@@ -1,0 +1,57 @@
+// The To-do sheet when the other Mac changes shared tasks: notice, marks, history with before and after.
+// After `npx electron-vite build`: CODEX_HOME=<scratch dir> TERMINAI_TEST_BUILD=1 npx electron tests/todo-changes-ui.cjs
+const electron = require('electron'), { app } = electron, fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), { execFileSync } = require('child_process')
+if (!process.env.CODEX_HOME) { console.error('Set CODEX_HOME to a scratch folder: the app writes its Codex config there.'); process.exit(1) }
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-todo-changes-')), bare = path.join(root, 'tasks.git'), ilai = path.join(root, 'ilai')
+const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+git(root, 'init', '-q', '--bare', '-b', 'main', bare); git(root, 'clone', '-q', bare, ilai)
+fs.mkdirSync(path.join(ilai, 'tasks')); fs.writeFileSync(path.join(ilai, 'tasks/.gitkeep'), ''); git(ilai, 'add', '-A'); git(ilai, 'commit', '-q', '-m', 'seed'); git(ilai, 'push', '-q', 'origin', 'HEAD:main')
+const dir = path.join(root, 'userData'); fs.mkdirSync(dir); app.setPath('userData', dir)
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, tasksUser: 'livio' }))
+process.env.TERMINAI_TASKS_REMOTE = `file://${bare}`
+// No real notification on the screen: record what would have been shown.
+const shown = []; electron.Notification.prototype.show = function () { shown.push(this.body) }
+const delay = ms => new Promise(r => setTimeout(r, ms))
+const out = name => path.join(os.tmpdir(), `terminai-todo-${name}.png`)
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = code => win.webContents.executeJavaScript(code)
+  const shot = async name => fs.writeFileSync(out(name), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
+  await delay(1200); win.setSize(1400, 860); await delay(300)
+  let list = await js(`window.term.todos.save('shared', { title: 'Fix login', notes: 'Check the 500 on /auth\\nline two', assignee: 'both' })`)
+  const task = list.shared[0]
+  assert.deepEqual(list.unseen, [])
+  // Ilai's Mac: a new line in the note, and a task of his own.
+  git(ilai, 'pull', '-q', '--rebase')
+  const later = new Date(Date.now() + 60_000).toISOString()
+  fs.writeFileSync(path.join(ilai, 'tasks', `${task.id}.json`), JSON.stringify({ ...task, notes: 'Check the 500 on /auth\nline 2, fixed on staging', updatedAt: later, updatedBy: 'ilai' }, null, 2) + '\n')
+  const added = { id: '5f3c2a1e-0000-4000-8000-000000000001', title: 'Deploy to production', notes: '', status: 'open', assignee: 'ilai', product: 'ManyMotions', createdAt: later, createdBy: 'ilai', updatedAt: later, updatedBy: 'ilai' }
+  fs.writeFileSync(path.join(ilai, 'tasks', `${added.id}.json`), JSON.stringify(added, null, 2) + '\n')
+  git(ilai, 'add', '-A'); git(ilai, 'commit', '-q', '-m', 'ilai: edit Fix login, add Deploy to production'); git(ilai, 'push', '-q', 'origin', 'HEAD')
+  list = await js(`window.term.todos.sync()`)
+  assert.equal(list.unseen.length, 2)
+  assert.deepEqual(shown, ['Ilai changed 2 shared tasks'])
+  await delay(400)
+  assert.equal(await js(`!!document.querySelector('.todo-button-dot')`), true, 'a dot on the To-do button')
+  await js(`document.querySelector('[aria-label^="To-do"]').click()`); await delay(900)
+  const tags = await js(`[...document.querySelectorAll('.todo-row.fresh .todo-fresh')].map(b => b.textContent)`)
+  assert.equal(tags.length, 2, tags.join(' | '))
+  assert.ok(tags.some(t => /^edited by Ilai · /.test(t)) && tags.some(t => /^new by Ilai · /.test(t)), tags.join(' | '))
+  assert.match(await js(`document.querySelector('.todo-unseen')?.textContent || ''`), /^2 changed by Ilai · Mark all seen$/)
+  await shot('changes')
+  await js(`[...document.querySelectorAll('.todo-fresh')].find(b => b.textContent.startsWith('edited')).click()`); await delay(900)
+  assert.equal(await js(`document.querySelectorAll('.todo-history-list li').length`), 2)
+  assert.deepEqual(await js(`[...document.querySelectorAll('.todo-history-notes .del')].map(x => x.textContent.trim())`), ['− line two'])
+  assert.deepEqual(await js(`[...document.querySelectorAll('.todo-history-notes .add')].map(x => x.textContent.trim())`), ['+ line 2, fixed on staging'])
+  await shot('history')
+  await js(`[...document.querySelectorAll('.todo-history-list button')][1].click()`); await delay(200)
+  assert.equal(await js(`document.querySelector('.todo-history-what').textContent`), 'Created')
+  await js(`[...document.querySelectorAll('.todo-history .btn')].find(b => b.textContent === 'Done').click()`); await delay(500)
+  assert.equal(await js(`document.querySelectorAll('.todo-row.fresh').length`), 1, 'the one looked at loses its mark')
+  await js(`document.querySelector('.todo-unseen').click()`); await delay(700)
+  assert.equal(await js(`document.querySelectorAll('.todo-row.fresh').length`), 0)
+  assert.equal(await js(`!!document.querySelector('.todo-button-dot')`), false)
+  console.log(`PASS todo changes UI: notice "${shown[0]}", 2 marked rows, button dot, history with the note before and after, marks cleared · screenshots ${out('changes')} ${out('history')}`)
+  fs.rmSync(root, { recursive: true, force: true }); app.quit()
+})().catch(e => { console.error(e); fs.rmSync(root, { recursive: true, force: true }); app.exit(1) }) }))
+setTimeout(() => { console.error('todo UI timeout'); app.exit(1) }, 60000).unref()
+require(path.join(__dirname, '../out/main/index.js'))

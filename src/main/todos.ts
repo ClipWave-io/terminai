@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { Task, TaskInput, TaskList, TaskScope, TasksSync, TasksUser } from '../shared/types'
+import type { Task, TaskInput, TaskList, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion } from '../shared/types'
 
 /**
  * The To-do sheet's data. Personal tasks are one JSON file per user in userData and never leave the Mac.
@@ -34,7 +34,7 @@ function git(cwd: string, ...args: string[]): Promise<string> {
   }))
 }
 
-export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void }) {
+export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void; notify?: (change: TasksChange) => void }) {
   // Before private tasks were per user they were one file per Mac (todos-personal.json).
   const legacyFile = join(dir, 'todos-personal.json')
   const personalFile = (user: TasksUser) => join(dir, `todos-personal-${user}.json`)
@@ -76,9 +76,31 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     try { names = readdirSync(tasksDir).filter(name => name.endsWith('.json')) } catch { return [] }
     return names.flatMap(name => readTask(join(tasksDir, name)) ?? [])
   }
+  // ---- what the other one changed --------------------------------------------
+  /** Per person on this Mac: the updatedAt of each shared task as they last saw it. */
+  const seenFile = (user: TasksUser) => join(dir, `todos-seen-${user}.json`)
+  function readSeen(user: TasksUser): Record<string, string> | null {
+    try { const seen = JSON.parse(readFileSync(seenFile(user), 'utf8')); return seen && typeof seen === 'object' ? seen : null } catch { return null }
+  }
+  function writeSeen(user: TasksUser, seen: Record<string, string>): void {
+    const tmp = `${seenFile(user)}.tmp`
+    writeFileSync(tmp, JSON.stringify(seen, null, 2) + '\n', 'utf8')
+    renameSync(tmp, seenFile(user))
+  }
+  /** Shared tasks the other person added or changed since this person last looked. The first look, once the repo is cloned, takes everything as seen. */
+  function unseen(user: TasksUser, shared: Task[]): string[] {
+    let seen = readSeen(user)
+    if (!seen) {
+      if (!existsSync(join(clone, '.git'))) return []
+      seen = Object.fromEntries(shared.map(task => [task.id, task.updatedAt]))
+      writeSeen(user, seen)
+    }
+    return shared.filter(task => task.updatedBy !== user && seen![task.id] !== task.updatedAt).map(task => task.id)
+  }
+
   const list = (): TaskList => {
-    const user = opts.user()
-    return { personal: user ? readPersonal(user) : [], shared: readShared(), sync: { ...status } }
+    const user = opts.user(), shared = readShared()
+    return { personal: user ? readPersonal(user) : [], shared, sync: { ...status }, unseen: user ? unseen(user, shared) : [] }
   }
 
   function who(): TasksUser {
@@ -297,12 +319,45 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
 
     sync(): Promise<TaskList> {
       // Nothing is cloned until someone has said who they are, so a fresh profile stays offline.
-      if (!opts.remote || !opts.user()) return Promise.resolve(list())
+      const user = opts.user()
+      if (!opts.remote || !user) return Promise.resolve(list())
       return job(async () => {
         if (await ready()) return
+        const before = readShared(), waiting = new Set(unseen(user, before))
         await pullRebase()
         if ((await git(clone, 'rev-list', '--count', '@{u}..HEAD')).trim() !== '0') await push()
+        // What came in from the other Mac: changes not waiting to be seen before, and tasks gone.
+        const after = readShared(), now = new Set(after.map(task => task.id)), fresh = new Set(unseen(user, after))
+        const changed = after.filter(task => fresh.has(task.id) && !waiting.has(task.id))
+        const removed = before.filter(task => !now.has(task.id)).map(task => task.title)
+        if (changed.length || removed.length) opts.notify?.({ by: user === 'livio' ? 'ilai' : 'livio', changed, removed })
       }).catch(() => {}).then(list)
+    },
+
+    /** The person on this Mac has looked at these shared tasks as they are now. */
+    markSeen(ids: string[]): TaskList {
+      const user = who()
+      const seen = readSeen(user) ?? {}
+      for (const task of readShared()) if (ids.includes(task.id)) seen[task.id] = task.updatedAt
+      writeSeen(user, seen)
+      // The To-do button's dot counts the unseen ones too.
+      opts.changed()
+      return list()
+    },
+
+    /** Every version of a shared task, newest first, from the repo's history. */
+    async history(id: string): Promise<TaskVersion[]> {
+      if (!validId(id)) throw Error('Invalid task id')
+      if (!existsSync(join(clone, '.git'))) return []
+      const log = await git(clone, 'log', '-n', '60', '--format=%H%x1f%aI%x1f%s', '--', `tasks/${id}.json`)
+      const versions: TaskVersion[] = []
+      for (const line of log.split('\n').filter(Boolean)) {
+        const [hash, at, message] = line.split('\x1f')
+        let task: Task | null = null
+        try { const json = await show(`${hash}:tasks/${id}.json`); task = json ? clean(JSON.parse(json)) : null } catch {}
+        versions.push({ hash, at, message, by: task?.updatedBy ?? message.split(':')[0], task })
+      }
+      return versions
     },
 
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => saveMany(scope, [input]),

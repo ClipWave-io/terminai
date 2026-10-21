@@ -265,3 +265,32 @@ test('batches are one commit each and restore puts back the very same files',asy
   await assert.rejects(app.removeMany('shared',['../x']),/Invalid task id/);
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
 });
+
+test('what the other Mac changed shows as unseen, is notified once, and keeps its history',async()=>{
+ const t=setup();try{
+  const notes=[],dir=path.join(t.root,'livio-app');fs.mkdirSync(dir,{recursive:true});
+  const app=createTodos(dir,{remote:'file://'+t.bare,user:()=>'livio',changed:()=>{},notify:c=>notes.push(c)});
+  let list=await app.save('shared',{title:'Fix login',notes:'line one\nline two',assignee:'both'});
+  const task=list.shared[0];
+  assert.deepEqual(list.unseen,[],'my own task is never unseen');
+  t.push({...task,notes:'line one\nline 2 changed',updatedAt:shift(1000),updatedBy:'ilai'},'ilai: edit Fix login');
+  const added={id:require('node:crypto').randomUUID(),title:'Deploy',notes:'',status:'open',assignee:'ilai',product:'',createdAt:shift(2000),createdBy:'ilai',updatedAt:shift(2000),updatedBy:'ilai'};
+  t.push(added,'ilai: add Deploy');
+  list=await app.sync();
+  assert.deepEqual([...list.unseen].sort(),[task.id,added.id].sort());
+  assert.equal(notes.length,1);assert.equal(notes[0].by,'ilai');assert.deepEqual(notes[0].changed.map(x=>x.title).sort(),['Deploy','Fix login']);
+  list=await app.sync();assert.equal(notes.length,1,'nothing new, no second notice');assert.equal(list.unseen.length,2);
+  const h=await app.history(task.id);
+  assert.deepEqual(h.map(v=>v.message),['ilai: edit Fix login','livio: add Fix login']);
+  assert.deepEqual(h.map(v=>v.by),['ilai','livio']);
+  assert.equal(h[0].task.notes,'line one\nline 2 changed');assert.equal(h[1].task.notes,'line one\nline two');
+  list=app.markSeen([task.id]);assert.deepEqual(list.unseen,[added.id]);
+  list=await app.save('shared',{id:added.id,title:'Deploy v2'});assert.deepEqual(list.unseen,[],'an edit of mine is seen');
+  git(t.ilai,'pull','-q','--rebase');git(t.ilai,'rm','-q',`tasks/${added.id}.json`);git(t.ilai,'commit','-q','-m','ilai: delete Deploy v2');git(t.ilai,'push','-q','origin','HEAD');
+  list=await app.sync();assert.deepEqual(notes[1].removed,['Deploy v2']);assert.deepEqual(notes[1].changed,[]);
+  assert.equal((await app.history(added.id))[0].task,null,'the delete is in the history');
+  await assert.rejects(app.history('../x'),/Invalid task id/);
+  const other=t.app('livio2','livio');assert.deepEqual(other.list().unseen,[]);
+  assert.deepEqual((await other.sync()).unseen,[],'a first clone takes everything as seen');
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});

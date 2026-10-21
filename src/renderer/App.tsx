@@ -124,6 +124,14 @@ export function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showTeam, setShowTeam] = useState(false)
   const [showTodos, setShowTodos] = useState(false)
+  // Shared tasks the other person changed and this one has not looked at yet: a dot on the To-do button.
+  const [todosUnseen, setTodosUnseen] = useState(0)
+  useEffect(() => {
+    const count = () => void window.term.todos.list().then(list => setTodosUnseen(list.unseen.length)).catch(() => {})
+    count()
+    const offChanged = window.term.todos.onChanged(count), offOpen = window.term.todos.onOpen(() => setShowTodos(true))
+    return () => { offChanged(); offOpen() }
+  }, [])
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
   const closedTabs = useRef<SavedTab[]>([])
@@ -761,7 +769,7 @@ export function App(): JSX.Element {
           {showTodos && <div id="todo-topbar-slot" className="todo-topbar-slot no-drag" />}
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
           {!showTodos && <span className="topbar-title centered">{(() => { const tab = tabs.find(t => t.id === activeId); return tab ? tabLabel(tab) : '' })()}</span>}
-          {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag" aria-label="To-do" title="To-do" aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" /></button>}
+          {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag todo-button" aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>}
           {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
           {!prefs.hiddenToolbarItems.includes('sessions') && <button
             className="btn icon"

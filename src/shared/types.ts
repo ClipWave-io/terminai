@@ -93,6 +93,25 @@ export interface TaskList {
   personal: Task[]
   shared: Task[]
   sync: TasksSync
+  /** ids of shared tasks the other person added or changed since this person last looked at them */
+  unseen: string[]
+}
+
+/** One version of a shared task, from the build-tasks history; task is null where a commit deleted it. */
+export interface TaskVersion {
+  hash: string
+  /** commit time, ISO */
+  at: string
+  message: string
+  by: string
+  task: Task | null
+}
+
+/** What a sync brought in from the other Mac, for the notification. */
+export interface TasksChange {
+  by: string
+  changed: Task[]
+  removed: string[]
 }
 
 /** What the To-do sheet sends; the main process stamps the dates and authors. */

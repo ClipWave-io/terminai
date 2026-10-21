@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
 import { join, basename, resolve, sep, dirname } from 'node:path'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { chmod, copyFile, mkdir } from 'node:fs/promises'
@@ -297,6 +297,15 @@ function registerIpc(): void {
     remote: process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
     user: () => store.load().tasksUser,
     changed: todosChanged,
+    // The other Mac's edits, pulled by a sync: one notice per sync, a click opens the To-do sheet.
+    notify: ({ by, changed, removed }) => {
+      if (!Notification.isSupported()) return
+      const name = by === 'ilai' ? 'Ilai' : 'Matteo', count = changed.length + removed.length
+      const body = changed.length === 1 && !removed.length ? `${name} changed “${changed[0].title}”` : removed.length === 1 && !changed.length ? `${name} deleted “${removed[0]}”` : `${name} changed ${count} shared tasks`
+      const note = new Notification({ title: 'To-do', body })
+      note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
+      note.show()
+    },
   })
   const scopeOf = (scope: unknown): TaskScope => {
     if (scope !== 'personal' && scope !== 'shared') throw new Error('Invalid task list')
@@ -310,6 +319,8 @@ function registerIpc(): void {
   appIpc.handle('todos:restore', (_e, scope: unknown, tasks: unknown) => todos.restore(scopeOf(scope), Array.isArray(tasks) ? tasks : []))
   appIpc.handle('todos:move', (_e, from: unknown, id: string, assignee?: Task['assignee'], order?: number) => todos.move(scopeOf(from), id, assignee, order))
   appIpc.handle('todos:sync', () => todos.sync())
+  appIpc.handle('todos:markSeen', (_e, ids: unknown) => todos.markSeen(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
+  appIpc.handle('todos:history', (_e, id: unknown) => todos.history(String(id)))
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()
   setInterval(() => void todos.sync(), 3 * 60_000)
