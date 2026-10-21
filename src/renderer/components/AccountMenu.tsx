@@ -13,7 +13,8 @@ function resetTime(at: number): string {
 
 /**
  * The account the active Claude tab runs on, in the bottom-right corner where Claude Code draws its
- * status line. Picking another one relaunches that tab's conversation on it; other tabs keep theirs.
+ * status line. Picking another one moves that tab's next request to it, with nothing restarted;
+ * other tabs keep theirs.
  */
 export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
   const [data, setData] = useState<ClaudeAccounts | null>(null)
@@ -47,8 +48,7 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
     setOpen(false)
     if (id === current) return
     setError('')
-    const moved = await window.term.accounts.use(ptyId, id).catch((e: Error) => { setError(e.message); return false })
-    if (!moved) void refresh()
+    await window.term.accounts.use(ptyId, id).catch((e: Error) => setError(e.message))
   }
   const run = (p: Promise<unknown>) => p.catch((e: Error) => setError(e.message))
 
@@ -77,7 +77,9 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
                   <span className="account-check">{a.id === active.id ? '✓' : ''}</span>
                   <span className="account-name">{a.label}</span>
                   {a.login && <span className="account-tag">login</span>}
-                  {a.exhaustedUntil > 0 && <span className="account-limit">limit until {resetTime(a.exhaustedUntil)}</span>}
+                  {a.exhaustedUntil > 0
+                    ? <span className="account-limit">limit until {resetTime(a.exhaustedUntil)}</span>
+                    : a.usage && <span className="account-usage" title="Plan usage at the last answer: 5-hour window · week">{Math.round(a.usage.fiveHour * 100)}% · {Math.round(a.usage.week * 100)}%</span>}
                 </button>
               )}
               {renaming?.id !== a.id && (
@@ -110,7 +112,7 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
         <div className="sheet-backdrop" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRemoving(null) } }}>
           <div className="sheet" role="dialog" aria-label="Remove account">
             <h2>Remove {removing.label}?</h2>
-            <p className="welcome-lead">Its token is deleted from the keychain. Tabs on it go back to the login account the next time Claude starts in them.</p>
+            <p className="welcome-lead">Its token is deleted from the keychain. Tabs on it go back to the login account.</p>
             <div className="recovery-actions">
               <button className="btn" autoFocus onClick={() => setRemoving(null)}>Keep it</button>
               <button className="btn primary" onClick={() => { void run(window.term.accounts.remove(removing.id)); setRemoving(null) }}>Remove</button>

@@ -30,22 +30,18 @@ const SHIM = `#!/bin/sh
 PATH=\${PATH#"$CLIPWAVE_SHIM":}
 export PATH
 
-# The Claude account TerminAI picked for this tab (src/main/accounts.ts): a
-# one-year token kept in the keychain, or nothing for the /login sign-in. Read at
-# every launch, so switching account means launching claude again.
-acct=$(cat "$TERMINAI_ACCOUNTS/tabs/$TERMINAI_WORKSPACE_ID" 2>/dev/null || cat "$TERMINAI_ACCOUNTS/default" 2>/dev/null)
-case $acct in
-  ''|login) ;;
-  *)
-    tok=$(/usr/bin/security find-generic-password -s 'TerminAI Claude account' -a "$acct" -w 2>/dev/null)
-    if [ -n "$tok" ]; then
-      CLAUDE_CODE_OAUTH_TOKEN=$tok
-      export CLAUDE_CODE_OAUTH_TOKEN
-    else
-      echo "TerminAI: no token saved for this account, running on the /login account" >&2
-    fi
-    unset tok ;;
-esac
+# Model requests go through TerminAI's local relay (src/main/accounts.ts), which
+# signs them with the Claude account picked for this tab: switching account takes
+# effect on the next request, nothing restarts. Left alone when something else
+# already routes or signs claude's requests, or when the relay is not running.
+if [ -z "\${ANTHROPIC_BASE_URL-}\${ANTHROPIC_AUTH_TOKEN-}\${ANTHROPIC_API_KEY-}\${CLAUDE_CODE_USE_BEDROCK-}\${CLAUDE_CODE_USE_VERTEX-}\${CLAUDE_CODE_USE_FOUNDRY-}" ] &&
+  relay=$(cat "$TERMINAI_ACCOUNTS/relay-url" 2>/dev/null) && [ -n "$relay" ]; then
+  ANTHROPIC_BASE_URL="$relay/$TERMINAI_WORKSPACE_ID"
+  # A custom base URL turns these off by default; keep what a direct connection does.
+  CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING=\${CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING-1}
+  CLAUDE_CODE_GATEWAY_HINT_HEADERS=\${CLAUDE_CODE_GATEWAY_HINT_HEADERS-1}
+  export ANTHROPIC_BASE_URL CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING CLAUDE_CODE_GATEWAY_HINT_HEADERS
+fi
 
 # Subcommands take no session flag, and setup-token refuses one.
 case \${1-} in

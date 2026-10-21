@@ -1,34 +1,39 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
+import https from 'node:https'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
 import * as ptys from './pty'
-import type { AccountFlow, ChromeProfile, ClaudeAccounts } from '../shared/types'
+import type { AccountFlow, ChromeProfile, ClaudeAccount, ClaudeAccounts } from '../shared/types'
 
 /**
  * The Claude Code accounts tabs can run on, so two tabs can sit on two plans and a tab whose plan
- * runs out can carry on with the next one. "login" is the sign-in `/login` saved on this Mac; every
- * other account is a one-year token from `claude setup-token`, kept in the login keychain under
- * KEYCHAIN_SERVICE and nowhere else: not in a file, not in the renderer, not in a log.
+ * runs out carries on with the next one without Claude Code noticing. "login" is the sign-in
+ * `/login` saved on this Mac; every other account is a one-year token from `claude setup-token`,
+ * kept in the login keychain under KEYCHAIN_SERVICE and nowhere else: not in a file, not in the
+ * renderer, not in a log.
  *
- * The claude shim (pty-recovered.js) reads tabs/<workspace key>, or `default`, at every launch and
- * exports CLAUDE_CODE_OAUTH_TOKEN for that account. A plan running out is read from the session's
- * transcript, where Claude Code records the API error together with the time the limit resets.
+ * Claude Code in a TerminAI tab sends its model requests through the relay below (the claude shim
+ * sets ANTHROPIC_BASE_URL to it, with the tab's workspace key in the path). The relay forwards them
+ * to Anthropic unchanged, except that it signs /v1/messages with the account picked for the tab:
+ * switching account takes effect on the next request, with nothing restarted. The saved login stays
+ * Claude Code's credential for everything else, so connectors and Remote Control keep working.
  */
 export const KEYCHAIN_SERVICE = 'TerminAI Claude account'
 const SECURITY = '/usr/bin/security'
+// Tests point the relay at a fake Anthropic.
+const UPSTREAM = new URL(process.env.TERMINAI_RELAY_UPSTREAM || 'https://api.anthropic.com')
 const TOKEN = /sk-ant-oat01-[A-Za-z0-9_-]{20,}(?=[^A-Za-z0-9_-])/
 const FLOW_TIMEOUT_MS = 10 * 60_000
-// What a tab moved by a usage limit is told once it is back, after Claude Code's own wording.
-const CONTINUE = 'Your Claude usage limit was reached, so this session moved to another account. Continue the task you were working on when the limit was reached; do not repeat work that is already complete.'
 
 interface Saved { id: string; label: string; fp: string; addedAt: number }
 interface State { mode: 'manual' | 'auto'; loginLabel?: string; accounts: Saved[]; exhausted: Record<string, number> }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[0-9a-f-]{36}$/.test(id)
+const validKey = (key: unknown): key is string => typeof key === 'string' && /^[0-9A-Za-z-]{1,80}$/.test(key)
 const cleanLabel = (label: unknown) => typeof label === 'string' ? label.replace(/[^\p{L}\p{N} ._-]/gu, '').trim().slice(0, 40) : ''
 
 /** The account `/login` saved, named after its owner until the user names it. */
@@ -51,6 +56,10 @@ export function chromeProfiles(): ChromeProfile[] {
   }
 }
 
+function keychainRead(id: string): Promise<string> {
+  return new Promise(resolve => execFile(SECURITY, ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', id, '-w'], (e, out) => resolve(e ? '' : out.trim())))
+}
+
 /** Token in on stdin, never on a command line another process could read. */
 function keychainSave(id: string, label: string, token: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -58,13 +67,8 @@ function keychainSave(id: string, label: string, token: string): Promise<void> {
     let err = ''
     p.stderr.on('data', d => { err += d })
     p.on('error', reject)
-    p.on('exit', () => {
-      // `security -i` exits 0 even when a command failed: read the item back to know.
-      execFile(SECURITY, ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', id, '-w'], (e, out) => {
-        if (!e && out.trim() === token) resolve()
-        else reject(new Error(err.replace(TOKEN, '').trim() || 'The keychain did not keep the token.'))
-      })
-    })
+    // `security -i` exits 0 even when a command failed: read the item back to know.
+    p.on('exit', () => void keychainRead(id).then(saved => saved === token ? resolve() : reject(new Error(err.trim() || 'The keychain did not keep the token.'))))
     p.stdin.end(`add-generic-password -U -s "${KEYCHAIN_SERVICE}" -a ${id} -l "TerminAI Claude (${label})" -w ${token}\n`)
   })
 }
@@ -92,7 +96,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       return { mode: 'manual', accounts: [], exhausted: {} }
     }
   }
-  let state = load()
+  const state = load()
 
   const ids = () => ['login', ...state.accounts.map(a => a.id)]
   const usable = (id: string) => !(state.exhausted[id] > Date.now())
@@ -104,144 +108,120 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     for (const [id, until] of Object.entries(state.exhausted)) if (!(until > now) || !ids().includes(id)) delete state.exhausted[id]
     writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 2), { mode: 0o600 })
     renameSync(`${file}.tmp`, file)
+    // Read by statusline.sh, like the tab files: which account a tab is on when it has none of its own.
     writeFileSync(join(root, 'default'), defaultAccount())
     opts.changed()
   }
   save()
 
-  const tabFile = (ptyId: string) => join(tabsDir, ptys.workspaceKeyOf(ptyId))
-  function forTab(ptyId: string): string {
+  function accountOfKey(key: string): string {
     try {
-      const id = readFileSync(tabFile(ptyId), 'utf8').trim()
+      const id = readFileSync(join(tabsDir, key), 'utf8').trim()
       if (ids().includes(id)) return id
     } catch {}
     return defaultAccount()
   }
+  function setKey(key: string, id: string) {
+    writeFileSync(join(tabsDir, key), id)
+    opts.changed()
+  }
+  const forTab = (ptyId: string) => accountOfKey(ptys.workspaceKeyOf(ptyId))
+  function use(ptyId: string, id: string) {
+    if (!ids().includes(id)) throw new Error('Unknown account')
+    setKey(ptys.workspaceKeyOf(ptyId), id)
+  }
+  /** The next account after this one, in menu order, that still has usage left. */
+  function nextUsable(id: string): string {
+    const order = ids(), at = order.indexOf(id)
+    return [...order.slice(at + 1), ...order.slice(0, at)].find(usable) ?? ''
+  }
 
+  const usage = new Map<string, NonNullable<ClaudeAccount['usage']>>()
   function listing(): ClaudeAccounts {
     const now = Date.now()
     return {
       mode: state.mode,
-      accounts: ids().map(id => ({ id, label: labelOf(id), login: id === 'login', exhaustedUntil: state.exhausted[id] > now ? state.exhausted[id] : 0 })),
+      accounts: ids().map(id => ({ id, label: labelOf(id), login: id === 'login', exhaustedUntil: state.exhausted[id] > now ? state.exhausted[id] : 0, usage: usage.get(id) })),
     }
   }
 
-  // ---- moving a running tab to another account -----------------------------
-  const switching = new Set<string>()
-  /** Quit the claude in this tab and bring the same conversation back, now on the tab's account. */
-  async function relaunch(ptyId: string, continueTask: boolean): Promise<boolean> {
-    const agent = ptys.agentOf(ptyId)
-    if (agent.kind !== 'claude' || !agent.alive || switching.has(ptyId)) return false
-    switching.add(ptyId)
-    try {
-      const cmd = await ptys.launchCommandFor({ kind: 'claude', sessionId: agent.sessionId || ptys.claudeSessionOf(ptyId), args: agent.args, cwd: ptys.cwdOf(ptyId) })
-      // Ctrl-C first ends a turn, a usage-limit wait or a menu; two in a row quit Claude Code.
-      for (let i = 0; i < 12 && !ptys.atShellPrompt(ptyId); i++) {
-        ptys.write(ptyId, '\x03')
-        await sleep(450)
-      }
-      if (!ptys.atShellPrompt(ptyId)) return false
-      await sleep(300)
-      ptys.write(ptyId, `${cmd}\r`)
-      if (continueTask) await continueWhenReady(ptyId)
-      return true
-    } finally {
-      switching.delete(ptyId)
-    }
+  // ---- the relay ---------------------------------------------------------------
+  const tokens = new Map<string, string>()
+  const tokenOf = async (id: string) => {
+    if (!tokens.has(id)) { const t = await keychainRead(id); if (t) tokens.set(id, t) }
+    return tokens.get(id) ?? ''
   }
-  async function continueWhenReady(ptyId: string) {
-    const started = Date.now()
-    // Claude is up and has stopped drawing: the resumed conversation is on screen, waiting.
-    while (Date.now() - started < 90_000) {
-      await sleep(1000)
-      if (Date.now() - started < 4000 || ptys.atShellPrompt(ptyId)) continue
-      if (ptys.statusOf(ptyId) !== 'waiting') continue
-      ptys.write(ptyId, CONTINUE)
-      // On its own, Enter submits; glued to the text a TUI takes it as part of the paste.
-      await sleep(400)
-      ptys.write(ptyId, '\r')
+  const client = UPSTREAM.protocol === 'http:' ? http : https
+  const agent = new client.Agent({ keepAlive: true })
+  const limitHeader = (h: http.IncomingHttpHeaders, k: string) => Number(h[`anthropic-ratelimit-unified-${k}`])
+  function send(req: http.IncomingMessage, res: http.ServerResponse, path: string, headers: http.OutgoingHttpHeaders, body: Buffer): Promise<http.IncomingMessage> {
+    return new Promise((resolve, reject) => {
+      const up = client.request({ protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port, path, method: req.method, headers, agent }, resolve)
+      up.on('error', reject)
+      // Esc in Claude Code drops the request: stop the upstream one too.
+      res.on('close', () => { if (!res.writableFinished) up.destroy() })
+      up.end(body)
+    })
+  }
+  async function forward(key: string, path: string, req: http.IncomingMessage, res: http.ServerResponse, body: Buffer) {
+    // Only model requests are signed with the tab's account; the rest keep the login's own credentials.
+    const model = path.startsWith('/v1/messages')
+    const tried = new Set<string>()
+    for (;;) {
+      let id = model ? accountOfKey(key) : 'login'
+      if (model && state.mode === 'auto' && !usable(id)) {
+        const next = nextUsable(id)
+        if (next) { setKey(key, next); id = next }
+      }
+      tried.add(id)
+      const headers: http.OutgoingHttpHeaders = { ...req.headers, host: UPSTREAM.host }
+      // An account whose token is gone (removed from the keychain) falls back to the login.
+      const token = id === 'login' ? '' : await tokenOf(id)
+      if (token) headers.authorization = `Bearer ${token}`
+      const r = await send(req, res, path, headers, body)
+      const status = r.statusCode ?? 502
+      // A plan or spend limit, as opposed to a passing throttle that Claude Code retries by itself.
+      if (model && status === 429 && r.headers['anthropic-ratelimit-unified-status'] === 'rejected') {
+        const reset = limitHeader(r.headers, 'reset')
+        state.exhausted[id] = reset > 0 ? reset * 1000 : Date.now() + 5 * 3600_000
+        save()
+        const next = state.mode === 'auto' ? nextUsable(id) : ''
+        if (next && !tried.has(next)) {
+          r.resume()
+          setKey(key, next)
+          continue
+        }
+      }
+      if (model && status < 400 && r.headers['anthropic-ratelimit-unified-status']) {
+        usage.set(id, { fiveHour: limitHeader(r.headers, '5h-utilization') || 0, week: limitHeader(r.headers, '7d-utilization') || 0, at: Date.now() })
+      }
+      // Streamed through as it arrives: Claude Code stalls on a buffered response.
+      res.writeHead(status, r.headers)
+      r.pipe(res)
       return
     }
   }
-
-  async function use(ptyId: string, id: string): Promise<boolean> {
-    if (!ids().includes(id)) throw new Error('Unknown account')
-    writeFileSync(tabFile(ptyId), id)
-    opts.changed()
-    return relaunch(ptyId, false)
-  }
-
-  // ---- a plan running out ----------------------------------------------------
-  const projects = join(homedir(), '.claude', 'projects')
-  const transcripts = new Map<string, string>()
-  const offsets = new Map<string, number>()
-  const partial = new Map<string, string>()
-  function transcriptOf(sessionId: string): string {
-    const known = transcripts.get(sessionId)
-    if (known && existsSync(known)) return known
-    try {
-      for (const dir of readdirSync(projects)) {
-        const path = join(projects, dir, `${sessionId}.jsonl`)
-        if (existsSync(path)) { transcripts.set(sessionId, path); return path }
-      }
-    } catch {}
-    return ''
-  }
-  /** Lines appended since the last look; on first sight the file's past is skipped. */
-  function newLines(path: string): string[] {
-    let size = 0
-    try { size = statSync(path).size } catch { return [] }
-    const from = offsets.get(path)
-    offsets.set(path, size)
-    if (from === undefined || size <= from) return []
-    const buf = Buffer.alloc(Math.min(size - from, 8 << 20))
-    const fd = openSync(path, 'r')
-    try { readSync(fd, buf, 0, buf.length, size - buf.length) } finally { closeSync(fd) }
-    const text = (partial.get(path) ?? '') + buf.toString('utf8')
-    const lines = text.split('\n')
-    partial.set(path, lines.pop() ?? '')
-    return lines
-  }
-  /** When the limit resets, if this transcript line is Claude Code recording a plan that ran out. */
-  function limitResetsAt(line: string): number {
-    if (!line.includes('"isApiErrorMessage":true')) return 0
-    try {
-      const j = JSON.parse(line)
-      const info = j.apiErrorParams?.rate_limit_info ?? j.quotaLimits
-      if (j.apiError !== 'usage_limit_reached' && !(j.error === 'rate_limit' && info?.status === 'rejected')) return 0
-      const at = Number(info?.resetsAt)
-      return at > 0 ? at * 1000 : Date.now() + 5 * 3600_000
-    } catch {
-      return 0
-    }
-  }
-  function limitReached(ptyId: string, until: number) {
-    const id = forTab(ptyId)
-    state.exhausted[id] = Math.max(state.exhausted[id] ?? 0, until)
-    save()
-    if (state.mode !== 'auto' || switching.has(ptyId)) return
-    const order = ids(), at = order.indexOf(id)
-    const next = [...order.slice(at + 1), ...order.slice(0, at)].find(usable)
-    if (!next) return
-    writeFileSync(tabFile(ptyId), next)
-    opts.changed()
-    void relaunch(ptyId, true)
-  }
-  function watch() {
-    for (const ptyId of ptys.liveIds()) {
-      const agent = ptys.agentOf(ptyId)
-      if (agent.kind !== 'claude' || !agent.alive || !agent.sessionId) continue
-      const path = transcriptOf(agent.sessionId)
-      if (!path) continue
-      for (const line of newLines(path)) {
-        const until = limitResetsAt(line)
-        if (until) limitReached(ptyId, until)
-      }
-    }
-    // A reset passing by changes what the menu shows and where new tabs start.
-    if (Object.values(state.exhausted).some(until => !(until > Date.now()))) save()
-  }
-  setInterval(watch, 3000)
+  const relayUrlFile = join(root, 'relay-url')
+  rmSync(relayUrlFile, { force: true })
+  const relay = http.createServer((req, res) => {
+    const m = /^\/([^/?]+)(\/[^]*)?$/.exec(req.url || '')
+    if (!m || !validKey(m[1])) { res.writeHead(404).end(); return }
+    const chunks: Buffer[] = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => {
+      forward(m[1], m[2] || '/', req, res, Buffer.concat(chunks)).catch(err => {
+        if (res.headersSent) { res.destroy(); return }
+        res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `TerminAI relay: ${String(err?.message || err)}` } }))
+      })
+    })
+  })
+  // Loopback only. The shim routes claude here only while this file exists, so a relay that
+  // failed to start leaves the tabs on a direct connection.
+  relay.listen(0, '127.0.0.1', () => {
+    const address = relay.address()
+    if (address && typeof address === 'object') writeFileSync(relayUrlFile, `http://127.0.0.1:${address.port}`)
+  })
 
   // ---- adding an account ------------------------------------------------------
   const flows = new Map<string, { flow: AccountFlow; proc: pty.IPty; timer: NodeJS.Timeout; poll: NodeJS.Timeout; urlFile: string }>()
@@ -306,13 +286,13 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     if (!chromeProfiles().some(p => p.dir === profileDir)) throw new Error('Unknown Chrome profile')
     execFile('open', ['-na', 'Google Chrome', '--args', `--profile-directory=${profileDir}`, url])
   }
-  function cancel(flowId: string) {
-    endFlow(flowId)
-  }
+  const cancel = (flowId: string) => endFlow(flowId)
 
   async function remove(id: string) {
     if (!validId(id) || !state.accounts.some(a => a.id === id)) throw new Error('Unknown account')
     await keychainDelete(id)
+    tokens.delete(id)
+    usage.delete(id)
     state.accounts = state.accounts.filter(a => a.id !== id)
     save()
   }
@@ -331,6 +311,8 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     state.mode = mode === 'auto' ? 'auto' : 'manual'
     save()
   }
+  // A reset passing by changes what the menu shows and where new tabs start.
+  setInterval(() => { if (Object.values(state.exhausted).some(until => !(until > Date.now()))) save() }, 30_000)
 
   return { listing, forTab, use, add, openInChrome, cancel, remove, rename, setMode }
 }
