@@ -132,7 +132,7 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await win.webContents.executeJavaScript(`document.querySelector('.account-pill').click()`)
   await waitFor('menu rows', async () => (await win.webContents.executeJavaScript(`document.querySelectorAll('.account-row').length`)) === 3, 3000)
   assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.account-row .usage-bar').length`), 6, 'a 5-hour and a weekly bar per account')
-  fs.writeFileSync(path.join(os.tmpdir(), 'terminai-accounts-menu.png'), (await win.capturePage()).toPNG())
+  fs.writeFileSync(path.join(os.tmpdir(), 'terminai-accounts-menu.png'), (await win.capturePage(undefined, { stayHidden: true })).toPNG())
   await win.webContents.executeJavaScript(`[...document.querySelectorAll('.account-pick')].find(b => b.textContent.includes('Alpha')).click()`)
   await waitFor('tab moved to Alpha', () => tabOf(key) === A, 3000)
   await waitFor('pill shows Alpha', async () => /Alpha/.test(await win.webContents.executeJavaScript(`document.querySelector('.account-pill')?.textContent || ''`)), 3000)
