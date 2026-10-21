@@ -68,7 +68,7 @@ const shellAliases = async () => [];
 const wrapperFunctionFor = async () => null;
 const keepOptions = (_kind, args) => args;
 const shellQuote = (s) => s;
-const names = ["codexHome", "codexStateDb", "codexThreadExists", "sqlText", "codexThreadIds", "processStartMs", "codexThreadFromDb", "codexLatestThread", "retryWhileDraining", "isBareShell", "launchCommandFor", "resumeCommandFor"];
+const names = ["codexHome", "codexStateDb", "codexThreadExists", "sqlText", "codexThreadIds", "processStartMs", "codexThreadFromDb", "codexLatestThread", "retryWhileDraining", "typeLine", "isBareShell", "launchCommandFor", "resumeCommandFor"];
 eval(
   [/const UUID_RE = .*;\n/, /const CODEX_INTERACTIVE = .*;\n/, /const dealtCodexThreads = .*;\n/, /const DRAIN_RETRY_MAX = .*;\n/].map(line).join("") +
   names.map(grab).join("\n") +
