@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { Task, TaskInput, TaskList, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion } from '../shared/types'
+import type { Task, TaskInput, TaskList, TaskListPage, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion, TaskWorking } from '../shared/types'
+import { DEFAULT_LIST, isMine } from '../shared/types'
 
 /**
  * The To-do sheet's data. Personal tasks are one JSON file per user in userData and never leave the Mac.
@@ -18,6 +19,7 @@ const validId = (id: unknown): id is string => typeof id === 'string' && /^[A-Za
 // An image is named after its content, so the same screenshot pasted twice is one file.
 const validImage = (name: unknown): name is string => typeof name === 'string' && /^[0-9a-f]{12}\.(png|jpg)$/.test(name)
 const MAX_IMAGES = 12, MAX_IMAGE_BYTES = 8 * 1024 * 1024
+const NAME = { livio: 'Matteo', ilai: 'Ilai', both: 'Together' } as const
 
 /** ISO time with the Europe/Rome offset, e.g. 2026-10-20T16:21:03.120+02:00. */
 export function romeIso(date = new Date()): string {
@@ -70,7 +72,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   function readList(file: string): Task[] {
     try { const list = JSON.parse(readFileSync(file, 'utf8')); return Array.isArray(list) ? list : [] } catch { return [] }
   }
-  function writeList(file: string, list: Task[]): void {
+  function writeList(file: string, list: unknown): void {
     // Write-then-rename, as store.ts does for prefs.
     const tmp = `${file}.tmp`
     writeFileSync(tmp, JSON.stringify(list, null, 2) + '\n', 'utf8')
@@ -93,6 +95,37 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     return readList(personalFile(user))
   }
   const writePersonal = (user: TasksUser, list: Task[]) => writeList(personalFile(user), list)
+
+  // ---- private lists ------------------------------------------------------
+  /** Per person: the private lists in their order, the default one included once it has been renamed. A deleted list stays a day, for Undo. */
+  type Page = TaskListPage & { deletedAt?: string }
+  const listsFile = (user: TasksUser) => join(dir, `todos-lists-${user}.json`)
+  function readLists(user: TasksUser): Page[] {
+    let pages: Page[] = []
+    try { const value = JSON.parse(readFileSync(listsFile(user), 'utf8')); if (Array.isArray(value)) pages = value.filter(page => validId(page?.id) && typeof page.name === 'string') } catch {}
+    return pages.some(page => page.id === DEFAULT_LIST) ? pages : [{ id: DEFAULT_LIST, name: 'Private' }, ...pages]
+  }
+  const liveList = (user: TasksUser, id: string) => readLists(user).some(page => page.id === id && !page.deletedAt)
+  const listName = (name: unknown) => {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 60) throw Error('A list needs a name of up to 60 characters.')
+    return name.trim()
+  }
+  // A list deleted more than a day ago goes for good, with its tasks and their images.
+  for (const user of ['livio', 'ilai'] as const) {
+    const pages = readLists(user), gone = new Set(pages.filter(page => page.deletedAt && Date.now() - Date.parse(page.deletedAt) > 86400_000).map(page => page.id))
+    if (!gone.size) continue
+    const tasks = readList(personalFile(user)), staying = tasks.filter(task => !task.list || !gone.has(task.list))
+    for (const task of tasks) if (!staying.includes(task)) rmSync(imagesDir('personal', task.id), { recursive: true, force: true })
+    writeList(personalFile(user), staying)
+    writeList(listsFile(user), pages.filter(page => !gone.has(page.id)))
+  }
+
+  // ---- tasks in progress in a tab ---------------------------------------------
+  /** Per person on this Mac: the tab that said it started each task. Never in the repo: the other one sees only the status. */
+  const workingFile = (user: TasksUser) => join(dir, `todos-working-${user}.json`)
+  function readWorking(user: TasksUser): Record<string, TaskWorking> {
+    try { const value = JSON.parse(readFileSync(workingFile(user), 'utf8')); return value && typeof value === 'object' && !Array.isArray(value) ? value : {} } catch { return {} }
+  }
   function readTask(file: string): Task | undefined {
     try { const task = JSON.parse(readFileSync(file, 'utf8')); return task && typeof task === 'object' ? task : undefined } catch { return undefined }
   }
@@ -125,7 +158,16 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
 
   const list = (): TaskList => {
     const user = opts.user(), shared = readShared()
-    return { personal: user ? readPersonal(user) : [], shared, sync: { ...status }, unseen: user ? unseen(user, shared) : [] }
+    if (!user) return { personal: [], shared, sync: { ...status }, unseen: [], lists: [], working: {} }
+    const pages = readLists(user), gone = new Set(pages.filter(page => page.deletedAt).map(page => page.id))
+    const personal = readPersonal(user).filter(task => !task.list || !gone.has(task.list))
+    // A task ticked or reopened since (in the menu, or by the other one) is no longer the tab's.
+    const doing = new Set([...shared, ...personal].filter(task => task.status === 'doing').map(task => task.id))
+    return {
+      personal, shared, sync: { ...status }, unseen: unseen(user, shared),
+      lists: pages.filter(page => !page.deletedAt).map(({ id, name }) => ({ id, name })),
+      working: Object.fromEntries(Object.entries(readWorking(user)).filter(([id]) => doing.has(id))),
+    }
   }
 
   function who(): TasksUser {
@@ -144,10 +186,11 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if (input.status !== undefined && !STATUSES.includes(input.status)) throw Error('Invalid status')
     if (input.assignee !== undefined && input.assignee !== null && !ASSIGNEES.includes(input.assignee)) throw Error('Invalid assignee')
     if (input.order !== undefined && !Number.isFinite(input.order)) throw Error('Invalid order')
+    if (input.list !== undefined && !validId(input.list)) throw Error('Invalid list')
   }
   /** The fields of a task in the order the files have them; `order` only when it is set. */
-  const clean = ({ id, title, notes, images, status, assignee, product, order, createdAt, createdBy, updatedAt, updatedBy }: Task): Task =>
-    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(order === undefined ? {} : { order }), createdAt, createdBy, updatedAt, updatedBy })
+  const clean = ({ id, title, notes, images, status, assignee, product, order, list, createdAt, createdBy, updatedAt, updatedBy }: Task): Task =>
+    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(order === undefined ? {} : { order }), ...(list && list !== DEFAULT_LIST ? { list } : {}), createdAt, createdBy, updatedAt, updatedBy })
   function build(input: TaskInput, old: Task | undefined, user: TasksUser): Task {
     const now = romeIso()
     // Moving a task up or down its list is not an edit: in a conflict, a change to its content on the other Mac still wins.
@@ -161,6 +204,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       assignee: input.assignee === undefined ? old?.assignee ?? null : input.assignee,
       product: input.product?.trim() ?? old?.product ?? '',
       order: input.order ?? old?.order,
+      list: input.list ?? old?.list,
       createdAt: old?.createdAt ?? now, createdBy: old?.createdBy ?? user, updatedAt: kept?.updatedAt ?? now, updatedBy: kept?.updatedBy ?? user,
     })
   }
@@ -295,6 +339,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     const user = who()
     if (!Array.isArray(inputs) || !inputs.length) throw Error('Nothing to save.')
     inputs.forEach(check)
+    if (inputs.some(input => input.list !== undefined && (scope === 'shared' || !liveList(user, input.list)))) throw Error(scope === 'shared' ? 'A shared task is in no list.' : 'That list no longer exists.')
     if (scope === 'personal') {
       const tasks = readPersonal(user)
       for (const input of inputs) {
@@ -444,6 +489,74 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       return existsSync(file) ? file : ''
     },
 
+    /**
+     * `terminai todo start|done|reopen <task>` from a tab: the task by id, else by its whole title, else by a part of it
+     * found in one task only, among those this person may change (theirs, Together, unassigned ones they made, private ones).
+     * Starting records the tab on this Mac, so the row links to it.
+     */
+    async track(action: unknown, query: unknown, session?: Omit<TaskWorking, 'at'>): Promise<{ scope: TaskScope; task: Task }> {
+      const next = action === 'start' ? 'doing' : action === 'done' ? 'done' : action === 'reopen' ? 'open' : null
+      if (!next) throw Error('Use start, done or reopen.')
+      if (typeof query !== 'string' || !query.trim()) throw Error('Which task? Give its id or title.')
+      const user = who(), all = list(), q = query.trim(), lower = q.toLowerCase()
+      const tasks = [...all.shared.map(task => ({ scope: 'shared' as TaskScope, task })), ...all.personal.map(task => ({ scope: 'personal' as TaskScope, task }))]
+      const pick = (pool: typeof tasks) => {
+        for (const test of [(t: Task) => t.id === q, (t: Task) => t.title.toLowerCase() === lower, (t: Task) => t.title.toLowerCase().includes(lower)]) {
+          let found = pool.filter(({ task }) => test(task))
+          // A part of a title that finished tasks share too: the open ones, unless reopening.
+          if (found.length > 1 && next !== 'open' && found.some(({ task }) => task.status !== 'done')) found = found.filter(({ task }) => task.status !== 'done')
+          if (found.length) return found
+        }
+        return []
+      }
+      const found = pick(tasks.filter(({ scope, task }) => scope === 'personal' || isMine(task, user)))
+      if (!found.length) {
+        const theirs = pick(tasks.filter(({ scope, task }) => scope === 'shared' && !isMine(task, user)))[0]?.task
+        throw Error(theirs ? `“${theirs.title}” is ${NAME[theirs.assignee ?? (theirs.createdBy === 'ilai' ? 'ilai' : 'livio')]}’s task: only they change it.` : `No task matches “${q}”: see terminai todo --open.`)
+      }
+      if (found.length > 1) throw Error(`“${q}” matches ${found.length} tasks: ${found.slice(0, 5).map(({ task }) => `${task.title} (${task.id})`).join('; ')}. Give the id.`)
+      const [{ scope, task }] = found
+      // Written before the save, so the refresh at the end of the git job already shows the tab.
+      const working = readWorking(user)
+      if (next === 'doing' && session) working[task.id] = { tab: session.tab, name: session.name, at: romeIso() }
+      else delete working[task.id]
+      writeList(workingFile(user), working)
+      const value = task.status === next ? all : await saveMany(scope, [{ id: task.id, status: next }])
+      // A private save and a shared one with nothing to commit send no refresh of their own.
+      if (scope === 'personal' || task.status === next) opts.changed()
+      return { scope, task: value[scope].find(t => t.id === task.id) ?? task }
+    },
+
+    /** A new private list, last; the sheet goes to it. */
+    addList(name: unknown): TaskList {
+      const user = who()
+      writeList(listsFile(user), [...readLists(user), { id: randomUUID(), name: listName(name) }])
+      return list()
+    },
+    renameList(id: unknown, name: unknown): TaskList {
+      const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && !p.deletedAt)
+      if (!page) throw Error('That list no longer exists.')
+      page.name = listName(name)
+      writeList(listsFile(user), pages)
+      return list()
+    },
+    /** A list and its tasks out of sight; restoreList brings them back within a day, then they go for good. */
+    removeList(id: unknown): TaskList {
+      if (id === DEFAULT_LIST) throw Error('The first list stays.')
+      const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && !p.deletedAt)
+      if (!page) throw Error('That list no longer exists.')
+      page.deletedAt = romeIso()
+      writeList(listsFile(user), pages)
+      return list()
+    },
+    restoreList(id: unknown): TaskList {
+      const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && p.deletedAt)
+      if (!page) throw Error('That list is gone.')
+      delete page.deletedAt
+      writeList(listsFile(user), pages)
+      return list()
+    },
+
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => saveMany(scope, [input]),
     saveMany,
     remove: (scope: TaskScope, id: string): Promise<TaskList> => removeMany(scope, [id]),
@@ -460,8 +573,9 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         if (!(['title', 'notes', 'product', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'] as const).every(field => typeof task[field] === 'string')) throw Error('Invalid task')
         check({ title: task.title, notes: task.notes, status: task.status, assignee: task.assignee, product: task.product, order: task.order })
         if (task.images !== undefined && !(Array.isArray(task.images) && task.images.length <= MAX_IMAGES && task.images.every(validImage))) throw Error('Invalid task')
+        if (task.list !== undefined && !validId(task.list)) throw Error('Invalid task')
       }
-      const user = who(), back = tasks.map(clean)
+      const user = who(), back = tasks.map(task => clean(scope === 'shared' ? { ...task, list: undefined } : task))
       if (scope === 'personal') {
         const have = readPersonal(user), ids = new Set(have.map(task => task.id))
         writePersonal(user, [...have.map(task => back.find(t => t.id === task.id) ?? task), ...back.filter(task => !ids.has(task.id))])
@@ -478,17 +592,19 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     },
 
     /**
-     * Private to shared (assigned to `assignee`, by default the user) or shared to private, keeping
-     * the id and dates; `order` places it in the list it goes to. The task is written where it goes
+     * Private to shared (assigned to `assignee`, by default the user) or shared to private (into private
+     * list `into`, by default the first), keeping the id and dates; `order` places it in the list it goes to. The task is written where it goes
      * before it leaves where it was, and a step that fails puts back what it changed: a failed move
      * leaves the task where it was, never nowhere.
      */
-    async move(from: TaskScope, id: string, assignee?: Task['assignee'], order?: number): Promise<TaskList> {
+    async move(from: TaskScope, id: string, assignee?: Task['assignee'], order?: number, into?: string): Promise<TaskList> {
       if (!validId(id)) throw Error('Invalid task id')
+      if (into !== undefined && !validId(into)) throw Error('Invalid list')
       if (assignee !== undefined && assignee !== null && !ASSIGNEES.includes(assignee)) throw Error('Invalid assignee')
       if (order !== undefined && !Number.isFinite(order)) throw Error('Invalid order')
       const placed = order === undefined ? {} : { order }
       const user = who(), file = join(tasksDir, `${id}.json`), path = `tasks/${id}.json`
+      if (from === 'shared' && into !== undefined && !liveList(user, into)) throw Error('That list no longer exists.')
       // Set inside the git job; `as` keeps TypeScript from treating them as never assigned.
       let before = undefined as string | null | undefined, added = false as boolean
       if (from === 'personal') {
@@ -498,7 +614,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           await change(() => {
             before = existsSync(file) ? readFileSync(file, 'utf8') : null
             mkdirSync(tasksDir, { recursive: true })
-            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }), null, 2) + '\n', 'utf8')
+            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, list: undefined, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }), null, 2) + '\n', 'utf8')
             const pictures = existsSync(imagesDir('personal', id))
             if (pictures) cpSync(imagesDir('personal', id), imagesDir('shared', id), { recursive: true })
             return { paths: pictures ? [path, `images/${id}`] : [path], message: `${user}: share ${task.title}` }
@@ -518,7 +634,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           const old = readTask(file)
           if (!old) throw Error('That task no longer exists.')
           before = readFileSync(file, 'utf8')
-          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), clean({ ...old, ...placed, assignee: null, updatedAt: romeIso(), updatedBy: user })])
+          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), clean({ ...old, ...placed, list: into, assignee: null, updatedAt: romeIso(), updatedBy: user })])
           added = true
           const pictures = existsSync(imagesDir('shared', id))
           if (pictures) { cpSync(imagesDir('shared', id), imagesDir('personal', id), { recursive: true }); rmSync(imagesDir('shared', id), { recursive: true, force: true }) }

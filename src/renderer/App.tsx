@@ -903,7 +903,9 @@ export function App(): JSX.Element {
       })()}
 
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} onClose={() => setShowTeam(false)} />}
-      {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} />}
+      {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)}
+        tabs={tabs.map(tab => ({ id: tab.id, key: tab.browserKey || tab.id, label: tabLabel(tab) }))}
+        onTab={id => { setActiveId(id); setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal'); setShowTodos(false) }} />}
       {showSettings && (
         <SettingsSheet
           prefs={prefs}

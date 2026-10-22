@@ -114,7 +114,12 @@ const api = {
     /** Undo: the tasks written back exactly as given (id, dates, authors). */
     restore: (scope: TaskScope, tasks: Task[]): Promise<TaskList> => ipcRenderer.invoke('todos:restore', scope, tasks),
     /** Private ⇄ shared; to shared it goes to `assignee`, by default the user. `order` places it in the list it goes to. */
-    move: (from: TaskScope, id: string, assignee?: Task['assignee'], order?: number): Promise<TaskList> => ipcRenderer.invoke('todos:move', from, id, assignee, order),
+    move: (from: TaskScope, id: string, assignee?: Task['assignee'], order?: number, into?: string): Promise<TaskList> => ipcRenderer.invoke('todos:move', from, id, assignee, order, into),
+    /** Private lists, the pages of the private view; a removed one comes back with restoreList for a day. */
+    addList: (name: string): Promise<TaskList> => ipcRenderer.invoke('todos:addList', name),
+    renameList: (id: string, name: string): Promise<TaskList> => ipcRenderer.invoke('todos:renameList', id, name),
+    removeList: (id: string): Promise<TaskList> => ipcRenderer.invoke('todos:removeList', id),
+    restoreList: (id: string): Promise<TaskList> => ipcRenderer.invoke('todos:restoreList', id),
     sync: (): Promise<TaskList> => ipcRenderer.invoke('todos:sync'),
     /** The shared tasks the user has now looked at, so their "edited by" mark goes. */
     markSeen: (ids: string[]): Promise<TaskList> => ipcRenderer.invoke('todos:markSeen', ids),

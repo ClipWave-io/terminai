@@ -336,3 +336,87 @@ test('images: a private task keeps them on this Mac, and they travel when it is 
   assert.ok(app.imagePath('personal',id,name));
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
 });
+
+test('terminai todo start|done|reopen: own, Together and private tasks; the link to the tab stays on this Mac',async()=>{
+ const t=setup();try{
+  let changed=0;const dir=path.join(t.root,'livio-app');fs.mkdirSync(dir,{recursive:true});
+  const app=createTodos(dir,{remote:'file://'+t.bare,user:()=>'livio',changed:()=>changed++});
+  await app.sync();
+  await app.saveMany('shared',[{title:'Fix login page',assignee:'both'},{title:'Fix login emails',assignee:'livio',status:'done'},{title:'Deploy landing',assignee:'livio'},{title:'Call the bank',assignee:'ilai'}]);
+  const milk=(await app.save('personal',{title:'Deploy milk run'})).personal[0];
+  const session={tab:'browser-key-1',name:'Login work'};
+  // A part of the title: the finished task that shares it does not count when starting.
+  let r=await app.track('start','fix LOGIN',session);
+  assert.deepEqual([r.scope,r.task.title,r.task.status],['shared','Fix login page','doing']);
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: start Fix login page');
+  let list=app.list();assert.deepEqual(Object.keys(list.working),[r.task.id]);
+  assert.deepEqual([list.working[r.task.id].tab,list.working[r.task.id].name],['browser-key-1','Login work']);
+  // The link is in userData, not in the clone: Ilai gets "in progress" and nothing about the tab.
+  assert.ok(fs.existsSync(path.join(dir,'todos-working-livio.json')));
+  assert.equal(git(path.join(dir,'build-tasks'),'status','--porcelain').trim(),'');
+  git(t.ilai,'pull','-q','--rebase');const theirs=fs.readFileSync(path.join(t.ilai,'tasks',r.task.id+'.json'),'utf8');
+  assert.equal(JSON.parse(theirs).status,'doing');assert.equal(theirs.includes('Login work')||theirs.includes('browser-key'),false);
+  await assert.rejects(app.track('start','call the bank',session),/“Call the bank” is Ilai’s task/);
+  await assert.rejects(app.track('start','deploy',session),/matches 2 tasks: .*Deploy landing.*Deploy milk run/);
+  await assert.rejects(app.track('start','nothing like this'),/No task matches/);
+  await assert.rejects(app.track('pause','Deploy landing'),/Use start, done or reopen/);
+  // A private task by id: no commit, the sheet is told.
+  changed=0;r=await app.track('start',milk.id,session);
+  assert.deepEqual([r.scope,r.task.status],['personal','doing']);assert.ok(changed>0);assert.ok(app.list().working[milk.id]);
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: start Fix login page');
+  // Done drops the link; so does a task put back to open in the app.
+  r=await app.track('done','Fix login page');assert.equal(r.task.status,'done');
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: done Fix login page');
+  r=await app.track('reopen',r.task.id);assert.equal(r.task.status,'open');
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: reopen Fix login page');
+  await app.save('personal',{id:milk.id,status:'open'});
+  assert.deepEqual(app.list().working,{});
+  // The sessions read it in terminai todo: `session` on the task in progress.
+  await app.track('start','Deploy landing',{tab:'k2',name:'Landing'});
+  fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({tasksUser:'livio'}));
+  const cli=JSON.parse(execFileSync(process.execPath,[path.join(__dirname,'../resources/terminai.cjs'),'todo','--shared'],{encoding:'utf8',env:{...process.env,TERMINAI_TODO_DIR:dir,TERMINAI_TASKS_DIR:path.join(dir,'build-tasks','tasks')}}));
+  assert.deepEqual(cli.shared.filter(x=>x.session).map(x=>[x.title,x.session]),[['Deploy landing','Landing']]);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});
+
+test('private lists: named pages, Move to list, delete with a day for Undo, then gone with their tasks',async()=>{
+ const t=setup();try{
+  const dir=path.join(t.root,'livio-app');fs.mkdirSync(dir,{recursive:true});
+  const make=()=>createTodos(dir,{remote:'file://'+t.bare,user:()=>'livio',changed:()=>{}});
+  let app=make(),list=app.list();
+  assert.deepEqual(list.lists,[{id:'private',name:'Private'}]);
+  list=app.addList('Unlocked Tour');const tour=list.lists[1];assert.equal(tour.name,'Unlocked Tour');
+  assert.throws(()=>app.addList('  '),/needs a name/);
+  list=await app.save('personal',{title:'Call the guide',list:tour.id});const call=list.personal.find(x=>x.title==='Call the guide');assert.equal(call.list,tour.id);
+  list=await app.save('personal',{title:'Buy milk'});const milk=list.personal.find(x=>x.title==='Buy milk');assert.equal('list' in milk,false);
+  // Move to list, and back to the first one, which is no field at all.
+  list=await app.save('personal',{id:milk.id,list:tour.id});assert.equal(list.personal.find(x=>x.id===milk.id).list,tour.id);
+  list=await app.save('personal',{id:milk.id,list:'private'});assert.equal('list' in list.personal.find(x=>x.id===milk.id),false);
+  await assert.rejects(app.save('personal',{title:'x',list:'nope'}),/That list no longer exists/);
+  await assert.rejects(app.save('shared',{title:'x',list:tour.id}),/A shared task is in no list/);
+  list=await app.restore('personal',[call]);assert.equal(list.personal.find(x=>x.id===call.id).list,tour.id);
+  // Renaming, the first list too; the first one is never deleted.
+  list=app.renameList('private','General');list=app.renameList(tour.id,'Unlocked');
+  assert.deepEqual(list.lists.map(l=>l.name),['General','Unlocked']);
+  assert.throws(()=>app.removeList('private'),/The first list stays/);
+  // Shared to private lands in the list asked; private to shared leaves the list behind.
+  await app.sync();
+  const contract=(await app.save('shared',{title:'Guide contract',assignee:'livio'})).shared[0];
+  list=await app.move('shared',contract.id,undefined,undefined,tour.id);assert.equal(list.personal.find(x=>x.id===contract.id).list,tour.id);
+  list=await app.move('personal',contract.id,'livio');assert.equal('list' in t.show(contract.id),false);assert.equal('list' in list.shared[0],false);
+  // Deleted: out of sight at once, back with restoreList.
+  list=app.removeList(tour.id);assert.deepEqual(list.lists.map(l=>l.name),['General']);assert.equal(list.personal.some(x=>x.id===call.id),false);
+  list=app.restoreList(tour.id);assert.deepEqual(list.lists.map(l=>l.name),['General','Unlocked']);assert.ok(list.personal.some(x=>x.id===call.id));
+  // terminai todo names the list of each private task and leaves a deleted one out.
+  fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({tasksUser:'livio'}));
+  const cli=()=>JSON.parse(execFileSync(process.execPath,[path.join(__dirname,'../resources/terminai.cjs'),'todo','--personal'],{encoding:'utf8',env:{...process.env,TERMINAI_TODO_DIR:dir}})).personal;
+  assert.deepEqual(cli().map(x=>[x.title,x.list]).sort(),[['Buy milk','General'],['Call the guide','Unlocked']]);
+  app.removeList(tour.id);assert.deepEqual(cli().map(x=>x.title),['Buy milk']);
+  // A day later the list goes for good, with its tasks and their pictures.
+  fs.mkdirSync(path.join(dir,'todo-images',call.id),{recursive:true});
+  const file=path.join(dir,'todos-lists-livio.json'),pages=read(file);pages.find(p=>p.id===tour.id).deletedAt=romeIso(new Date(Date.now()-25*3600e3));fs.writeFileSync(file,JSON.stringify(pages));
+  app=make();
+  assert.deepEqual(read(app.personalFile('livio')).map(x=>x.title),['Buy milk']);assert.equal(fs.existsSync(path.join(dir,'todo-images',call.id)),false);
+  assert.throws(()=>app.restoreList(tour.id),/That list is gone/);assert.deepEqual(app.list().lists.map(l=>l.name),['General']);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});

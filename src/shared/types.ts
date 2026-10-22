@@ -62,6 +62,9 @@ export type TasksUser = 'livio' | 'ilai'
 export type TaskStatus = 'open' | 'doing' | 'done'
 export type TaskScope = 'personal' | 'shared'
 
+/** The private list of the tasks without a `list` field: the one there was before there were several. */
+export const DEFAULT_LIST = 'private'
+
 /** One to-do, in the format of the build-tasks repo README (one file per task there). */
 export interface Task {
   id: string
@@ -75,6 +78,8 @@ export interface Task {
   product: string
   /** Place in its list after a cut and paste; without it the task sorts by Date.parse(createdAt). */
   order?: number
+  /** A private task's list (TaskList.lists); without it, the first one. Never on a shared task. */
+  list?: string
   /** ISO with the Europe/Rome offset */
   createdAt: string
   createdBy: string
@@ -97,6 +102,24 @@ export interface TaskList {
   sync: TasksSync
   /** ids of shared tasks the other person added or changed since this person last looked at them */
   unseen: string[]
+  /** This person's private lists, the default one first; only on this Mac. */
+  lists: TaskListPage[]
+  /** The tab working on each task in progress, by task id; only on this Mac, never in the repo. */
+  working: Record<string, TaskWorking>
+}
+
+/** A private list, shown as a page of the To-do sheet. */
+export interface TaskListPage {
+  id: string
+  name: string
+}
+
+/** Set by `terminai todo start` from a tab: which tab, by its browserKey (it outlives the pty id), and its name then. */
+export interface TaskWorking {
+  tab: string
+  name: string
+  /** ISO with the Europe/Rome offset */
+  at: string
 }
 
 /** One version of a shared task, from the build-tasks history; task is null where a commit deleted it. */
@@ -117,7 +140,7 @@ export interface TasksChange {
 }
 
 /** What the To-do sheet sends; the main process stamps the dates and authors. */
-export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product' | 'order'>>
+export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product' | 'order' | 'list'>>
 
 /** Assigned to me or to both, or unassigned and created by me. resources/terminai.cjs repeats it for --mine. */
 export function isMine(task: Task, user: string): boolean {

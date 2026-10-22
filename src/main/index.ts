@@ -47,6 +47,8 @@ let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
 let activeTabId: string | null = null
+// Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen`.
+let todos: ReturnType<typeof createTodos>
 
 // Must run before app-ready, or the scheme is treated as opaque and <audio>
 // refuses to seek within it.
@@ -158,7 +160,7 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
-  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile })
+  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile, task: (action, query, session) => todos.track(action, query, session) })
     .then((control) => app.once('before-quit', control.close))
     .catch((err) => console.error('[control] could not start:', err))
   void (async()=>{
@@ -316,7 +318,7 @@ function registerIpc(): void {
 
   // ---- to-do -------------------------------------------------------------
   const todosChanged = () => { if (win && !win.isDestroyed()) win.webContents.send('todos:changed') }
-  const todos = createTodos(app.getPath('userData'), {
+  todos = createTodos(app.getPath('userData'), {
     // The test build never falls back to the real shared repo: it syncs only with TERMINAI_TASKS_REMOTE.
     remote: process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
     user: () => store.load().tasksUser,
@@ -341,7 +343,11 @@ function registerIpc(): void {
   appIpc.handle('todos:remove', (_e, scope: unknown, id: string) => todos.remove(scopeOf(scope), id))
   appIpc.handle('todos:removeMany', (_e, scope: unknown, ids: unknown) => todos.removeMany(scopeOf(scope), Array.isArray(ids) ? ids : []))
   appIpc.handle('todos:restore', (_e, scope: unknown, tasks: unknown) => todos.restore(scopeOf(scope), Array.isArray(tasks) ? tasks : []))
-  appIpc.handle('todos:move', (_e, from: unknown, id: string, assignee?: Task['assignee'], order?: number) => todos.move(scopeOf(from), id, assignee, order))
+  appIpc.handle('todos:move', (_e, from: unknown, id: string, assignee?: Task['assignee'], order?: number, into?: string) => todos.move(scopeOf(from), id, assignee, order, into))
+  appIpc.handle('todos:addList', (_e, name: unknown) => todos.addList(name))
+  appIpc.handle('todos:renameList', (_e, id: unknown, name: unknown) => todos.renameList(id, name))
+  appIpc.handle('todos:removeList', (_e, id: unknown) => todos.removeList(id))
+  appIpc.handle('todos:restoreList', (_e, id: unknown) => todos.restoreList(id))
   appIpc.handle('todos:sync', () => todos.sync())
   appIpc.handle('todos:markSeen', (_e, ids: unknown) => todos.markSeen(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
   appIpc.handle('todos:history', (_e, id: unknown) => todos.history(String(id)))

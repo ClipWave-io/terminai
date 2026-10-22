@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import type { Task, TaskInput, TaskList, TaskScope, TasksUser } from '../../shared/types'
+import { DEFAULT_LIST } from '../../shared/types'
+import type { Task, TaskInput, TaskList, TaskListPage, TaskScope, TasksUser } from '../../shared/types'
 import { TodoHistory, when } from './TodoHistory'
 import './todos.css'
 
@@ -14,8 +15,8 @@ type MenuItem = { label: string; checked?: boolean; danger?: boolean; run: () =>
 /** `up`: where the menu's bottom goes when it does not fit below `y` (the top of the button that opened it). */
 type Menu = { x: number; y: number; up?: number; items: MenuItem[] }
 type Row = { kind: 'task'; task: Task } | { kind: 'pending'; pending: Pending } | { kind: 'draft' }
-/** One checklist in a column: where its rows are saved and where a row typed into it goes. */
-type Part = { scope: TaskScope; section: string; assignee: Assignee; label?: string; list: Task[]; placeholder?: string }
+/** One checklist in a column: where its rows are saved and where a row typed into it goes (`page`: the private list). */
+type Part = { scope: TaskScope; section: string; assignee: Assignee; label?: string; list: Task[]; placeholder?: string; page?: string }
 type Column = { key: string; label: string; parts: Part[]; done: { task: Task; scope: TaskScope }[] }
 /** Where a task is at one point of the undo history; null: it does not exist (deleted, or not made yet). */
 type Snap = { scope: TaskScope; task: Task } | null
@@ -25,6 +26,8 @@ type Step = { id: string; before: Snap; after: Snap }[]
 type Clip = { ids: string[]; mode: 'cut' | 'copy' }
 /** Where ⌘V puts the clipboard: after task `after` of `part`, or at its top when null. */
 type Spot = { part: Part; after: string | null }
+/** A tab of the window, for the link of a task in progress: `key` is its browserKey, which outlives the pty id. */
+type TabRef = { id: string; key: string; label: string }
 
 /** Livio is Matteo in the BUILD note; the files keep the id 'livio'. */
 const NAME = { livio: 'Matteo', ilai: 'Ilai' } as const
@@ -41,6 +44,8 @@ const rank = (task: Task) => task.order ?? Date.parse(task.createdAt)
 // The 39 tasks imported from BUILD share one createdAt: the id breaks the tie and, unlike the title, never changes.
 const byOrder = (a: Task, b: Task) => rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 const byDone = (a: Task, b: Task) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+/** The private list a task is shown in: its own, or the first one when it has none (or one that is gone). */
+const pageOf = (task: Task, lists: TaskListPage[]) => task.list && lists.some(page => page.id === task.list) ? task.list : DEFAULT_LIST
 const rowKey = (row: Row) => row.kind === 'task' ? row.task.id : row.kind === 'pending' ? row.pending.key : 'draft'
 function find(list: TaskList | null, id: string): Snap {
   for (const scope of ['shared', 'personal'] as const) { const task = list?.[scope].find(t => t.id === id); if (task) return { scope, task } }
@@ -51,6 +56,10 @@ const same = (a: Snap, b: Snap) => {
   return key(a) === key(b)
 }
 const Chevron = () => <svg className="todo-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
+const Arrow = ({ back }: { back?: boolean }) => <svg className="todo-arrow" viewBox="0 0 12 12" aria-hidden="true"><path d={back ? 'M7.5 3l-3 3 3 3' : 'M4.5 3l3 3-3 3'} /></svg>
+const TabIcon = () => <svg className="todo-tab-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M4.5 6.5l2 1.5-2 1.5M8.5 10h3" /></svg>
+/** The private list the sheet showed last, while the app runs. */
+let lastPage = DEFAULT_LIST
 const Lock = () => <svg className="todo-lock" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7.2" width="9" height="6.3" rx="1.6" /><path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8" /></svg>
 
 /** Their order (see rank), then what was added this session put back under the row where Enter was pressed. */
@@ -92,10 +101,11 @@ function orders(rows: Task[], moving: Task[], at: number, loose: Set<string>): {
 }
 
 /**
- * The BUILD note of Apple Notes in four columns: mine, Together and the other one's (all shared, in the
- * build-tasks repo, mirrored on the other Mac), then my private notes, kept on this Mac only.
+ * The BUILD note of Apple Notes in three columns: mine, Together and the other one's (all shared, in the
+ * build-tasks repo, mirrored on the other Mac); and my private lists, one page each, kept on this Mac only.
+ * `tabs` and `onTab`: a task a tab said it started links to that tab.
  */
-export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onUser: (user: TasksUser) => void; onClose: () => void }): JSX.Element {
+export function TodoSheet({ user, onUser, onClose, tabs, onTab }: { user: TasksUser | ''; onUser: (user: TasksUser) => void; onClose: () => void; tabs: TabRef[]; onTab: (id: string) => void }): JSX.Element {
   const [data, setData] = useState<TaskList | null>(null)
   const [allDone, setAllDone] = useState<Record<string, boolean>>({})
   const [error, setError] = useState('')
@@ -109,8 +119,13 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   const [clip, setClip] = useState<Clip | null>(null)
   /** The tasks the delete question is about. */
   const [ask, setAsk] = useState<string[] | null>(null)
-  // An object, so a second "Deleted 3 tasks" restarts the 8 seconds.
-  const [toast, setToast] = useState<{ text: string } | null>(null)
+  // An object, so a second "Deleted 3 tasks" restarts the 8 seconds. `undo`: what its Undo does when it is not ⌘Z (a deleted list).
+  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null)
+  const [page, setPage] = useState(lastPage)
+  useEffect(() => { lastPage = page }, [page])
+  /** The page's name being edited in place; the list the delete question is about. */
+  const [renaming, setRenaming] = useState(false)
+  const [askList, setAskList] = useState<TaskListPage | null>(null)
   /** The shared task whose history is open. */
   const [history, setHistory] = useState<Task | null>(null)
   // App.tsx mounts the top bar slot in the same commit, so it is looked up once the sheet is in the DOM.
@@ -200,13 +215,13 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
   })
 
   /** Shows the row at once and clears the field, so the next task can be typed while git commits and pushes this one. */
-  async function add(target: TaskScope, section: string, assignee: Assignee, title: string, fromDraft: boolean) {
+  async function add(target: TaskScope, section: string, assignee: Assignee, title: string, fromDraft: boolean, list?: string) {
     const key = `new-${++seq.current}`, known = new Set((data?.[target] ?? []).map(task => task.id))
     setLayout(l => ({ ...l, pending: [...l.pending, { key, scope: target, section, title, assignee, after: fromDraft ? l.draft?.after ?? null : null }], draft: fromDraft && l.draft ? { ...l.draft, after: key } : l.draft }))
     const made = await serial(async () => {
       const then = latest.current
       try {
-        const value = await window.term.todos.save(target, { title, assignee })
+        const value = await window.term.todos.save(target, { title, assignee, ...(list ? { list } : {}) })
         show(value)
         const task = value[target].filter(t => !known.has(t.id) && t.title === title).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
         if (task) remember(then, [task.id])
@@ -222,7 +237,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     const movers = (take?.ids ?? []).flatMap(id => { const snap = find(then, id); return snap ? [snap] : [] })
     if (!then || !take || !movers.length) return
     const cut = take.mode === 'cut', away = new Set(cut ? take.ids : [])
-    const shown = arrange(open(part.scope === 'personal' ? then.personal : then.shared.filter(task => task.assignee === part.assignee)), layout, part.scope, part.section).flatMap(row => row.kind === 'task' ? [row.task] : [])
+    const shown = arrange(open(part.scope === 'personal' ? then.personal.filter(task => pageOf(task, then.lists) === part.page) : then.shared.filter(task => task.assignee === part.assignee)), layout, part.scope, part.section).flatMap(row => row.kind === 'task' ? [row.task] : [])
     const rows = shown.filter(task => !away.has(task.id)), upto = shown.findIndex(task => task.id === after)
     // Pasted next to a task that is itself moving: after the last one before it that stays.
     const at = after === null ? 0 : upto < 0 ? rows.length : shown.slice(0, upto + 1).filter(task => !away.has(task.id)).length
@@ -233,14 +248,15 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     for (const { task, order, moved } of orders(rows, movers.map(snap => snap.task), at, loose)) {
       if (!moved) { if (rank(task) !== order) inputs.push({ id: task.id, order }); continue }
       const from = movers[next++]!.scope
-      if (!cut) inputs.push({ title: task.title, notes: task.notes, status: task.status, product: task.product, assignee: to, order })
+      const into = part.scope === 'personal' ? { list: part.page } : {}
+      if (!cut) inputs.push({ title: task.title, notes: task.notes, status: task.status, product: task.product, assignee: to, order, ...into })
       else if (from !== part.scope) moves.push({ from, id: task.id, order })
-      else inputs.push({ id: task.id, order, ...(part.scope === 'personal' || task.assignee === to ? {} : { assignee: to }) })
+      else inputs.push({ id: task.id, order, ...(part.scope === 'personal' ? pageOf(task, then.lists) === part.page ? {} : into : task.assignee === to ? {} : { assignee: to }) })
     }
     // Their place now comes from their order, not from the row they were typed under.
     setLayout(l => ({ ...l, placed: Object.fromEntries(Object.entries(l.placed).filter(([id]) => !away.has(id) && !loose.has(id))) }))
     let ok = true
-    for (const m of moves) ok = ok && !!(await act(() => window.term.todos.move(m.from, m.id, to, m.order)))
+    for (const m of moves) ok = ok && !!(await act(() => window.term.todos.move(m.from, m.id, to, m.order, part.page)))
     if (ok && inputs.length) ok = !!(await act(() => window.term.todos.saveMany(part.scope, inputs)))
     const copies = cut ? [] : (latest.current?.[part.scope] ?? []).filter(task => !find(then, task.id) && movers.some(snap => snap.task.title === task.title)).map(task => task.id)
     remember(then, [...moves.map(m => m.id), ...inputs.flatMap(input => input.id ?? []), ...copies])
@@ -329,7 +345,8 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
       task.status !== 'done' && { label: 'In progress', checked: task.status === 'doing', run: set({ status: task.status === 'doing' ? 'open' : 'doing' }) },
       // A private task that goes to another column becomes shared on the way.
       ...(scope === 'personal'
-        ? [null, { label: 'Make shared', run: share(me) }, { heading: 'Move to' }, ...(['both', other] as const).map(a => ({ label: label(a), run: share(a) }))]
+        ? [null, { label: 'Make shared', run: share(me) }, { heading: 'Move to' }, ...(['both', other] as const).map(a => ({ label: label(a), run: share(a) })),
+          ...(pages.length > 1 ? [{ heading: 'Move to list' }, ...pages.map(p => ({ label: p.name, checked: pageOf(task, pages) === p.id, run: set({ list: p.id }) }))] : [])]
         : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm(task.id) }]),
       null, { heading: 'Product' }, { input: task.product, placeholder: 'e.g. ManyMotions', run: (product: string) => void save(scope, { id: task.id, product }) },
       !task.notes && { label: 'Add note', run: () => setNoteFor(task.id) },
@@ -342,6 +359,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
 
   const sync = data?.sync
   const personal = data?.personal ?? [], shared = data?.shared ?? []
+  const pages = data?.lists.length ? data.lists : [{ id: DEFAULT_LIST, name: 'Private' }]
   const open = (list: Task[]) => list.filter(task => task.status !== 'done').sort(byOrder)
   const done = (list: Task[], scope: TaskScope) => list.filter(task => task.status === 'done').map(task => ({ task, scope }))
   const to = (assignee: Assignee) => shared.filter(task => task.assignee === assignee)
@@ -353,25 +371,53 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     ], done: [...done(to('both'), 'shared'), ...done(to(null), 'shared')] },
     { key: other, label: NAME[other], parts: [{ scope: 'shared', section: other, assignee: other, list: open(to(other)), placeholder: 'New task' }], done: done(to(other), 'shared') },
   ]
-  // Private notes stay on this Mac, one file per person: the other one never sees them.
-  const privateNotes: Column = { key: 'private', label: 'Private', parts: [{ scope: 'personal', section: 'private', assignee: null, list: open(personal), placeholder: 'New private note' }], done: done(personal, 'personal') }
+  // Private notes stay on this Mac, one file per person: the other one never sees them. One list at a time, as a page.
+  const at = Math.max(0, pages.findIndex(p => p.id === page)), current = pages[at] ?? { id: DEFAULT_LIST, name: 'Private' }
+  const onPage = personal.filter(task => pageOf(task, pages) === current.id)
+  const privateNotes: Column = { key: `private-${current.id}`, label: current.name, parts: [{ scope: 'personal', section: `private-${current.id}`, assignee: null, list: open(onPage), placeholder: 'New private note', page: current.id }], done: done(onPage, 'personal') }
   const shownColumns = view === 'private' ? [privateNotes] : columns
+  const goPage = (to: number) => { if (pages[to]) { setPage(pages[to].id); setRenaming(false); setSel([]) } }
+  async function newList() {
+    const value = await act(() => window.term.todos.addList('New list'))
+    const made = value?.lists[value.lists.length - 1]
+    if (made) { setView('private'); setPage(made.id); setRenaming(true) }
+  }
+  async function renameList(name: string) {
+    setRenaming(false)
+    if (name.trim() && name.trim() !== current.name) await act(() => window.term.todos.renameList(current.id, name))
+    focusSheet()
+  }
+  /** The delete question answered: the list out of sight, "Deleted list X · Undo" for 8 seconds (main keeps it a day). */
+  async function deleteList(gone: TaskListPage) {
+    setAskList(null)
+    if (!(await act(() => window.term.todos.removeList(gone.id)))) return
+    setPage(pages[at - 1]?.id ?? DEFAULT_LIST)
+    focusSheet()
+    setToast({ text: `Deleted list “${gone.name}”`, undo: () => void act(() => window.term.todos.restoreList(gone.id)).then(value => { if (value) { setToast(null); setView('private'); setPage(gone.id) } }) })
+  }
+  const listMenu = (event: { currentTarget: HTMLElement }) => pick(event, [{ label: 'Rename', run: () => setRenaming(true) }, { label: 'New list', run: () => void newList() },
+    ...(current.id === DEFAULT_LIST ? [] : [null, { label: 'Delete list…', danger: true, run: () => setAskList(current) }])])
   const pick = (event: { currentTarget: HTMLElement }, items: MenuItem[]) => { const b = event.currentTarget.getBoundingClientRect(); setMenu({ x: b.left, y: b.bottom + 4, up: b.top - 4, items }) }
-  const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]}
+  /** The tab working on a task in progress, by the name it has now; a closed tab keeps the name it had. */
+  const sessionOf = (task: Task) => {
+    const work = data?.working[task.id], tab = work && tabs.find(t => t.key === work.tab)
+    return work ? { name: tab?.label || work.name, open: tab ? () => onTab(tab.id) : undefined } : null
+  }
+  const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]} session={sessionOf(task)}
     fresh={scope === 'shared' && unseen.includes(task.id) ? { by: NAME[task.updatedBy as TasksUser] ?? task.updatedBy, at: task.updatedAt, added: task.createdAt === task.updatedAt } : null} onHistory={() => openHistory(task)}
     confirming={confirm === task.id} openNote={noteFor === task.id} selected={sel.includes(task.id)} cut={clip?.mode === 'cut' && clip.ids.includes(task.id)}
     onSave={save} onImage={act} onLeave={onClose} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
     onSelect={how => select(task.id, how)} onMenu={(x, y, up) => openMenu(task, scope, x, y, up)} onEnter={section === undefined ? undefined : () => setLayout(l => ({ ...l, draft: { section, after: task.id } }))} />
-  const checklist = ({ scope, section, assignee, list, placeholder }: Part) => <ul className="todo-check">
+  const checklist = ({ scope, section, assignee, list, placeholder, page: into }: Part) => <ul className="todo-check">
     {arrange(list, layout, scope, section).map(item => item.kind === 'task' ? row(item.task, scope, section)
       : item.kind === 'pending' ? <li key={item.pending.key} className="todo-row pending"><span className="todo-circle" /><div className="todo-body"><div className="todo-line"><span className="todo-text">{item.pending.title}</span></div></div></li>
-      : <DraftRow key="draft" autoFocus onAdd={title => void add(scope, section, assignee, title, true)} onLeave={how => {
+      : <DraftRow key="draft" autoFocus onAdd={title => void add(scope, section, assignee, title, true, into)} onLeave={how => {
           const anchor = layout.draft?.after
           setLayout(l => ({ ...l, draft: null }))
           const text = how === 'backspace' && anchor ? document.querySelector<HTMLTextAreaElement>(`[data-id="${anchor}"] .todo-text`) : null
           if (text) { text.focus(); text.setSelectionRange(text.value.length, text.value.length) }
         }} />)}
-    {placeholder && <DraftRow key="new" placeholder={placeholder} onAdd={title => void add(scope, section, assignee, title, false)} />}
+    {placeholder && <DraftRow key="new" placeholder={placeholder} onAdd={title => void add(scope, section, assignee, title, false, into)} />}
   </ul>
   // A part with no "New task" row (Unassigned) shows only while it has rows.
   const shown = (part: Part) => !!part.placeholder || !!part.list.length || layout.pending.some(p => p.scope === part.scope && p.section === part.section) || layout.draft?.section === part.section
@@ -416,7 +462,7 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     anchor.current = ids[0] ?? null
   }
   keys.current = event => {
-    if (event.isComposing || menu || ask || !user) return
+    if (event.isComposing || menu || ask || askList || !user) return
     const el = document.activeElement instanceof HTMLElement ? document.activeElement : null
     // The "Make private" question under a row keeps its own keys.
     if (el?.closest('.todo-confirm')) return
@@ -434,6 +480,8 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
     else if (cmd && (k === 'x' || k === 'c') && sel.length) take(() => { setClip({ ids: inOrder(sel), mode: k === 'x' ? 'cut' : 'copy' }); if (k === 'x') setSel([]) })
     else if ((event.key === 'Backspace' || event.key === 'Delete') && !event.metaKey && sel.length) take(() => setAsk(inOrder(sel)))
     else if (event.key === 'Escape' && (sel.length || clip)) take(() => { setSel([]); setClip(null) })
+    // The private lists turn like pages.
+    else if (view === 'private' && !event.metaKey && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) take(() => goPage(at + (event.key === 'ArrowLeft' ? -1 : 1)))
   }
   const syncText = !sync ? '' : !sync.enabled ? 'Shared sync is off' : sync.syncing ? 'Syncing…' : sync.error ? 'Sync failed' : sync.lastSync ? `Synced ${clock(sync.lastSync)}` : 'Not synced yet'
 
@@ -450,9 +498,10 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         // the slot); inline above the columns only if the slot is missing.
         const controls = <div className="todo-sync">
           {user && <>
-            <button className="todo-drop" aria-label={`Showing ${view} tasks`} title="Shared tasks or your private notes"
-              onClick={event => pick(event, [{ heading: 'Show' }, { label: 'Shared', checked: view === 'shared', run: () => setView('shared') }, { label: 'Private (only on this Mac)', checked: view === 'private', run: () => setView('private') }])}>
-              {view === 'private' && <Lock />}{view === 'private' ? 'Private' : 'Shared'}<Chevron /></button>
+            <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
+              onClick={event => pick(event, [{ heading: 'Show' }, { label: 'Shared', checked: view === 'shared', run: () => setView('shared') }, { heading: 'Private, only on this Mac' },
+                ...pages.map(p => ({ label: p.name, checked: view === 'private' && p.id === current.id, run: () => { setView('private'); goPage(pages.indexOf(p)) } })), { label: 'New list', run: () => void newList() }])}>
+              {view === 'private' && <Lock />}{view === 'private' ? current.name : 'Shared'}<Chevron /></button>
             <button className="todo-drop" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
               onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>
             <span className={sync?.error ? 'failed' : ''} title={sync?.error ?? undefined} aria-live="polite">{syncText}</span>
@@ -473,7 +522,19 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
         {sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
         <div className={`todo-cols${view === 'private' ? ' single' : ''}`}>
           {shownColumns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>
-            <h3 className={`todo-at ${col.key}`} title={col.key === 'private' ? 'Only on this Mac' : undefined}>{col.key === 'private' && <Lock />}{col.label.toUpperCase()}</h3>
+            {col === privateNotes ? <div className="todo-at private todo-pages" role="group" aria-label="Private lists">
+              <button className="todo-icon todo-page-turn" aria-label="Previous list" title="Previous list" disabled={at === 0} onClick={() => goPage(at - 1)}><Arrow back /></button>
+              <span title="Only on this Mac"><Lock /></span>
+              {renaming ? <ListName name={current.name} onDone={value => void renameList(value)} onCancel={() => { setRenaming(false); focusSheet() }} />
+                : <h3 className="todo-page-name" title="Rename" onDoubleClick={() => setRenaming(true)}>{current.name.toUpperCase()}</h3>}
+              {pages.length > 1 && <span className="todo-page-count" aria-label={`List ${at + 1} of ${pages.length}`}>{at + 1} / {pages.length}</span>}
+              <button className="todo-icon todo-page-turn" aria-label="Next list" title="Next list" disabled={at === pages.length - 1} onClick={() => goPage(at + 1)}><Arrow /></button>
+              <span className="todo-page-tools">
+                <button className="todo-icon" aria-label="New list" title="New private list" onClick={() => void newList()}>+</button>
+                <button className="todo-icon" aria-label="List actions" title="More" onClick={listMenu}>•••</button>
+              </span>
+            </div>
+              : <h3 className={`todo-at ${col.key}`}>{col.label.toUpperCase()}</h3>}
             {col.parts.filter(shown).map(part => <div key={part.section} className="todo-part" data-part={part.section} role="group" aria-label={part.label ?? col.label}>
               {part.label && <h4 className="todo-sub">{part.scope === 'personal' && <Lock />}{part.label}</h4>}
               {checklist(part)}
@@ -485,7 +546,9 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       {history && <TodoHistory task={history} onClose={() => { setHistory(null); focusSheet() }} />}
       {ask && <DeleteDialog titles={ask.flatMap(id => find(data, id)?.task.title ?? [])} onCancel={() => { setAsk(null); focusSheet() }} onDelete={() => void deleteTasks(ask)} />}
-      {toast && <div className="todo-toast" role="status">{toast.text}<span aria-hidden="true">·</span><button onClick={() => void undo()}>Undo</button></div>}
+      {askList && <DeleteDialog heading={`Delete the list “${askList.name}”?`} titles={personal.filter(task => pageOf(task, pages) === askList.id && task.status !== 'done').map(task => task.title)}
+        onCancel={() => { setAskList(null); focusSheet() }} onDelete={() => void deleteList(askList)} />}
+      {toast && <div className="todo-toast" role="status">{toast.text}<span aria-hidden="true">·</span><button onClick={() => toast.undo ? toast.undo() : void undo()}>Undo</button></div>}
     </section>
   </div>
 }
@@ -494,8 +557,10 @@ export function TodoSheet({ user, onUser, onClose }: { user: TasksUser | ''; onU
  * `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private.
  * `confirming`: the row asks "Make it private?"; deleting is asked by the sheet (onDelete).
  */
-function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openNote, selected, cut, onSave, onImage, onLeave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
+function TaskRow({ task, scope, lock, other, session, fresh, onHistory, confirming, openNote, selected, cut, onSave, onImage, onLeave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
   task: Task; scope: TaskScope; lock: boolean; other: string; confirming: boolean; openNote: boolean; selected: boolean; cut: boolean; onSave: Save
+  /** The tab of this Mac that started it (`terminai todo start`); `open` goes there, missing when the tab is closed. */
+  session: { name: string; open?: () => void } | null
   /** Adding or removing an image, with the sheet's error line. */
   onImage: (work: () => Promise<TaskList>) => Promise<TaskList | null>
   /** Closes the sheet, for an image sent to the Files pane behind it. */
@@ -578,6 +643,7 @@ function TaskRow({ task, scope, lock, other, fresh, onHistory, confirming, openN
             else if (event.key === 'Backspace' && !title) { event.preventDefault(); onDelete() }
           }} />
         {task.status === 'doing' && <span className="todo-tag doing">in progress</span>}
+        {session && <button className="todo-tag todo-session" disabled={!session.open} title={session.open ? 'Go to the tab working on it' : 'That tab is closed'} onClick={session.open}><TabIcon />{session.name}</button>}
         {task.product && <span className="todo-tag">{task.product}</span>}
         {lock && <span className="todo-tag" title="Private" aria-label="Private"><Lock /></span>}
         {fresh && <button className="todo-tag todo-fresh" title="See what changed" onClick={onHistory}>{fresh.added ? 'new' : 'edited'} by {fresh.by} · {when(fresh.at)}</button>}
@@ -659,9 +725,9 @@ function DraftRow({ placeholder = '', autoFocus, onAdd, onLeave }: { placeholder
 }
 
 /** Deleting, asked in the app and never with window.confirm: Delete has the focus (Enter), Esc or Cancel keeps the tasks. */
-function DeleteDialog({ titles, onCancel, onDelete }: { titles: string[]; onCancel: () => void; onDelete: () => void }): JSX.Element {
+function DeleteDialog({ heading: asked, titles, onCancel, onDelete }: { heading?: string; titles: string[]; onCancel: () => void; onDelete: () => void }): JSX.Element {
   const [busy, setBusy] = useState(false)
-  const heading = titles.length === 1 ? 'Delete this task?' : `Delete ${titles.length} tasks?`
+  const heading = asked ?? (titles.length === 1 ? 'Delete this task?' : `Delete ${titles.length} tasks?`)
   return <div className="sheet-backdrop todo-ask" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onCancel() }}
     onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel() } }}>
     <div className="sheet" role="alertdialog" aria-modal="true" aria-label={heading}>
@@ -706,6 +772,19 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }): JS
       : 'input' in item ? <MenuInput key={i} value={item.input} placeholder={item.placeholder} onDone={value => { onClose(); item.run(value) }} />
       : <button key={i} role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} className={item.danger ? 'danger' : ''} onClick={() => { onClose(); item.run() }}>{item.label}</button>)}
   </div>
+}
+
+/** A private list's name, edited in place: Enter or a click elsewhere keeps it, Esc puts the old one back. */
+function ListName({ name, onDone, onCancel }: { name: string; onDone: (name: string) => void; onCancel: () => void }): JSX.Element {
+  const [text, setText] = useState(name)
+  // Enter and Esc answer at once, not through the blur that follows (a window without the focus sends none).
+  const settled = useRef(false)
+  return <input className="todo-page-input" aria-label="List name" value={text} maxLength={60} spellCheck={false} ref={el => { if (el && !settled.current && document.activeElement !== el) { el.focus(); el.select() } }}
+    onChange={event => setText(event.target.value)} onBlur={() => { if (!settled.current) { settled.current = true; onDone(text) } }}
+    onKeyDown={event => {
+      if (event.key === 'Enter') { event.preventDefault(); settled.current = true; onDone(text) }
+      else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); settled.current = true; onCancel() }
+    }} />
 }
 
 function MenuInput({ value, placeholder, onDone }: { value: string; placeholder: string; onDone: (value: string) => void }): JSX.Element {

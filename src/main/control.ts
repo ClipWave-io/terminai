@@ -5,15 +5,16 @@ import {join,basename,isAbsolute} from 'node:path'
 import type {BrowserWindow} from 'electron'
 import * as ptys from './pty'
 import * as store from './store'
-import type {SavedTab} from '../shared/types'
+import type {SavedTab,Task} from '../shared/types'
 
 /**
  * Local command channel for the terminal tabs, behind `terminai list|open|send|read|close|focus|show`
- * (resources/terminai.cjs). Same boundary as the browser bridge: loopback only, a random token
+ * and `terminai todo start|done|reopen` (resources/terminai.cjs). Same boundary as the browser bridge: loopback only, a random token
  * in a 0600 file next to prefs, the file gone on quit. Every PTY gets its path as TERMINAI_CONTROL.
  */
-type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void}
-const COMMANDS=['list','open','send','read','close','focus','show']
+type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
+  task:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>}
+const COMMANDS=['list','open','send','read','close','focus','show','task']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -104,6 +105,13 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       if(!file)throw Error(`No such file: ${a.path}`)
       d.show(a.path)
       return {ok:true,path:a.path}
+    }
+    // A task of the To-do started, done or reopened from a tab; starting links the row to the tab, by the key that outlives a restart.
+    case 'task':{
+      const s=typeof a.tab==='string'?ptys.list().find(t=>t.id===a.tab):undefined,tab=s&&store.load().tabs.find(t=>t.ptyId===s.id),meta=s&&opened.get(s.id)
+      const name=s?tab?.customTitle||tab?.name||meta?.name||tab?.title||basename(ptys.cwdOf(s.id))||'shell':''
+      const {scope,task}=await d.task(a.action,a.task,s?{tab:ptys.workspaceKeyOf(s.id),name}:undefined)
+      return {id:task.id,title:task.title,status:task.status,scope,...(s&&a.action==='start'?{tab:{id:s.id,name}}:{})}
     }
   }
   throw Error('Unknown command')
