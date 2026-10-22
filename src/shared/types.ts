@@ -112,6 +112,8 @@ export interface TaskList {
 export interface TaskListPage {
   id: string
   name: string
+  /** What the list is for, in the user's words: sessions read it to know which list "here" is. */
+  about?: string
 }
 
 /** Set by `terminai todo start` from a tab: which tab, by its browserKey (it outlives the pty id), and its name then. */

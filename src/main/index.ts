@@ -11,7 +11,7 @@ import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } fro
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
-import { writeAgentGuide } from './agent-guide'
+import { agentGuide, todoMap, writeAgentGuide } from './agent-guide'
 import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -47,8 +47,20 @@ let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
 let activeTabId: string | null = null
-// Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen`.
+// Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen|add|about`.
 let todos: ReturnType<typeof createTodos>
+/** The agents' global instructions: the real files only for the installed app, tests name theirs with CLAUDE_CONFIG_DIR and CODEX_HOME. */
+function guideFiles(): string[] {
+  const installed = app.getPath('userData') === join(app.getPath('appData'), 'clipwave-term')
+  const claudeHome = process.env.CLAUDE_CONFIG_DIR || (installed ? join(homedir(), '.claude') : '')
+  const codexHome = process.env.CODEX_HOME || (installed ? join(homedir(), '.codex') : '')
+  return [claudeHome && join(claudeHome, 'CLAUDE.md'), codexHome && join(codexHome, 'AGENTS.md')].filter(Boolean)
+}
+/** The terminai commands and the map of this Mac's To-do pages, at start and whenever the lists or the user change. */
+function writeGuides(): void {
+  const guide = agentGuide(todos ? todoMap(store.load().tasksUser, todos.pages()) : '')
+  for (const file of guideFiles()) try { writeAgentGuide(file, guide) } catch (e) { console.error('[agent-guide]', e) }
+}
 
 // Must run before app-ready, or the scheme is treated as opaque and <audio>
 // refuses to seek within it.
@@ -160,7 +172,8 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
-  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile, task: (action, query, session) => todos.track(action, query, session) })
+  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
+    todo: { track: (action, query, session) => todos.track(action, query, session), add: (to, title, note) => todos.addTo(to, title, note), about: (list, text) => todos.describeList(list, text, true) } })
     .then((control) => app.once('before-quit', control.close))
     .catch((err) => console.error('[control] could not start:', err))
   void (async()=>{
@@ -182,10 +195,8 @@ app.whenReady().then(() => {
     // tests and the test build point userData elsewhere and must pass CODEX_HOME explicitly.
     const codexHome=process.env.CODEX_HOME||(directory===join(app.getPath('appData'),'clipwave-term')?join(homedir(),'.codex'):'')
     if(codexHome)registerBrowserMcp(join(codexHome,'config.toml'),process.execPath,script,join(directory,'browser-bridge.json'))
-    // The terminai commands in the agents' own global instructions, the same way: the real files only
-    // for the installed app, tests name theirs with CLAUDE_CONFIG_DIR and CODEX_HOME.
-    const claudeHome=process.env.CLAUDE_CONFIG_DIR||(directory===join(app.getPath('appData'),'clipwave-term')?join(homedir(),'.claude'):'')
-    for(const file of [claudeHome&&join(claudeHome,'CLAUDE.md'),codexHome&&join(codexHome,'AGENTS.md')])if(file)try{writeAgentGuide(file)}catch(e){console.error('[agent-guide]',e)}
+    // The terminai commands in the agents' own global instructions, the same way.
+    writeGuides()
   })().catch(()=>{console.error('Embedded browser MCP setup needs attention. See the browser setup guide.')})
 
   app.on('activate', () => {
@@ -323,6 +334,7 @@ function registerIpc(): void {
     remote: process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
     user: () => store.load().tasksUser,
     changed: todosChanged,
+    listsChanged: writeGuides,
     // The other Mac's edits, pulled by a sync: one notice per sync, a click opens the To-do sheet.
     notify: ({ by, changed, removed }) => {
       if (!Notification.isSupported()) return
@@ -348,6 +360,7 @@ function registerIpc(): void {
   appIpc.handle('todos:renameList', (_e, id: unknown, name: unknown) => todos.renameList(id, name))
   appIpc.handle('todos:removeList', (_e, id: unknown) => todos.removeList(id))
   appIpc.handle('todos:restoreList', (_e, id: unknown) => todos.restoreList(id))
+  appIpc.handle('todos:describeList', (_e, id: unknown, about: unknown) => todos.describeList(id, about))
   appIpc.handle('todos:sync', () => todos.sync())
   appIpc.handle('todos:markSeen', (_e, ids: unknown) => todos.markSeen(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
   appIpc.handle('todos:history', (_e, id: unknown) => todos.history(String(id)))
@@ -422,7 +435,7 @@ function registerIpc(): void {
     const next = store.save(patch)
     // The first clone waits for the user to say who they are in the To-do sheet.
     // Private tasks are per user: the sheet reloads them once the new name is saved.
-    if (patch.tasksUser) { todosChanged(); void todos.sync() }
+    if (patch.tasksUser) { todosChanged(); void todos.sync(); writeGuides() }
     if (win && patch.theme) {
       const theme = getTheme(next.theme)
       win.setBackgroundColor(theme.background)

@@ -125,6 +125,8 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab }: { user: TasksU
   useEffect(() => { lastPage = page }, [page])
   /** The page's name being edited in place; the list the delete question is about. */
   const [renaming, setRenaming] = useState(false)
+  // "Add description" in the list's menu opens the description under its name.
+  const [describe, setDescribe] = useState(false)
   const [askList, setAskList] = useState<TaskListPage | null>(null)
   /** The shared task whose history is open. */
   const [history, setHistory] = useState<Task | null>(null)
@@ -395,7 +397,7 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab }: { user: TasksU
     focusSheet()
     setToast({ text: `Deleted list “${gone.name}”`, undo: () => void act(() => window.term.todos.restoreList(gone.id)).then(value => { if (value) { setToast(null); setView('private'); setPage(gone.id) } }) })
   }
-  const listMenu = (event: { currentTarget: HTMLElement }) => pick(event, [{ label: 'Rename', run: () => setRenaming(true) }, { label: 'New list', run: () => void newList() },
+  const listMenu = (event: { currentTarget: HTMLElement }) => pick(event, [{ label: 'Rename', run: () => setRenaming(true) }, { label: current.about ? 'Edit description' : 'Add description', run: () => setDescribe(true) }, { label: 'New list', run: () => void newList() },
     ...(current.id === DEFAULT_LIST ? [] : [null, { label: 'Delete list…', danger: true, run: () => setAskList(current) }])])
   const pick = (event: { currentTarget: HTMLElement }, items: MenuItem[]) => { const b = event.currentTarget.getBoundingClientRect(); setMenu({ x: b.left, y: b.bottom + 4, up: b.top - 4, items }) }
   /** The tab working on a task in progress, by the name it has now; a closed tab keeps the name it had. */
@@ -535,6 +537,8 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab }: { user: TasksU
               </span>
             </div>
               : <h3 className={`todo-at ${col.key}`}>{col.label.toUpperCase()}</h3>}
+            {col === privateNotes && <ListAbout key={current.id} about={current.about ?? ''} open={describe} onOpened={() => setDescribe(false)}
+              onSave={about => void act(() => window.term.todos.describeList(current.id, about)).then(() => focusSheet())} />}
             {col.parts.filter(shown).map(part => <div key={part.section} className="todo-part" data-part={part.section} role="group" aria-label={part.label ?? col.label}>
               {part.label && <h4 className="todo-sub">{part.scope === 'personal' && <Lock />}{part.label}</h4>}
               {checklist(part)}
@@ -772,6 +776,31 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }): JS
       : 'input' in item ? <MenuInput key={i} value={item.input} placeholder={item.placeholder} onDone={value => { onClose(); item.run(value) }} />
       : <button key={i} role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} className={item.danger ? 'danger' : ''} onClick={() => { onClose(); item.run() }}>{item.label}</button>)}
   </div>
+}
+
+/** What a private list is for, under its name: the sessions read it to know which list "here" is. A click edits it; Enter keeps it, Esc puts it back. */
+function ListAbout({ about, open, onOpened, onSave }: { about: string; open: boolean; onOpened: () => void; onSave: (about: string) => void }): JSX.Element {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(about)
+  // As in ListName: Enter and Esc answer at once, not through the blur that follows.
+  const settled = useRef(false)
+  useEffect(() => { if (!editing) setText(about) }, [about])
+  useEffect(() => { if (open) { onOpened(); settled.current = false; setText(about); setEditing(true) } }, [open])
+  const finish = (keep: boolean) => {
+    if (settled.current) return
+    settled.current = true
+    setEditing(false)
+    if (keep && text.trim() !== about) onSave(text.trim()); else setText(about)
+  }
+  return editing
+    ? <textarea className="todo-list-about editing" aria-label="What this list is for" value={text} maxLength={500} spellCheck={false} placeholder="What is this list for? A project, a client, a folder…"
+        ref={el => { if (el && !settled.current && document.activeElement !== el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length) } }}
+        onChange={event => setText(event.target.value)} onBlur={() => finish(true)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); finish(true) }
+          else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(false) }
+        }} />
+    : <button className={`todo-list-about${about ? '' : ' empty'}`} title="What this list is for: sessions read it" onClick={() => { settled.current = false; setEditing(true) }}>{about || 'What is this list for? Add a description'}</button>
 }
 
 /** A private list's name, edited in place: Enter or a click elsewhere keeps it, Esc puts the old one back. */

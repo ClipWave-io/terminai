@@ -420,3 +420,43 @@ test('private lists: named pages, Move to list, delete with a day for Undo, then
   assert.throws(()=>app.restoreList(tour.id),/That list is gone/);assert.deepEqual(app.list().lists.map(l=>l.name),['General']);
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
 });
+
+test('terminai todo add puts a task where it is told, never in a default page; lists carry what they are for; todo map shows the pages',async()=>{
+ const t=setup();try{
+  let listsChanged=0;const dir=path.join(t.root,'livio-app');fs.mkdirSync(dir,{recursive:true});
+  const app=createTodos(dir,{remote:'file://'+t.bare,user:()=>'livio',changed:()=>{},listsChanged:()=>listsChanged++});
+  await app.sync();
+  const tour=app.addList('Unlocked Tour').lists[1];app.addList('Unlocked Archive');
+  assert.equal(listsChanged,2,'a new list rewrites the map');
+  // One name per list: a second "New list" is "New list 2", and a rename cannot take another list's name.
+  let named=app.addList('New list');named=app.addList('New list');assert.deepEqual(named.lists.slice(-2).map(l=>l.name),['New list','New list 2']);
+  assert.throws(()=>app.renameList(named.lists.at(-1).id,'unlocked tour'),/There is a list called “unlocked tour” already/);
+  app.removeList(named.lists.at(-1).id);app.removeList(named.lists.at(-2).id);listsChanged=2;
+  let list=app.describeList(tour.id,'  Barcelona tour agency: guides, bookings, the site  ');
+  assert.equal(list.lists.find(l=>l.id===tour.id).about,'Barcelona tour agency: guides, bookings, the site');assert.equal(listsChanged,3);
+  assert.deepEqual(app.pages().map(p=>[p.name,p.about??null]),[['Private',null],['Unlocked Tour','Barcelona tour agency: guides, bookings, the site'],['Unlocked Archive',null]]);
+  assert.throws(()=>app.describeList(tour.id,'x'.repeat(501)),/up to 500/);
+  // By name from a tab: the whole name, else a part found in one name only.
+  list=app.describeList('unlocked archive','Old bookings',true);assert.equal(list.lists[2].about,'Old bookings');
+  assert.throws(()=>app.describeList('unlocked','x',true),/more than one list name/);
+  // add: each shared column by its name, a private list by its name; no page, a wrong one or an ambiguous one is refused.
+  let r=await app.addTo('together','Call the accountant',' about VAT ');assert.deepEqual([r.scope,r.page,r.task.assignee,r.task.notes],['shared','Together','both','about VAT']);
+  assert.equal(git(t.bare,'log','-1','--format=%s','main').trim(),'livio: add Call the accountant');
+  r=await app.addTo('Ilai','Check the Whop payouts');assert.deepEqual([r.page,r.task.assignee],['Ilai','ilai']);
+  r=await app.addTo('matteo','Renew the domain');assert.equal(r.task.assignee,'livio');
+  r=await app.addTo('unassigned','Someone should look at this');assert.equal(r.task.assignee,null);
+  r=await app.addTo('Unlocked Tour','Write to the guides');assert.deepEqual([r.scope,r.page,r.task.list],['personal','Unlocked Tour',tour.id]);
+  r=await app.addTo('private','Buy milk');assert.deepEqual([r.page,'list' in r.task],['Private',false]);
+  await assert.rejects(app.addTo('','x'),/Where\?/);
+  await assert.rejects(app.addTo('the agency','x'),/No page “the agency”\. Shared: matteo, together, ilai, unassigned\. Private lists: “Private”, “Unlocked Tour”, “Unlocked Archive”/);
+  await assert.rejects(app.addTo('unlocked','x'),/more than one list name/);
+  await assert.rejects(app.addTo('together','  '),/needs a title/);
+  // The map, as a session reads it.
+  fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({tasksUser:'livio'}));
+  const map=JSON.parse(execFileSync(process.execPath,[path.join(__dirname,'../resources/terminai.cjs'),'todo','map'],{encoding:'utf8',env:{...process.env,TERMINAI_TODO_DIR:dir,TERMINAI_TASKS_DIR:path.join(dir,'build-tasks','tasks')}}));
+  assert.equal(map.you,'livio');
+  assert.deepEqual(map.shared.map(c=>[c.page,c.to,c.tasks.map(x=>x.title)]),[['Matteo','matteo',['Renew the domain']],['Together','together',['Call the accountant']],['Ilai','ilai',['Check the Whop payouts']],['Unassigned','unassigned',['Someone should look at this']]]);
+  assert.equal(map.shared[1].tasks[0].notes,'about VAT');
+  assert.deepEqual(map.private.map(p=>[p.page,p.about,p.tasks.map(x=>x.title)]),[['Private',null,['Buy milk']],['Unlocked Tour','Barcelona tour agency: guides, bookings, the site',['Write to the guides']],['Unlocked Archive','Old bookings',[]]]);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});

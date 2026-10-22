@@ -39,7 +39,7 @@ function git(cwd: string, ...args: string[]): Promise<string> {
   }))
 }
 
-export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void; notify?: (change: TasksChange) => void }) {
+export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void; notify?: (change: TasksChange) => void; listsChanged?: () => void }) {
   // Before private tasks were per user they were one file per Mac (todos-personal.json).
   const legacyFile = join(dir, 'todos-personal.json')
   const personalFile = (user: TasksUser) => join(dir, `todos-personal-${user}.json`)
@@ -110,6 +110,20 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 60) throw Error('A list needs a name of up to 60 characters.')
     return name.trim()
   }
+  /** A private list by the name the sheet shows: the whole name, "private" for the first list, else a part found in one name only. */
+  function pageNamed(user: TasksUser, name: unknown): Page {
+    const pages = readLists(user).filter(page => !page.deletedAt), q = String(name ?? '').trim().toLowerCase()
+    const found = [pages.filter(p => p.name.toLowerCase() === q), q === 'private' ? pages.filter(p => p.id === DEFAULT_LIST) : [], q ? pages.filter(p => p.name.toLowerCase().includes(q)) : []].find(f => f.length) ?? []
+    if (!found.length) throw Error(`No page “${String(name ?? '')}”. Shared: matteo, together, ilai, unassigned. Private lists: ${pages.map(p => `“${p.name}”`).join(', ')}.`)
+    if (found.length > 1) throw Error(`“${String(name)}” is in more than one list name: ${found.map(p => `“${p.name}”`).join(', ')}. Give the whole name.`)
+    return found[0]
+  }
+  /** Changes a list (name, description, there or not) and tells the sessions' instructions, which carry the map of the lists. */
+  function changeLists(user: TasksUser, pages: Page[]): TaskList {
+    writeList(listsFile(user), pages)
+    opts.listsChanged?.()
+    return list()
+  }
   // A list deleted more than a day ago goes for good, with its tasks and their images.
   for (const user of ['livio', 'ilai'] as const) {
     const pages = readLists(user), gone = new Set(pages.filter(page => page.deletedAt && Date.now() - Date.parse(page.deletedAt) > 86400_000).map(page => page.id))
@@ -165,7 +179,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     const doing = new Set([...shared, ...personal].filter(task => task.status === 'doing').map(task => task.id))
     return {
       personal, shared, sync: { ...status }, unseen: unseen(user, shared),
-      lists: pages.filter(page => !page.deletedAt).map(({ id, name }) => ({ id, name })),
+      lists: pages.filter(page => !page.deletedAt).map(({ id, name, about }) => ({ id, name, ...(about ? { about } : {}) })),
       working: Object.fromEntries(Object.entries(readWorking(user)).filter(([id]) => doing.has(id))),
     }
   }
@@ -389,6 +403,8 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     personalFile,
     tasksDir,
     list,
+    /** This person's private lists, without reading any task: for the map in the sessions' instructions. */
+    pages: (): TaskListPage[] => { const user = opts.user(); return user ? readLists(user).filter(page => !page.deletedAt).map(({ id, name, about }) => ({ id, name, ...(about ? { about } : {}) })) : [] },
 
     sync(): Promise<TaskList> {
       // Nothing is cloned until someone has said who they are, so a fresh profile stays offline.
@@ -527,18 +543,46 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       return { scope, task: value[scope].find(t => t.id === task.id) ?? task }
     },
 
-    /** A new private list, last; the sheet goes to it. */
+    /**
+     * `terminai todo add <title> --to <page>` from a tab: a new task at the end of a shared column or of a private
+     * list. There is no default page: a task in the wrong place is worse than a question.
+     */
+    async addTo(to: unknown, title: unknown, notes?: unknown): Promise<{ scope: TaskScope; page: string; task: Task }> {
+      const user = who(), where = typeof to === 'string' ? to.trim().toLowerCase() : ''
+      if (!where) throw Error('Where? --to matteo, together, ilai, unassigned or the name of a private list.')
+      if (typeof title !== 'string' || (notes !== undefined && typeof notes !== 'string')) throw Error('Invalid task')
+      const columns: Record<string, Task['assignee']> = { matteo: 'livio', livio: 'livio', ilai: 'ilai', together: 'both', both: 'both', unassigned: null }
+      const shared = where in columns, target = shared ? null : pageNamed(user, to)
+      const scope: TaskScope = shared ? 'shared' : 'personal', assignee = shared ? columns[where] : null
+      const known = new Set(list()[scope].map(task => task.id))
+      const value = await saveMany(scope, [{ title, ...(notes ? { notes } : {}), assignee, ...(target ? { list: target.id } : {}) }])
+      if (scope === 'personal') opts.changed()
+      const task = value[scope].find(t => !known.has(t.id) && t.title === title.trim())
+      if (!task) throw Error('The task was not saved.')
+      return { scope, page: target ? target.name : assignee === null ? 'Unassigned' : NAME[assignee], task }
+    },
+
+    /** A new private list, last; the sheet goes to it. Names stay one per list ("New list 2"), so a session told a name finds one list. */
     addList(name: unknown): TaskList {
-      const user = who()
-      writeList(listsFile(user), [...readLists(user), { id: randomUUID(), name: listName(name) }])
-      return list()
+      const user = who(), pages = readLists(user), base = listName(name), taken = (n: string) => pages.some(p => !p.deletedAt && p.name.toLowerCase() === n.toLowerCase())
+      let free = base
+      for (let i = 2; taken(free); i++) free = `${base} ${i}`
+      return changeLists(user, [...pages, { id: randomUUID(), name: free }])
     },
     renameList(id: unknown, name: unknown): TaskList {
-      const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && !p.deletedAt)
+      const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && !p.deletedAt), next = listName(name)
       if (!page) throw Error('That list no longer exists.')
-      page.name = listName(name)
-      writeList(listsFile(user), pages)
-      return list()
+      if (pages.some(p => p !== page && !p.deletedAt && p.name.toLowerCase() === next.toLowerCase())) throw Error(`There is a list called “${next}” already.`)
+      page.name = next
+      return changeLists(user, pages)
+    },
+    /** What a private list is for, from the sheet (by id) or from `terminai todo about <list> <text>` (by name); empty clears it. */
+    describeList(id: unknown, about: unknown, byName = false): TaskList {
+      if (typeof about !== 'string' || about.trim().length > 500) throw Error('A description is up to 500 characters.')
+      const user = who(), pages = readLists(user), page = byName ? pages.find(p => p.id === pageNamed(user, id).id) : pages.find(p => p.id === id && !p.deletedAt)
+      if (!page) throw Error('That list no longer exists.')
+      if (about.trim()) page.about = about.trim(); else delete page.about
+      return changeLists(user, pages)
     },
     /** A list and its tasks out of sight; restoreList brings them back within a day, then they go for good. */
     removeList(id: unknown): TaskList {
@@ -546,15 +590,13 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && !p.deletedAt)
       if (!page) throw Error('That list no longer exists.')
       page.deletedAt = romeIso()
-      writeList(listsFile(user), pages)
-      return list()
+      return changeLists(user, pages)
     },
     restoreList(id: unknown): TaskList {
       const user = who(), pages = readLists(user), page = pages.find(p => p.id === id && p.deletedAt)
       if (!page) throw Error('That list is gone.')
       delete page.deletedAt
-      writeList(listsFile(user), pages)
-      return list()
+      return changeLists(user, pages)
     },
 
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => saveMany(scope, [input]),

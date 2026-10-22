@@ -5,7 +5,7 @@ import {join,basename,isAbsolute} from 'node:path'
 import type {BrowserWindow} from 'electron'
 import * as ptys from './pty'
 import * as store from './store'
-import type {SavedTab,Task} from '../shared/types'
+import type {SavedTab,Task,TaskListPage} from '../shared/types'
 
 /**
  * Local command channel for the terminal tabs, behind `terminai list|open|send|read|close|focus|show`
@@ -13,7 +13,8 @@ import type {SavedTab,Task} from '../shared/types'
  * in a 0600 file next to prefs, the file gone on quit. Every PTY gets its path as TERMINAI_CONTROL.
  */
 type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
-  task:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>}
+  todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
+    add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}}
 const COMMANDS=['list','open','send','read','close','focus','show','task']
 
 const pending=new Map<string,(result:unknown)=>void>()
@@ -106,11 +107,14 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       d.show(a.path)
       return {ok:true,path:a.path}
     }
-    // A task of the To-do started, done or reopened from a tab; starting links the row to the tab, by the key that outlives a restart.
+    // The To-do from a tab: a task added to a page, a private list described, or a task started, done or reopened
+    // (starting links the row to the tab, by the key that outlives a restart).
     case 'task':{
+      if(a.action==='add'){const {scope,page,task}=await d.todo.add(a.to,a.title,a.note);return {id:task.id,title:task.title,status:task.status,scope,page}}
+      if(a.action==='about')return {lists:d.todo.about(a.list,a.text).lists}
       const s=typeof a.tab==='string'?ptys.list().find(t=>t.id===a.tab):undefined,tab=s&&store.load().tabs.find(t=>t.ptyId===s.id),meta=s&&opened.get(s.id)
       const name=s?tab?.customTitle||tab?.name||meta?.name||tab?.title||basename(ptys.cwdOf(s.id))||'shell':''
-      const {scope,task}=await d.task(a.action,a.task,s?{tab:ptys.workspaceKeyOf(s.id),name}:undefined)
+      const {scope,task}=await d.todo.track(a.action,a.task,s?{tab:ptys.workspaceKeyOf(s.id),name}:undefined)
       return {id:task.id,title:task.title,status:task.status,scope,...(s&&a.action==='start'?{tab:{id:s.id,name}}:{})}
     }
   }

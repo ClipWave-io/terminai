@@ -1,7 +1,7 @@
 // The TerminAI section of the agents' global instructions (src/main/agent-guide.ts).
 // Run: npx esbuild src/main/agent-guide.ts --bundle --platform=node --format=cjs --outfile=.agent-guide.cjs && node --test tests/agent-guide.test.cjs
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path')
-const { writeAgentGuide, AGENT_GUIDE } = require(path.join(__dirname, '..', '.agent-guide.cjs'))
+const { writeAgentGuide, AGENT_GUIDE, agentGuide, todoMap } = require(path.join(__dirname, '..', '.agent-guide.cjs'))
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-guide-'))
 
 test('a missing file is created with the section only', () => {
@@ -41,4 +41,20 @@ test('a damaged section is left alone', () => {
   fs.writeFileSync(f, body)
   assert.throws(() => writeAgentGuide(f), /Incomplete TerminAI section/)
   assert.equal(fs.readFileSync(f, 'utf8'), body)
+})
+
+test('the map of the To-do pages goes under the guide, private lists with what they are for', () => {
+  const map = todoMap('livio', [{ id: 'private', name: 'General' }, { id: 'x1', name: 'Unlocked Tour', about: 'Barcelona tour agency' }])
+  assert.match(map, /you work with Matteo \(`livio`\)/)
+  assert.match(map, /the columns Matteo, Together, Ilai and Unassigned/)
+  assert.match(map, /Private lists, only on this Mac: "General" \(the first one\): no description yet; "Unlocked Tour": Barcelona tour agency\./)
+  assert.equal(todoMap('', []), '', 'nobody chosen yet: no map')
+  const f = path.join(tmp(), 'CLAUDE.md')
+  writeAgentGuide(f, agentGuide(map))
+  const s = fs.readFileSync(f, 'utf8')
+  assert.ok(s.includes(AGENT_GUIDE + '\n' + map + '\n<!-- END TERMINAI -->'))
+  // A list renamed: the same section, rewritten.
+  writeAgentGuide(f, agentGuide(todoMap('livio', [{ id: 'private', name: 'General' }, { id: 'x1', name: 'Agency' }])))
+  assert.equal(fs.readFileSync(f, 'utf8').split('<!-- BEGIN TERMINAI').length, 2)
+  assert.match(fs.readFileSync(f, 'utf8'), /"Agency": no description yet\./)
 })

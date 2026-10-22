@@ -51,6 +51,9 @@
 .todo-page-turn:disabled { opacity: .3; cursor: default; background: none; }
 .todo-page-tools { margin-left: auto; display: flex; gap: 2px; }
 .todo-page-tools .todo-icon { height: 22px; }
+.todo-list-about { display: block; box-sizing: border-box; width: 100%; margin: 7px 0 5px; padding: 0; font: inherit; font-size: 12px; line-height: 1.4; text-align: left; color: var(--dim); background: none; border: 0; cursor: text; white-space: pre-wrap; overflow-wrap: anywhere; }
+.todo-list-about.empty { font-style: italic; opacity: .75; }
+.todo-list-about.editing { field-sizing: content; min-height: 18px; color: var(--fg); outline: none; resize: none; border-bottom: 1px solid var(--border); }
 .todo-arrow { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .todo-sub { display: flex; align-items: center; gap: 5px; margin: 10px 0 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
 .todo-at + .todo-part > .todo-sub { margin-top: 4px; }

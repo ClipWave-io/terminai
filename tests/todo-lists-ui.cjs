@@ -1,11 +1,13 @@
-// Private lists as pages: a new one named in place, tasks typed into it, the arrows (and ← →) between pages,
-// Move to list, Delete list with Undo, and their names in terminai todo.
+// Private lists as pages: a new one named and described in place, tasks typed into it or added by a session,
+// the arrows (and ← →) between pages, Move to list, Delete list with Undo, and their names in terminai todo.
 // After `npx electron-vite build`: CODEX_HOME=<scratch dir> TERMINAI_TEST_BUILD=1 npx electron tests/todo-lists-ui.cjs
-const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), { execFileSync } = require('child_process')
+const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), { execFile, execFileSync } = require('child_process')
 if (!process.env.CODEX_HOME) { console.error('Set CODEX_HOME to a scratch folder: the app writes its Codex config there.'); process.exit(1) }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-todo-lists-')); app.setPath('userData', dir)
 fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, tasksUser: 'livio' }))
 const delay = ms => new Promise(r => setTimeout(r, ms))
+// Through the control channel, answered by this very process: never execFileSync for these.
+const session = (...args) => new Promise(resolve => execFile(process.execPath, [path.join(__dirname, '..', 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => resolve({ ok: !e, out: String(out), err: String(err) })))
 app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
   const js = code => win.webContents.executeJavaScript(code)
   const waitFor = async (what, code, ms = 8000) => { for (const t = Date.now(); Date.now() - t < ms; await delay(150)) if (await js(code)) return; throw new Error(`timeout: ${what} · ${await js(`JSON.stringify({ name: document.querySelector('.todo-page-name')?.textContent, input: document.querySelector('.todo-page-input')?.value, count: document.querySelector('.todo-page-count')?.textContent, active: document.activeElement?.className, error: document.querySelector('.todo-error')?.textContent, rows: [...document.querySelectorAll('.todo-col .todo-row .todo-text')].map(t => t.closest('.todo-row').className + ':' + t.value) })`)} · ${fs.existsSync(path.join(dir, 'todos-personal-livio.json')) ? fs.readFileSync(path.join(dir, 'todos-personal-livio.json'), 'utf8').replace(/\s+/g, ' ') : ''}`) }
@@ -32,6 +34,13 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const lists = () => JSON.parse(fs.readFileSync(path.join(dir, 'todos-lists-livio.json'), 'utf8'))
   const tour = lists().find(l => l.name === 'Unlocked Tour'); assert.ok(tour)
   assert.deepEqual(await js(rows), [], 'a new page is empty')
+  // What the list is for, under its name: the sessions read it to know which list "here" is.
+  assert.equal(await js(`document.querySelector('.todo-list-about.empty')?.textContent`), 'What is this list for? Add a description')
+  await click('.todo-list-about')
+  await waitFor('description field', `document.activeElement?.classList.contains('todo-list-about')`)
+  await win.webContents.insertText('Barcelona tour agency: guides and bookings'); await key('Enter')
+  await waitFor('description', `document.querySelector('button.todo-list-about')?.textContent === 'Barcelona tour agency: guides and bookings'`)
+  assert.equal(lists().find(l => l.id === tour.id).about, 'Barcelona tour agency: guides and bookings')
   // Typed into the page, the tasks belong to it.
   await js(`document.querySelector('.todo-row.draft .todo-text').focus()`)
   await win.webContents.insertText('Call the guide'); await key('Enter')
@@ -40,6 +49,11 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const personal = () => JSON.parse(fs.readFileSync(path.join(dir, 'todos-personal-livio.json'), 'utf8'))
   assert.deepEqual(personal().filter(t => t.list === tour.id).map(t => t.title).sort(), ['Book the van', 'Call the guide'])
   await key('Escape')
+  // A session adds one to the page it names, through the app.
+  let r = await session('todo', 'add', 'Book the photographer', '--to', 'unlocked tour')
+  assert.ok(r.ok, r.err); assert.equal(JSON.parse(r.out).page, 'Unlocked Tour')
+  await waitFor('added by a session', `JSON.stringify(${rows}) === '["Call the guide","Book the van","Book the photographer"]'`)
+  r = await session('todo', 'add', 'Lost task'); assert.equal(r.ok, false); assert.match(r.err, /Where\?/)
   // The arrows turn the pages, and so do ← → once no field has the keys.
   await click('[aria-label="Previous list"]')
   await waitFor('back to Private', `${pageName} === 'PRIVATE' && document.querySelector('.todo-page-count')?.textContent === '1 / 2'`)
@@ -52,7 +66,7 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await js(`document.querySelector('.todo-row[data-id="${call.id}"] [aria-label="Task actions"]').click()`); await delay(300)
   assert.ok(await js(`[...document.querySelectorAll('.todo-menu .todo-menu-head')].some(h => h.textContent === 'Move to list')`))
   await menuItem('Private')
-  await waitFor('moved away', `JSON.stringify(${rows}) === '["Book the van"]'`)
+  await waitFor('moved away', `JSON.stringify(${rows}) === '["Book the van","Book the photographer"]'`)
   assert.equal(personal().find(t => t.id === call.id).list, undefined, 'back in the first list: no field')
   await js(`document.querySelector('.todo-sheet').focus()`); await key('ArrowLeft')
   await waitFor('moved here', `${pageName} === 'PRIVATE' && JSON.stringify(${rows}) === '["Buy milk","Call the guide"]'`)
@@ -71,20 +85,20 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   fs.writeFileSync(shot, (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
   await click('[aria-label="List actions"]')
   await menuItem('Delete list…')
-  await waitFor('question', `(document.querySelector('.todo-ask h2')?.textContent || '') === 'Delete the list “Unlocked Tour”?' && document.querySelector('.todo-ask-list')?.textContent === 'Book the van'`)
+  await waitFor('question', `(document.querySelector('.todo-ask h2')?.textContent || '') === 'Delete the list “Unlocked Tour”?' && document.querySelector('.todo-ask-list')?.textContent === 'Book the vanBook the photographer'`)
   await js(`document.querySelector('.todo-ask .btn.danger').click()`)
   await waitFor('deleted', `${pageName} === 'GENERAL' && !document.querySelector('.todo-page-count') && (document.querySelector('.todo-toast')?.textContent || '').startsWith('Deleted list “Unlocked Tour”')`)
   const cli = () => JSON.parse(execFileSync(process.execPath, [path.join(__dirname, '..', 'resources/terminai.cjs'), 'todo', '--personal'], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_TODO_DIR: dir } })).personal
   assert.deepEqual(cli().map(t => t.title).sort(), ['Buy milk', 'Call the guide'], 'a deleted list is out of terminai todo too')
   await js(`document.querySelector('.todo-toast button').click()`)
-  await waitFor('undone', `${pageName} === 'UNLOCKED TOUR' && JSON.stringify(${rows}) === '["Book the van"]' && document.querySelector('.todo-page-count')?.textContent === '2 / 2'`)
-  assert.deepEqual(cli().map(t => [t.title, t.list]).sort(), [['Book the van', 'Unlocked Tour'], ['Buy milk', 'General'], ['Call the guide', 'General']])
+  await waitFor('undone', `${pageName} === 'UNLOCKED TOUR' && JSON.stringify(${rows}) === '["Book the van","Book the photographer"]' && document.querySelector('.todo-page-count')?.textContent === '2 / 2'`)
+  assert.deepEqual(cli().map(t => [t.title, t.list]).sort(), [['Book the photographer', 'Unlocked Tour'], ['Book the van', 'Unlocked Tour'], ['Buy milk', 'General'], ['Call the guide', 'General']])
   // Reopened, the sheet shows the shared tasks; each list is in the view menu.
   await key('Escape'); await waitFor('closed', `!document.querySelector('.todo-sheet')`)
   await js(`document.querySelector('[aria-label^="To-do"]').click()`); await delay(600)
   await click('.todo-drop'); await menuItem('Unlocked Tour')
   await waitFor('picked from the menu', `${pageName} === 'UNLOCKED TOUR'`)
-  console.log(`PASS todo lists: new list named in place, tasks typed into it, arrows and ← → between pages, Move to list, rename (also the first), Delete list asked then undone, list names in terminai todo · screenshot ${shot}`)
+  console.log(`PASS todo lists: new list named and described in place, a task added by a session with todo add --to, tasks typed into it, arrows and ← → between pages, Move to list, rename (also the first), Delete list asked then undone, list names in terminai todo · screenshot ${shot}`)
   fs.rmSync(dir, { recursive: true, force: true }); app.quit()
 })().catch(e => { console.error(e); fs.rmSync(dir, { recursive: true, force: true }); app.exit(1) }) }))
 setTimeout(() => { console.error('todo lists timeout'); app.exit(1) }, 100000).unref()

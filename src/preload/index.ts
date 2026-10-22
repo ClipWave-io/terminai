@@ -120,6 +120,7 @@ const api = {
     renameList: (id: string, name: string): Promise<TaskList> => ipcRenderer.invoke('todos:renameList', id, name),
     removeList: (id: string): Promise<TaskList> => ipcRenderer.invoke('todos:removeList', id),
     restoreList: (id: string): Promise<TaskList> => ipcRenderer.invoke('todos:restoreList', id),
+    describeList: (id: string, about: string): Promise<TaskList> => ipcRenderer.invoke('todos:describeList', id, about),
     sync: (): Promise<TaskList> => ipcRenderer.invoke('todos:sync'),
     /** The shared tasks the user has now looked at, so their "edited by" mark goes. */
     markSeen: (ids: string[]): Promise<TaskList> => ipcRenderer.invoke('todos:markSeen', ids),

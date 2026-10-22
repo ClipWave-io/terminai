@@ -8,10 +8,13 @@
 //   terminai focus <id>
 //   terminai show <file>                                   the file in the Files pane beside the tabs (PDF, image, text)
 //   terminai todo [--shared|--personal] [--open] [--mine]   read-only, straight from the files
+//   terminai todo map                                      every page: shared columns, private lists with what each is for, open tasks
 //   terminai todo start|done|reopen <task id or title>     through the app, which commits it; start links the task to this tab
+//   terminai todo add <title> --to <page> [--note <text>]  page: matteo, together, ilai, unassigned or a private list's name
+//   terminai todo about <list> <text>                      what a private list is for (empty text clears it)
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus','show','todo'],TRACK=['start','done','reopen'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
+const COMMANDS=['list','open','send','read','close','focus','show','todo'],WRITES=['start','done','reopen','add','about'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -52,8 +55,27 @@ function todo(flags){
  }
  return out;
 }
+// The To-do as pages, the way the sheet shows them: `to` is what `terminai todo add --to` takes for each.
+function map(){
+ const data=process.env.TERMINAI_TODO_DIR||join(homedir(),'Library/Application Support/clipwave-term'),json=file=>{try{return JSON.parse(readFileSync(file,'utf8'))}catch{return null}};
+ const user=(json(join(data,'prefs.json'))||{}).tasksUser;
+ if(user!=='livio'&&user!=='ilai')throw Error('Choose who you are in the TerminAI To-do sheet first');
+ const all=todo({open:true}),other=user==='livio'?'ilai':'livio',NAME={livio:'Matteo',ilai:'Ilai'};
+ const short=({id,title,status,notes,product,session})=>({id,title,status,...(notes?{notes}:{}),...(product?{product}:{}),...(session?{session}:{})});
+ const column=(page,to,assignee)=>({page,to,tasks:all.shared.filter(t=>t.assignee===assignee).map(short)});
+ let pages=json(join(data,`todos-lists-${user}.json`));pages=(Array.isArray(pages)?pages:[]).filter(p=>p&&p.id&&typeof p.name==='string'&&!p.deletedAt);
+ if(!pages.some(p=>p.id==='private'))pages.unshift({id:'private',name:'Private'});
+ return {you:user,
+  shared:[column(NAME[user],NAME[user].toLowerCase(),user),column('Together','together','both'),column(NAME[other],NAME[other].toLowerCase(),other),column('Unassigned','unassigned',null)],
+  private:pages.map(p=>({page:p.name,to:p.name,about:p.about||null,tasks:all.personal.filter(t=>t.list===p.name).map(short)}))};
+}
 function request(command,flags,words){
- if(command==='task')return {action:words[0],task:words.slice(1).join(' '),tab:process.env.TERMINAI_TAB_ID};
+ if(command==='task'){
+  const action=words[0];
+  if(action==='add')return {action,title:words.slice(1).join(' '),to:flags.to,note:flags.note};
+  if(action==='about')return {action,list:words[1],text:words.slice(2).join(' ')};
+  return {action,task:words.slice(1).join(' '),tab:process.env.TERMINAI_TAB_ID};
+ }
  const id=words[0];if(command!=='list'&&command!=='open'&&!id)throw Error(`usage: terminai ${command} ${command==='show'?'<file>':'<id>'}`);
  if(command==='list')return {};
  if(command==='open')return {cwd:resolve(flags.cwd||process.cwd()),name:flags.name,group:flags.group,command:flags.command,background:!flags.foreground,cols:number(flags.cols),rows:number(flags.rows)};
@@ -65,8 +87,9 @@ function request(command,flags,words){
 async function main(){
  const {command,flags,words}=parse(process.argv.slice(2));
  if(!COMMANDS.includes(command))throw Error('usage: terminai list|open|send|read|close|focus|show|todo ...');
- if(command==='todo'&&!TRACK.includes(words[0])){process.stdout.write(JSON.stringify(todo(flags),null,1)+'\n');return}
- if(command==='todo'&&!words[1])throw Error(`usage: terminai todo ${words[0]} <task id or title>`);
+ if(command==='todo'&&words[0]==='map'){process.stdout.write(JSON.stringify(map(),null,1)+'\n');return}
+ if(command==='todo'&&!WRITES.includes(words[0])){process.stdout.write(JSON.stringify(todo(flags),null,1)+'\n');return}
+ if(command==='todo'&&!words[1])throw Error(words[0]==='add'?'usage: terminai todo add <title> --to <page> [--note <text>]':words[0]==='about'?'usage: terminai todo about <list> <text>':`usage: terminai todo ${words[0]} <task id or title>`);
  const wire=command==='todo'?'task':command,args=request(wire,flags,words);
  const file=process.env.TERMINAI_CONTROL||join(homedir(),'Library/Application Support/clipwave-term/control.json');
  let config;try{config=JSON.parse(readFileSync(file,'utf8'))}catch{throw Error(`TerminAI is not running (no ${file})`)}
