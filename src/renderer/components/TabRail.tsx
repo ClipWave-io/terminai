@@ -10,6 +10,8 @@ interface Props {
   onFilterClose: () => void
   /** an empty name hands the row back to the terminal's own title */
   onRename: (id: string, name: string) => void
+  /** tuck a session out of its folder in the rail, or bring it back */
+  onHide: (id: string, hidden: boolean) => void
   onReorderGroups: (from: string, to: string) => void
   tabs: TabInfo[]
   activeId: string | null
@@ -41,6 +43,9 @@ function dotClass(tab: TabInfo, speaking: boolean): string {
   return `tab-dot ${tab.status}`
 }
 
+// The flat rail's "show hidden" switch, kept beside the per-folder ones.
+const ALL = '\0all'
+
 // Dragged folder headers carry this; rows check for it so the two drags never
 // answer each other's drops.
 const GROUP_MIME = 'application/terminai-group'
@@ -53,7 +58,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
 }
 
 export function TabRail({
-  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onReorderGroups,
+  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onReorderGroups,
   activeId,
   speakingId,
   width,
@@ -74,6 +79,11 @@ export function TabRail({
   const [dragGroup, setDragGroup] = useState<string | null>(null)
   const [overGroup, setOverGroup] = useState<string | null>(null)
   const matches = (tab: TabInfo) => !filter || `${tabLabel(tab)} ${tab.cwd} ${tab.group ?? ''}`.toLowerCase().includes(filter.toLowerCase())
+  // Folders whose hidden sessions are showing for now; not saved, so they tuck away again on relaunch.
+  const [revealed, setRevealed] = useState<Set<string>>(() => new Set())
+  const toggleRevealed = (key: string) => setRevealed((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next })
+  // A search finds hidden sessions too.
+  const shown = (tab: TabInfo, key: string) => !tab.hidden || !!filter || revealed.has(key)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   // The dragged row's bucket, read during dragover where state from the same gesture can still be stale.
@@ -82,15 +92,23 @@ export function TabRail({
 
   // Buckets in first-appearance order, so turning grouping on rearranges as
   // little as possible: the folder you were just in stays near the top.
-  const groups: { key: string; name?: string; tabs: { tab: TabInfo; i: number }[] }[] = []
+  const groups: { key: string; name?: string; hidden: number; tabs: { tab: TabInfo; i: number }[] }[] = []
   if (grouped) {
     tabs.forEach((tab, i) => {
       if (!matches(tab)) return
-      const bucket = groups.find((g) => g.key === groupOf(tab))
-      if (bucket) bucket.tabs.push({ tab, i })
-      else groups.push({ key: groupOf(tab), name: tab.group, tabs: [{ tab, i }] })
+      const key = groupOf(tab)
+      let bucket = groups.find((g) => g.key === key)
+      if (!bucket) groups.push(bucket = { key, name: tab.group, hidden: 0, tabs: [] })
+      if (tab.hidden) bucket.hidden++
+      if (shown(tab, key)) bucket.tabs.push({ tab, i })
     })
   }
+  const hiddenCount = tabs.filter((t) => t.hidden && matches(t)).length
+  const hiddenToggle = (key: string, count: number): JSX.Element | null => count && !filter ? (
+    <button className="rail-hidden-toggle" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleRevealed(key)} title={revealed.has(key) ? 'Tuck the hidden sessions away again' : 'Show the hidden sessions'}>
+      {revealed.has(key) ? `Hide ${count}` : `${count} hidden`}
+    </button>
+  ) : null
 
   const row = (tab: TabInfo, i: number): JSX.Element => (
     <div
@@ -100,6 +118,7 @@ export function TabRail({
         tab.id === activeId ? 'active' : '',
         dragOver === i && dragFrom !== null && dragFrom !== i ? 'dropping' : '',
         dragFrom === i ? 'dragging' : '',
+        tab.hidden ? 'is-hidden' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -148,6 +167,21 @@ export function TabRail({
         <div className="tab-cwd">{shortCwd(tab.cwd)}</div>
       </span>
       <button
+        className="tab-hide"
+        aria-label={tab.hidden ? 'Unhide session' : 'Hide session'}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+          onHide(tab.id, !tab.hidden)
+        }}
+        title={tab.hidden ? 'Unhide: show it in its folder again' : 'Hide from the sidebar (the session keeps running)'}
+      >
+        {tab.hidden ? (
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8Z" fill="none" stroke="currentColor" strokeWidth="1.3" /><circle cx="8" cy="8" r="1.9" fill="currentColor" /></svg>
+        ) : (
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8Z" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M2.5 13.5l11-11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+        )}
+      </button>
+      <button
         className="tab-close"
         onMouseDown={(e) => {
           e.stopPropagation()
@@ -173,12 +207,14 @@ export function TabRail({
               <div key={g.key} className={['rail-group', dragGroup === g.key ? 'dragging' : '', overGroup === g.key && dragGroup !== null && dragGroup !== g.key ? 'dropping' : ''].filter(Boolean).join(' ')}>
                 {/* Only another folder lands on a header, never a single session. */}
                 <div className="rail-group-head" title={`${g.key}\nDrag to move this folder`} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';e.dataTransfer.setData(GROUP_MIME,g.key);setDragGroup(g.key)}} onDragOver={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.dataTransfer.dropEffect='move';setOverGroup(g.key)}} onDrop={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData(GROUP_MIME)||dragGroup;if(from&&from!==g.key)onReorderGroups(from,g.key);clearDrag()}} onDragEnd={clearDrag}>
-                  {g.name || shortCwd(g.key) || '/'}
+                  <span className="rail-group-name">{g.name || shortCwd(g.key) || '/'}</span>
+                  {hiddenToggle(g.key, g.hidden)}
                 </div>
                 {g.tabs.map(({ tab, i }) => row(tab, i))}
               </div>
             ))
-          : tabs.map((tab, i) => matches(tab) ? row(tab, i) : null)}
+          : tabs.map((tab, i) => matches(tab) && shown(tab, ALL) ? row(tab, i) : null)}
+        {!grouped && hiddenCount > 0 && !filter && <div className="rail-hidden-footer">{hiddenToggle(ALL, hiddenCount)}</div>}
       </div>
 
       <div className="rail-actions">

@@ -144,11 +144,42 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rail-group-name {
+  flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   direction: rtl; /* keep the deepest folder visible when it overflows */
   text-align: left;
+}
+
+/* "3 hidden" on a folder heading (or under the flat rail): shows them again */
+.rail-hidden-toggle {
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--dim) 14%, transparent);
+  color: var(--dim);
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  cursor: default;
+}
+.rail-hidden-toggle:hover {
+  background: color-mix(in srgb, var(--dim) 26%, transparent);
+  color: var(--fg);
+}
+.rail-hidden-footer {
+  padding: 4px 8px;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 
 /* ---------- a tab row ---------- */
@@ -296,6 +327,30 @@ body {
   transition: opacity 100ms ease;
 }
 
+.tab-hide {
+  opacity: 0;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: default;
+  display: grid;
+  place-items: center;
+  transition: opacity 100ms ease;
+}
+.tab-hide:hover {
+  background: color-mix(in srgb, var(--dim) 22%, transparent);
+  color: var(--fg);
+}
+/* A hidden session on show: faded, with its unhide button always there. */
+.tab.is-hidden {
+  opacity: 0.55;
+}
+.tab.is-hidden .tab-hide,
+.tab:hover .tab-hide,
 .tab:hover .tab-close {
   opacity: 1;
 }

@@ -173,6 +173,8 @@ export interface TabInfo {
   name?: string
   /** rail heading this tab sits under instead of its folder; set by `terminai open --group` */
   group?: string
+  /** tucked out of the rail; its folder heading counts it and can show it again */
+  hidden?: boolean
   agent?: string
   browserKey?: string
   agentSession?: string
@@ -239,6 +241,7 @@ export interface SavedTab {
   customTitle?: string
   name?: string
   group?: string
+  hidden?: boolean
   agent?: string
   browserKey?: string
   agentSession?: string
