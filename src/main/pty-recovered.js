@@ -187,6 +187,9 @@ function createSession(opts = {}) {
     exited: false,
     lastDataAt: Date.now(),
     belled: false,
+    // {kind, at}: the renderer, which alone can read the rendered screen, reports
+    // when this tab is stopped on a prompt; cleared, and let go stale, from there.
+    question: null,
     // Output before this instant is a repaint we asked for, not the agent working.
     quietUntil: 0,
     // True while a title string is still waiting for its terminator.
@@ -674,12 +677,27 @@ function usedClaude(id) {
 function isBareShell(proc) {
   return proc === "" || /^-?(zsh|bash|sh|fish)$/.test(proc);
 }
+// The renderer's poll is faster than this, so a standing prompt stays reported;
+// once the window goes away (detachAll) the report lapses and status falls back
+// to timing, rather than pinning a tab on "question" forever.
+const QUESTION_TTL = 4000;
+function setQuestion(id, kind) {
+  const s = sessions.get(id);
+  if (s) s.question = kind ? { kind, at: Date.now() } : null;
+}
+function questionOf(id) {
+  const q = sessions.get(id)?.question;
+  return q && Date.now() - q.at < QUESTION_TTL ? q.kind : "";
+}
 function statusOf(id) {
   const s = sessions.get(id);
   if (!s || s.exited) return "exited";
   // A wrapper script keeps bash in the foreground while the agent runs beneath
   // it: a live agent means the tab is not idle, whatever sits on top.
   if (isBareShell(foregroundProcess(id)) && !sessions.get(id)?.agent?.alive) return "ready";
+  // A prompt waiting for an answer wins over the bell and over timing: the
+  // permission box redraws itself, which otherwise reads as "working".
+  if (questionOf(id)) return "question";
   if (s.belled) return "waiting";
   return Date.now() - s.lastDataAt < 2500 ? "working" : "waiting";
 }
@@ -1078,4 +1096,4 @@ function atShellPrompt(id) {
   return !!s && !s.exited && isBareShell(foregroundProcess(id));
 }
 
-export { createSession, list, attach, detachAll, write, written, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };
+export { createSession, list, attach, detachAll, write, written, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, setQuestion, questionOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };

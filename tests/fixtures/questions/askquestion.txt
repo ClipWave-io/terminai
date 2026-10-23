@@ -1,0 +1,37 @@
+     · Claude toglie la prova da 1 $ dalle sue risposte (accertato su Abracadabrax). In Claude Code su ManyMotions il prezzo non compare mai. Cosa
+     facciamo? → Prima solo indagine
+     · ManyMotions anime: il cliente scrive "a girl", il piano aggiunge "12 anni", il filtro blocca e il cliente non arriva al pagamento. Cosa facciamo? →
+     Lasciamo com'è
+     · Abracadabrax: nel riquadro in chat il menu del modello dice "563 cr" accanto a "GENERATE · 901 CREDITS". Il riquadro è lo stesso dell'app ChatGPT.
+     Cosa facciamo? → correggilo ma ricorda non puoi modificare il plugin ma solo il sito se così è possibile correggere fai così
+
+⏺ User answered Claude's questions:
+  ⎿  · Abracadabrax: chi non ha un piano non può comprare ricariche (403), e Billing da Free non dice che esistono. Cosa facciamo? → Lasciamo com'è
+     · ManyMotions da mobile: il banner dei cookie copre la prima offerta, e l'informativa sul rinnovo (che vale come accettazione al clic) sta circa 2
+     schermate sotto il pulsante, sia nella landing sia in Settings. Cosa facciamo? → Lasciamo com'è
+     · ResumeNext: su Stripe il cliente deve riscrivere l'email che ha appena dato alla registrazione. Cosa facciamo? → Email già compilata (Recommended)
+     · ResumeNext: per scaricare in PDF una lettera di poche righe (cover letter o dimissioni) serve la prova da 1 $. Copiare il testo resta gratis. È il
+     punto di abbandono più probabile. Cosa facciamo? → Lasciamo la prova (Recommended)
+
+› Message from @desktop-a5: desktop-a5: va bene, metto la tua nota sulla 87a60364 e la task resta aperta finché Livio non decide sui punti aperti. (ctrl+o
+to expand)
+
+⏺ User answered Claude's questions:
+  ⎿  · Vulnerabilità di altri pacchetti segnalate dall'audit, fuori dall'aggiornamento di Next: su Abracadabrax 1 critica (dompurify dentro posthog-js) più
+     alcune alte; su ManyMotions 25 avvisi (dompurify, proxy-addr, SDK MCP, postcss…). Cosa facciamo? → Solo critiche e alte (Recommended)
+     · Utente di prova 61850: claude.ai conserva i suoi token sul connettore generico ManyMotions (/api/claude/mcp) e li rinnova da solo. Chiunque
+     riaggiunga quel connettore sul tuo claude.ai lavora come 61850. Revoco le 2 catene di token (scrittura sul DB)? → spiegami meglio questa cos aper
+     piacere
+     · ManyMotions, 3 contratti Stripe non pagati che hanno crediti senza la concessione corrispondente: in 2 ce ne sono 22.521 in più del concesso, nel
+     terzo manca del tutto la concessione (1.467). Per la tua regola i crediti spettano solo dove i soldi sono incassati. Cosa facciamo? → Lasciamo com'è
+     · Posta ManyMotions: nella coda del server di posta (Stalwart) ci sono 24 email vecchie del 20-22/10 che continuano a riprovare, quasi tutte verso
+     Gmail con la casella del destinatario piena (452). Cosa facciamo? → Lasciale scadere (Recommended)
+
+⏺ Ho ricostruito il caso: il token di prova dell'utente 61850 è rimasto attivo sul tuo claude.ai dopo la disconnessione, falsando il test del 22/10, mentre
+  i clienti reali non sono toccati. In attesa del tuo ok procedo con la revoca (previo backup) per invalidare quelle chiavi nel database.
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Token 61850
+
+│ Revoco le chiavi d'accesso dell'utente di prova 61850 (solo account di prova, backup e ripristino pronti, nessun cliente vero toccato)?
+
+❯ 1. Sì, revoca (Recommended)

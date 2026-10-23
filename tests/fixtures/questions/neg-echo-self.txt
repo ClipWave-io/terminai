@@ -1,0 +1,40 @@
+      38 +  if (POINTER_TRUST.test(tail)) return 'trust'
+      39 +  if (!POINTER_NUM.test(tail)) return null
+      40
+      39 -  // Below here a numbered option must be present: no picker, no question.
+      40 -  if (!pointer) return null
+      41 -
+      42 -  // Plan approval (ExitPlanMode).
+      43 -  if (/Would you like to proceed\?|No, keep planning|written up a plan|Here is Claude's plan|Ready to code\?/.test(text))
+      44 -    return 'plan'
+      45 -
+      46 -  // Tool-permission prompt.
+      41 +  // On a numbered picker: classify by the phrasing above the option. The folder
+      42 +  // trust check also shows a number once you arrow onto "Yes, I trust…".
+      43 +  const text = lines.join('\n')
+      44 +  if (/Quick safety check|Do you trust the files in this folder/.test(text)) return 'trust'
+      45 +  if (/Would you like to proceed\?|No, keep planning|written up a plan|Here is Claude's plan|Ready to code\?/.test(text)) return 'plan'
+      46    if (/Do you want to proceed\?/.test(text)) return 'permission'
+      48 -
+      49 -  // Everything else that sits on a numbered picker: AskUserQuestion (which also
+      50 -  // shows a ☐ header), and any other agent prompt — a Codex approval included,
+      47 +  // AskUserQuestion, and any other agent prompt — a Codex approval included —
+      48    // so the tab still flags even for a shape we have not catalogued.
+      49    return 'question'
+      50  }
+
+⏺ Ora le fixture negative di eco e la verifica su Codex nei test/fixture esistenti.
+
+⏺ Crea fixture eco e cerca schermate Codex
+  ⎿  $ cd /Users/Mac/Desktop/CLAUDE/terminai; FX=tests/fixtures/questions
+     # echo negative 1: permission text printed in output, then back at bare input box
+     cat > $FX/neg-echo-permission.txt <<'EOF'
+     ⏺ I asked you earlier: "Do you want to proceed?" and the options were
+     ❯ 1. Yes
+     2. Yes, and don't ask again…
+
+· Osmosing… (17m 6s · ↓ 31.5k tokens)
+  ⎿  Tip: Using a Slack MCP? With Claude Tag you can @Claude directly in Slack — run /install-slack-app or share claude.com/product/tag with your org owner
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── t-terminai-domanda ─
+❯

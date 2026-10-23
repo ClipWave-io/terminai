@@ -3,6 +3,7 @@ import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
 import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, TaskVersion, VoiceClip } from '../shared/types'
+import type { QuestionKind } from '../shared/questions'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -64,6 +65,7 @@ const api = {
     kill: (id: string): void => ipcRenderer.send('pty:kill', { id }),
     process: (id: string): Promise<string> => ipcRenderer.invoke('pty:process', { id }),
     status: (id: string): Promise<TabStatus> => ipcRenderer.invoke('pty:status', { id }),
+    setQuestion: (id: string, kind: QuestionKind | null): void => ipcRenderer.send('pty:question', { id, kind }),
     usedClaude: (id: string): Promise<boolean> => ipcRenderer.invoke('pty:usedClaude', { id }),
     cwd: (id: string): Promise<string> => ipcRenderer.invoke('pty:cwd', { id }),
     claudeSession: (id: string): Promise<string> => ipcRenderer.invoke('pty:claudeSession', { id }),

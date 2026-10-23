@@ -34,7 +34,8 @@ function shortCwd(cwd: string): string {
   return parts.slice(-2).join('/')
 }
 
-/** Green: free to use. Yellow: busy. Blue: it stopped and wants you. */
+/** Green: free to use. Yellow: busy. Blue: it stopped and wants you. Accent
+ * with a "?": it stopped on a prompt and needs an answer. */
 function dotClass(tab: TabInfo, speaking: boolean): string {
   if (tab.exited) return 'tab-dot exited'
   if (speaking) return 'tab-dot speaking'
@@ -49,6 +50,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
   ready: 'Idle — nothing running',
   working: 'Working…',
   waiting: 'Waiting on you',
+  question: 'Waiting for your answer',
   exited: 'Session ended',
 }
 
@@ -142,7 +144,7 @@ export function TabRail({
       <span
         className={dotClass(tab, tab.id === speakingId)}
         title={tab.id === speakingId ? 'Speaking its summary' : DOT_TITLE[tab.status]}
-      />
+      >{!tab.exited && tab.id !== speakingId && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tabLabel(tab)}</div>}
         <div className="tab-cwd">{shortCwd(tab.cwd)}</div>

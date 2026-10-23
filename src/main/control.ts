@@ -50,7 +50,7 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       return ptys.list().sort((x,y)=>rank(x.id)-rank(y.id)).map(({id,exited})=>{
         const tab=saved.find(t=>t.ptyId===id),meta=opened.get(id),agent=ptys.agentOf(id),cwd=ptys.cwdOf(id)
         return {id,name:tab?.customTitle||tab?.name||meta?.name||null,title:tab?.title||meta?.name||basename(cwd)||'shell',cwd,group:tab?.group||meta?.group||null,
-          active:id===d.activeTab(),agent:{kind:agent.kind,alive:agent.alive},status:exited?'exited':ptys.statusOf(id),pid:ptys.pidOf(id)||null}
+          active:id===d.activeTab(),agent:{kind:agent.kind,alive:agent.alive},status:exited?'exited':ptys.statusOf(id),question:exited?'':ptys.questionOf(id),pid:ptys.pidOf(id)||null}
       })
     }
     case 'open':{

@@ -1,0 +1,40 @@
+
+✻ Churned for 5s · done 4:59 PM
+
+❯ /exit
+
+· Nesting…
+  ⎿  Tip: Create skills by adding .md files to .claude/skills/ in your project or ~/.claude/skills/ for skills that work in any project
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt · ← 3 agents
+
+Resume this session with:
+claude --resume 51ff03e0-186b-4ced-9cc0-b8b872cc8471
+Mac@MacBook-Pro q-probe-terminai % cd /private/var/tmp/q-probe-terminai && script -q -F /private/tmp/claude-501/-Users-Mac-Desktop-CLAUDE-terminai/6b852563
+-86b4-46aa-a1b4-e1a3bd5725ab/scratchpad/raw-perm.bin claude --permission-mode default --model haiku
+
+Resume this session with:
+claude --resume c78e5e00-e848-4fed-8c9c-b2cb1ed9c1b9
+Mac@MacBook-Pro q-probe-terminai % cd /private/var/tmp/q-probe-terminai && script -q -F /private/tmp/claude-501/-Users-Mac-Desktop-CLAUDE-terminai/6b852563
+-86b4-46aa-a1b4-e1a3bd5725ab/scratchpad/raw-plan.bin claude --permission-mode plan --model haiku
+
+Resume this session with:
+claude --resume 77e5eb5f-ac7f-4c26-a61d-bd6b8bdc36db
+Mac@MacBook-Pro q-probe-terminai % cd /private/var/tmp/q-probe-trust-1798 && claude --permission-mode default --model haiku
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /private/var/tmp/q-probe-trust-1798
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If
+ not, take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ No, exit

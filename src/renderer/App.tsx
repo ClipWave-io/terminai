@@ -15,6 +15,7 @@ import { TabGrid } from './components/TabGrid'
 import { AccountMenu } from './components/AccountMenu'
 import { getTheme, nextTheme } from '../shared/themes'
 import * as snapshots from './snapshots'
+import { detectQuestion } from '../shared/questions'
 import {
   DEFAULT_PREFS,
   groupOf,
@@ -23,6 +24,7 @@ import {
   RAIL_MAX,
   RAIL_DEFAULT,
   type Prefs,
+  type TabStatus,
   type WorkspacePane,
   type SavedTab,
   type TabInfo,
@@ -429,17 +431,26 @@ export function App(): JSX.Element {
         const live = tabsRef.current.filter((t) => !t.exited)
         if (!live.length) return
         const seen = await Promise.all(
-          live.map(async (t) => ({
+          live.map(async (t) => {
+            // Only the renderer can read the rendered screen, so detect a
+            // standing prompt here and tell main, which lets `statusOf` (and so
+            // `terminai list`) report it. Overlay it locally too, so the rail
+            // lights up this tick instead of the next.
+            const question = detectQuestion(snapshots.snapshot(t.id, 30))
+            window.term.pty.setQuestion(t.id, question)
+            const base = await window.term.pty.status(t.id)
+            return {
             id: t.id,
             process: await window.term.pty.process(t.id),
-            status: await window.term.pty.status(t.id),
+            status: (question ? 'question' : base) as TabStatus,
             agent: await window.term.pty.agent(t.id),
             usedClaude: await window.term.pty.usedClaude(t.id),
             cwd: await window.term.pty.cwd(t.id),
             // Only worth a read once Claude has actually run here; before that
             // there is no id file to find.
             claudeSession: t.usedClaude ? await window.term.pty.claudeSession(t.id) : '',
-          })),
+            }
+          }),
         )
         setTabs((prev) =>
           prev.map((t) => {

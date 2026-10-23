@@ -1,0 +1,40 @@
+  ⎿  Read progetto-ilai/revisione-progetto-ilai.md (79 lines)
+
+  ⎿  Read progetto-ilai/v2/README.md (96 lines)
+  ⎿  Read progetto-ilai/originale-ricostruito/README.md (47 lines)
+
+  ⎿  Referenced file stampa-3d-conclusioni.md
+  ⎿  SessionStart:compact says: # claude-mem status
+
+     This project has no memory yet. The current session will seed it; subsequent sessions will receive auto-injected context for relevant past work.
+
+     Memory injection starts on your second session in a project.
+
+     `/learn-codebase` is available if the user wants to front-load the entire repo into memory in a single pass (~5 minutes on a typical repo, optional).
+     Otherwise memory builds passively as work happens.
+
+     Live activity: http://localhost:37701
+     ✨ 30 Day Free Trial — memory runs off-plan. Get up to 100% more usage from your plan https://cmem.ai/pro?from=welcome-hint
+     How it works: `/how-it-works`
+
+     This message disappears once the first observation lands.
+
+     View Observations Live @ http://localhost:37701
+     ✨ 30 Day Free Trial — memory runs off-plan. Get up to 100% more usage from your plan https://cmem.ai/pro?from=session-start
+
+
+
+
+
+
+
+
+
+
+
+
+
+⏺ Compacted while idle, before the prompt cache expired · turn off with "idleCompaction": false in settings.json
+                                                                                                                   ✔ Update installed · Restart to update
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯

@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron';
 import type { TabStatus } from '../shared/types';
+import type { QuestionKind } from '../shared/questions';
 export interface AgentSession { kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean }
 export function createSession(opts?: {browserKey?: string; cwd?: string; cols?: number; rows?: number}): {id: string; cwd: string};
 export function list(): {id: string; cwd: string; exited: boolean}[];
@@ -14,6 +15,8 @@ export function killAll(): void;
 export function foregroundProcess(id: string): string;
 export function usedClaude(id: string): boolean;
 export function statusOf(id: string): TabStatus;
+export function setQuestion(id: string, kind: QuestionKind | null): void;
+export function questionOf(id: string): QuestionKind | '';
 export function cwdOf(id: string): string;
 export function claudeSessionOf(id: string): string;
 export function claudeSessionExists(id: string): boolean;

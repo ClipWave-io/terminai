@@ -183,7 +183,7 @@ export function TabGrid({
                   <span className="rank">{i + 1}</span>
                   {/* Same live status dot as the sidebar — green/yellow/blue —
                       not the process-name colour, which never had CSS here. */}
-                  <span className={`tab-dot ${tab.exited ? 'exited' : tab.status}`} />
+                  <span className={`tab-dot ${tab.exited ? 'exited' : tab.status}`}>{!tab.exited && tab.status === 'question' ? '?' : ''}</span>
                   <span className="card-title">{tabLabel(tab)}</span>
                   <button
                     className="tab-close"

@@ -238,6 +238,29 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 28%, transparent);
 }
 
+/* The agent stopped on a prompt and needs an answer — the one state to catch
+   across a full rail of tabs. Its own colour (neither the yellow of work nor the
+   blue of waiting), bigger than the others, a "?" inside, and a ring that
+   breathes, so a glance lands on it. */
+.tab-dot.question {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: ask-halo 1.1s ease-in-out infinite;
+}
+@keyframes ask-halo {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+}
+
 .tab-dot.speaking {
   background: var(--info);
   animation: pulse 1.1s ease-in-out infinite;

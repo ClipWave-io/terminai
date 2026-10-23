@@ -152,9 +152,11 @@ export function isMine(task: Task, user: string): boolean {
 /**
  * What the tab's dot reports, in the terms that matter while you are running
  * agents in several tabs at once: green you can use, yellow is busy, blue wants
- * you.
+ * you, and 'question' when the agent has stopped on a prompt and is waiting for
+ * an answer (a choice, a permission, the folder trust check, a plan) — the one
+ * state no one should miss across a full rail.
  */
-export type TabStatus = 'ready' | 'working' | 'waiting' | 'exited'
+export type TabStatus = 'ready' | 'working' | 'waiting' | 'question' | 'exited'
 
 /** The rail buckets a tab under its group when it has one, else under its folder. */
 export function groupOf(tab: { group?: string; cwd: string }): string {

@@ -32,6 +32,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 import { getTheme } from '../shared/themes'
 import type { Prefs, Task, TaskInput, TaskScope, VoicePrefs } from '../shared/types'
+import type { QuestionKind } from '../shared/questions'
 
 /** Injected by electron-vite at build time; see electron.vite.config.ts. */
 declare const __REPO_ROOT__: string
@@ -313,6 +314,7 @@ function registerIpc(): void {
   appIpc.on('pty:kill', (_e, { id }: { id: string }) => ptys.kill(id))
   appIpc.handle('pty:process', (_e, { id }: { id: string }) => ptys.foregroundProcess(id))
   appIpc.handle('pty:status', (_e, { id }: { id: string }) => ptys.statusOf(id))
+  appIpc.on('pty:question', (_e, { id, kind }: { id: string; kind: QuestionKind | null }) => ptys.setQuestion(id, kind))
   appIpc.handle('pty:usedClaude', (_e, { id }: { id: string }) => ptys.usedClaude(id))
   appIpc.handle('pty:cwd', (_e, { id }: { id: string }) => ptys.cwdOf(id))
   appIpc.handle('pty:claudeSession', (_e, { id }: { id: string }) => ptys.claudeSessionOf(id))
