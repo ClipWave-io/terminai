@@ -2,8 +2,8 @@ import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { Task, TaskInput, TaskList, TaskListPage, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion, TaskWorking } from '../shared/types'
-import { DEFAULT_LIST, isMine } from '../shared/types'
+import type { Task, TaskActivity, TaskInput, TaskList, TaskListPage, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion, TaskWorking } from '../shared/types'
+import { DEFAULT_LIST, isMine, mentionsOf } from '../shared/types'
 
 /**
  * The To-do sheet's data. Personal tasks are one JSON file per user in userData and never leave the Mac.
@@ -203,9 +203,10 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if (input.list !== undefined && !validId(input.list)) throw Error('Invalid list')
   }
   /** The fields of a task in the order the files have them; `order` only when it is set. */
-  const clean = ({ id, title, notes, images, status, assignee, product, order, list, createdAt, createdBy, updatedAt, updatedBy }: Task): Task =>
-    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(order === undefined ? {} : { order }), ...(list && list !== DEFAULT_LIST ? { list } : {}), createdAt, createdBy, updatedAt, updatedBy })
-  function build(input: TaskInput, old: Task | undefined, user: TasksUser): Task {
+  const clean = ({ id, title, notes, images, status, assignee, product, order, list, createdAt, createdBy, updatedAt, updatedBy, updatedVia }: Task): Task =>
+    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(order === undefined ? {} : { order }), ...(list && list !== DEFAULT_LIST ? { list } : {}), createdAt, createdBy, updatedAt, updatedBy, ...(updatedVia === 'ai' ? { updatedVia } : {}) })
+  /** `via`: 'ai' when an agent in a tab made the change (`terminai todo`), so both people can tell it from their own. */
+  function build(input: TaskInput, old: Task | undefined, user: TasksUser, via?: 'ai'): Task {
     const now = romeIso()
     // Moving a task up or down its list is not an edit: in a conflict, a change to its content on the other Mac still wins.
     const kept = old && Object.entries(input).every(([field, value]) => field === 'id' || field === 'order' || value === undefined) ? old : undefined
@@ -220,6 +221,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       order: input.order ?? old?.order,
       list: input.list ?? old?.list,
       createdAt: old?.createdAt ?? now, createdBy: old?.createdBy ?? user, updatedAt: kept?.updatedAt ?? now, updatedBy: kept?.updatedBy ?? user,
+      updatedVia: kept ? kept.updatedVia : via,
     })
   }
   /** The verb in the commit message, e.g. "livio: done Fix login". */
@@ -349,7 +351,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   }
 
   /** Several tasks in one go: a shared batch is one commit. Every input is checked before anything is written. */
-  async function saveMany(scope: TaskScope, inputs: TaskInput[]): Promise<TaskList> {
+  async function saveMany(scope: TaskScope, inputs: TaskInput[], via?: 'ai'): Promise<TaskList> {
     const user = who()
     if (!Array.isArray(inputs) || !inputs.length) throw Error('Nothing to save.')
     inputs.forEach(check)
@@ -359,7 +361,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       for (const input of inputs) {
         const at = input.id === undefined ? -1 : tasks.findIndex(task => task.id === input.id)
         if (input.id !== undefined && at < 0) throw Error('That task no longer exists.')
-        const task = build(input, tasks[at], user)
+        const task = build(input, tasks[at], user, via)
         if (at < 0) tasks.push(task); else tasks[at] = task
       }
       writePersonal(user, tasks)
@@ -370,13 +372,14 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       const made = inputs.map(input => {
         const old = input.id === undefined ? undefined : readTask(join(tasksDir, `${input.id}.json`))
         if (input.id !== undefined && !old) throw Error('That task no longer exists.')
-        return { old, task: build(input, old, user) }
+        return { old, task: build(input, old, user, via) }
       })
       mkdirSync(tasksDir, { recursive: true })
       for (const { task } of made) writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
       // A paste reassigns the tasks it moves and may renumber the ones around them.
       const verbs = [...new Set(made.map(({ old, task }) => verb(old, task)))], word = verbs.length === 1 ? verbs[0] : verbs.every(v => v === 'reorder' || v.startsWith('assign to')) ? 'move' : 'edit'
-      return { paths: made.map(({ task }) => `tasks/${task.id}.json`), message: `${user}: ${word} ${titles(made.map(({ task }) => task))}` }
+      // The trailer marks an agent's commit; the subject stays "<user>: <verb> <titles>" for older builds.
+      return { paths: made.map(({ task }) => `tasks/${task.id}.json`), message: `${user}: ${word} ${titles(made.map(({ task }) => task))}${via ? '\n\nVia: AI session' : ''}` }
     })
     return list()
   }
@@ -419,7 +422,10 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         const after = readShared(), now = new Set(after.map(task => task.id)), fresh = new Set(unseen(user, after))
         const changed = after.filter(task => fresh.has(task.id) && !waiting.has(task.id))
         const removed = before.filter(task => !now.has(task.id)).map(task => task.title)
-        if (changed.length || removed.length) opts.notify?.({ by: user === 'livio' ? 'ilai' : 'livio', changed, removed })
+        // Tagged: @me is in the title or note now and was not in the copy before the pull.
+        const tags = (task?: Task) => task ? mentionsOf(`${task.title}\n${task.notes}`).includes(user) : false
+        const mentioned = changed.filter(task => tags(task) && !tags(before.find(t => t.id === task.id)))
+        if (changed.length || removed.length) opts.notify?.({ by: user === 'livio' ? 'ilai' : 'livio', changed, removed, ...(mentioned.length ? { mentioned } : {}) })
       }).catch(() => {}).then(list)
     },
 
@@ -432,6 +438,18 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       // The To-do button's dot counts the unseen ones too.
       opts.changed()
       return list()
+    },
+
+    /** Every change to the shared tasks, both people's, newest first: the To-do's Activity panel. */
+    async activity(limit = 200): Promise<TaskActivity[]> {
+      if (!existsSync(join(clone, '.git'))) return []
+      const log = await git(clone, 'log', '-n', String(Math.min(500, Math.max(1, limit))), '--format=%x1e%H%x1f%aI%x1f%s%x1f%b%x1f', '--name-only', '--', 'tasks/')
+      return log.split('\x1e').filter(Boolean).map(entry => {
+        const [hash, at, subject, body, files = ''] = entry.split('\x1f')
+        const [, by = '', message = subject] = /^(\w+): (.*)$/.exec(subject) ?? []
+        const ids = files.split('\n').flatMap(f => /^tasks\/([A-Za-z0-9_-]+)\.json$/.exec(f.trim())?.[1] ?? [])
+        return { hash, at, by, ai: /^Via: AI/m.test(body), message, ids }
+      }).filter(a => a.ids.length)
     },
 
     /** Every version of a shared task, newest first, from the repo's history. */
@@ -457,7 +475,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       const attach = (task: Task): Task | null => {
         if (task.images?.includes(name)) return null
         if ((task.images?.length ?? 0) >= MAX_IMAGES) throw Error(`A task holds up to ${MAX_IMAGES} images.`)
-        return clean({ ...task, images: [...(task.images ?? []), name], updatedAt: romeIso(), updatedBy: user })
+        return clean({ ...task, images: [...(task.images ?? []), name], updatedAt: romeIso(), updatedBy: user, updatedVia: undefined })
       }
       const put = () => { mkdirSync(imagesDir(scope, id), { recursive: true }); writeFileSync(join(imagesDir(scope, id), name), data) }
       if (scope === 'personal') {
@@ -482,7 +500,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     async removeImage(scope: TaskScope, id: string, name: string): Promise<TaskList> {
       if (!validId(id) || !validImage(name)) throw Error('Invalid image')
       const user = who()
-      const detach = (task: Task): Task | null => task.images?.includes(name) ? clean({ ...task, images: task.images.filter(n => n !== name), updatedAt: romeIso(), updatedBy: user }) : null
+      const detach = (task: Task): Task | null => task.images?.includes(name) ? clean({ ...task, images: task.images.filter(n => n !== name), updatedAt: romeIso(), updatedBy: user, updatedVia: undefined }) : null
       if (scope === 'personal') {
         const tasks = readPersonal(user), at = tasks.findIndex(task => task.id === id), next = at < 0 ? null : detach(tasks[at])
         if (next) { tasks[at] = next; writePersonal(user, tasks); rmSync(join(imagesDir(scope, id), name), { force: true }) }
@@ -537,7 +555,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       if (next === 'doing' && session) working[task.id] = { tab: session.tab, name: session.name, at: romeIso() }
       else delete working[task.id]
       writeList(workingFile(user), working)
-      const value = task.status === next ? all : await saveMany(scope, [{ id: task.id, status: next }])
+      const value = task.status === next ? all : await saveMany(scope, [{ id: task.id, status: next }], 'ai')
       // A private save and a shared one with nothing to commit send no refresh of their own.
       if (scope === 'personal' || task.status === next) opts.changed()
       return { scope, task: value[scope].find(t => t.id === task.id) ?? task }
@@ -555,7 +573,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       const shared = where in columns, target = shared ? null : pageNamed(user, to)
       const scope: TaskScope = shared ? 'shared' : 'personal', assignee = shared ? columns[where] : null
       const known = new Set(list()[scope].map(task => task.id))
-      const value = await saveMany(scope, [{ title, ...(notes ? { notes } : {}), assignee, ...(target ? { list: target.id } : {}) }])
+      const value = await saveMany(scope, [{ title, ...(notes ? { notes } : {}), assignee, ...(target ? { list: target.id } : {}) }], 'ai')
       if (scope === 'personal') opts.changed()
       const task = value[scope].find(t => !known.has(t.id) && t.title === title.trim())
       if (!task) throw Error('The task was not saved.')
@@ -656,7 +674,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           await change(() => {
             before = existsSync(file) ? readFileSync(file, 'utf8') : null
             mkdirSync(tasksDir, { recursive: true })
-            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, list: undefined, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user }), null, 2) + '\n', 'utf8')
+            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, list: undefined, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user, updatedVia: undefined }), null, 2) + '\n', 'utf8')
             const pictures = existsSync(imagesDir('personal', id))
             if (pictures) cpSync(imagesDir('personal', id), imagesDir('shared', id), { recursive: true })
             return { paths: pictures ? [path, `images/${id}`] : [path], message: `${user}: share ${task.title}` }
@@ -676,7 +694,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
           const old = readTask(file)
           if (!old) throw Error('That task no longer exists.')
           before = readFileSync(file, 'utf8')
-          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), clean({ ...old, ...placed, list: into, assignee: null, updatedAt: romeIso(), updatedBy: user })])
+          writePersonal(user, [...readPersonal(user).filter(t => t.id !== id), clean({ ...old, ...placed, list: into, assignee: null, updatedAt: romeIso(), updatedBy: user, updatedVia: undefined })])
           added = true
           const pictures = existsSync(imagesDir('shared', id))
           if (pictures) { cpSync(imagesDir('shared', id), imagesDir('personal', id), { recursive: true }); rmSync(imagesDir('shared', id), { recursive: true, force: true }) }

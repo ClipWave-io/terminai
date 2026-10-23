@@ -338,10 +338,14 @@ function registerIpc(): void {
     changed: todosChanged,
     listsChanged: writeGuides,
     // The other Mac's edits, pulled by a sync: one notice per sync, a click opens the To-do sheet.
-    notify: ({ by, changed, removed }) => {
-      if (!Notification.isSupported()) return
+    notify: ({ by, changed, removed, mentioned }) => {
       const name = by === 'ilai' ? 'Ilai' : 'Matteo', count = changed.length + removed.length
-      const body = changed.length === 1 && !removed.length ? `${name} changed “${changed[0].title}”` : removed.length === 1 && !changed.length ? `${name} deleted “${removed[0]}”` : `${name} changed ${count} shared tasks`
+      const ai = changed.length > 0 && changed.every(task => task.updatedVia === 'ai') ? `${name}’s AI` : name
+      const body = mentioned?.length ? `${ai} tagged you in “${mentioned[0].title}”${mentioned.length > 1 ? ` and ${mentioned.length - 1} more` : ''}`
+        : changed.length === 1 && !removed.length ? `${ai} changed “${changed[0].title}”` : removed.length === 1 && !changed.length ? `${name} deleted “${removed[0]}”` : `${ai} changed ${count} shared tasks`
+      // Inside TerminAI too, top right: the system notice is easy to miss while working in a tab.
+      if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: body, mention: !!mentioned?.length })
+      if (!Notification.isSupported()) return
       const note = new Notification({ title: 'To-do', body })
       note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
       note.show()
@@ -366,6 +370,7 @@ function registerIpc(): void {
   appIpc.handle('todos:sync', () => todos.sync())
   appIpc.handle('todos:markSeen', (_e, ids: unknown) => todos.markSeen(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
   appIpc.handle('todos:history', (_e, id: unknown) => todos.history(String(id)))
+  appIpc.handle('todos:activity', () => todos.activity())
   // Pictures for a task's note, small enough for the repo: at most 2000 px a side, PNG while that stays
   // under 1.5 MB (a screenshot keeps its text sharp), else JPEG.
   async function todoImage(bytes: Buffer): Promise<[Buffer, 'png' | 'jpg']> {

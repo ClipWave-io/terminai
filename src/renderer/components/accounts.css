@@ -40,3 +40,5 @@
 .usage-fill.high { background: var(--danger); }
 .usage-pct { min-width: 26px; text-align: right; }
 .usage-label { min-width: 14px; }
+
+.account-hint { margin: -2px 0 10px; font-size: 12px; line-height: 1.45; color: var(--dim); }

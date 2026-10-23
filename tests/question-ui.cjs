@@ -53,7 +53,15 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const shot = path.join(os.tmpdir(), 'terminai-question-rail.png')
   fs.writeFileSync(shot, (await win.capturePage()).toPNG())
 
-  console.log(`PASS question UI: 4 prompts read as "question" in terminai list and the rail (trust/permission/plan/question), a busy tab stays "${b.status}"; screenshot ${shot}`)
+  // Hidden from the rail (Ilai's hide button, which acts on mousedown), a tab on a question still shows while it waits;
+  // a busy tab hidden the same way goes.
+  const hide = name => win.webContents.executeJavaScript(`(() => { const row = Array.from(document.querySelectorAll('.rail .tab')).find(r => r.querySelector('.tab-title')?.textContent === ${JSON.stringify(name)}); row?.querySelector('.tab-hide')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); return !!row })()`)
+  assert.ok(await hide('ask-quest'), 'ask-quest row present'); assert.ok(await hide('busy'), 'busy row present')
+  await delay(1800)
+  const titles = await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.rail .tab .tab-title')).map(e => e.textContent)`)
+  assert.ok(titles.includes('ask-quest'), `a hidden tab on a question must stay in the rail (rows: ${titles})`)
+  assert.ok(!titles.includes('busy'), `a hidden busy tab leaves the rail (rows: ${titles})`)
+  console.log(`PASS question UI: 4 prompts read as "question" in terminai list and the rail (trust/permission/plan/question), a busy tab stays "${b.status}", hidden question tab stays in the rail, hidden busy tab leaves; screenshot ${shot}`)
   fs.rmSync(dir, { recursive: true, force: true }); app.quit()
 })().catch(e => { console.error(e); fs.rmSync(dir, { recursive: true, force: true }); app.exit(1) }) }))
 setTimeout(() => { console.error('question UI timeout'); app.exit(1) }, 90000).unref()

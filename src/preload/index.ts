@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
 import type { BrowserState } from '../shared/browser'
-import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskList, TaskScope, TaskVersion, VoiceClip } from '../shared/types'
+import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskActivity, TaskList, TaskScope, TaskVersion, VoiceClip } from '../shared/types'
 import type { QuestionKind } from '../shared/questions'
 
 /**
@@ -127,6 +127,9 @@ const api = {
     /** The shared tasks the user has now looked at, so their "edited by" mark goes. */
     markSeen: (ids: string[]): Promise<TaskList> => ipcRenderer.invoke('todos:markSeen', ids),
     history: (id: string): Promise<TaskVersion[]> => ipcRenderer.invoke('todos:history', id),
+    activity: (): Promise<TaskActivity[]> => ipcRenderer.invoke('todos:activity'),
+    /** A sync brought the other person's changes in: the line for the in-app notice. */
+    onNotice: (cb: (notice: { text: string; mention: boolean }) => void): (() => void) => { const on = (_e: unknown, notice: { text: string; mention: boolean }) => cb(notice); ipcRenderer.on('todos:notice', on); return () => { ipcRenderer.removeListener('todos:notice', on) } },
     /** Images under a task's note: bytes from a paste or a drop, or picked in a file dialog. */
     addImage: (scope: TaskScope, id: string, bytes: ArrayBuffer): Promise<TaskList> => ipcRenderer.invoke('todos:addImage', scope, id, new Uint8Array(bytes)),
     pickImages: (scope: TaskScope, id: string): Promise<TaskList> => ipcRenderer.invoke('todos:pickImages', scope, id),

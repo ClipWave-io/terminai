@@ -25,6 +25,7 @@ import {
   RAIL_DEFAULT,
   type Prefs,
   type TabStatus,
+  type TaskActivity,
   type WorkspacePane,
   type SavedTab,
   type TabInfo,
@@ -128,12 +129,21 @@ export function App(): JSX.Element {
   const [showTodos, setShowTodos] = useState(false)
   // Shared tasks the other person changed and this one has not looked at yet: a dot on the To-do button.
   const [todosUnseen, setTodosUnseen] = useState(0)
+  // Every change to the shared tasks, both people's: the bell counts the other one's since the Activity panel last showed them.
+  const [activity, setActivity] = useState<TaskActivity[]>([])
+  // The other Mac's edits as they come in, top right inside the window; a click opens the Activity panel.
+  const [notice, setNotice] = useState<{ text: string; mention: boolean } | null>(null)
   useEffect(() => {
-    const count = () => void window.term.todos.list().then(list => setTodosUnseen(list.unseen.length)).catch(() => {})
+    const count = () => {
+      void window.term.todos.list().then(list => setTodosUnseen(list.unseen.length)).catch(() => {})
+      void window.term.todos.activity().then(setActivity).catch(() => {})
+    }
     count()
     const offChanged = window.term.todos.onChanged(count), offOpen = window.term.todos.onOpen(() => setShowTodos(true))
-    return () => { offChanged(); offOpen() }
+    const offNotice = window.term.todos.onNotice(setNotice)
+    return () => { offChanged(); offOpen(); offNotice() }
   }, [])
+  useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 9000); return () => clearTimeout(t) }, [notice])
   const [toast, setToast] = useState<string | null>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_PREFS.railWidth)
   const closedTabs = useRef<SavedTab[]>([])
@@ -202,7 +212,7 @@ export function App(): JSX.Element {
     const now = Date.now()
     const tab: TabInfo = {
       id, browserKey,
-      customTitle: restore?.customTitle || restore?.name, group: restore?.group,
+      customTitle: restore?.customTitle || restore?.name, group: restore?.group, hidden: restore?.hidden,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
@@ -243,7 +253,7 @@ export function App(): JSX.Element {
       ...prev,
       {
         id: live.id,
-        customTitle: restore?.customTitle || restore?.name, group: restore?.group,
+        customTitle: restore?.customTitle || restore?.name, group: restore?.group, hidden: restore?.hidden,
       browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
@@ -359,6 +369,7 @@ export function App(): JSX.Element {
     // The name field older builds read and wrote, kept so prefs stay interchangeable.
     name: t.customTitle,
     group: t.group,
+    hidden: t.hidden || undefined,
     browserKey: t.browserKey || t.id,
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
     notes: t.notes,
@@ -725,6 +736,7 @@ export function App(): JSX.Element {
             tabs={tabs}
             filter={filterOpen ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
             onRename={(id,name)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,customTitle:name||undefined}:t))}
+            onHide={(id,hidden)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,hidden:hidden||undefined}:t))}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
             activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}
@@ -781,6 +793,15 @@ export function App(): JSX.Element {
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
           {!showTodos && <span className="topbar-title centered">{(() => { const tab = tabs.find(t => t.id === activeId); return tab ? tabLabel(tab) : '' })()}</span>}
           {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag todo-button" aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>}
+          {!prefs.hiddenToolbarItems.includes('todo') && prefs.tasksUser && (() => {
+            const fresh = activity.filter(a => a.by !== prefs.tasksUser && (!prefs.todoActivitySeen || a.at > prefs.todoActivitySeen)).length
+            const open = showTodos && prefs.todoActivity
+            return <button className="btn icon no-drag todo-bell" aria-label={fresh ? `Activity, ${fresh} new` : 'Activity'} title={fresh ? `${fresh} new changes to the To-do` : 'To-do activity: every edit, yours and theirs'} aria-pressed={open}
+              onClick={() => { if (open) patchPrefs({ todoActivity: false }); else { setShowTodos(true); patchPrefs({ todoActivity: true }) } }}>
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M4 11.5V7.2a4 4 0 0 1 8 0v4.3l1.2 1.2H2.8L4 11.5Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+              {fresh > 0 && <span className="todo-bell-count" aria-hidden="true">{fresh > 99 ? '99+' : fresh}</span>}
+            </button>
+          })()}
           {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
           {!prefs.hiddenToolbarItems.includes('sessions') && <button
             className="btn icon"
@@ -914,7 +935,11 @@ export function App(): JSX.Element {
       })()}
 
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} onClose={() => setShowTeam(false)} />}
+      {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
+        <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
       {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)}
+        prefs={{ hiddenColumns: prefs.todoHiddenColumns, products: prefs.todoProducts, activityOpen: prefs.todoActivity, activitySeen: prefs.todoActivitySeen }}
+        onPrefs={patch => patchPrefs(patch)} activity={activity}
         tabs={tabs.map(tab => ({ id: tab.id, key: tab.browserKey || tab.id, label: tabLabel(tab) }))}
         onTab={id => { setActiveId(id); setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal'); setShowTodos(false) }} />}
       {showSettings && (

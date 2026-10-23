@@ -158,12 +158,14 @@ function AddAccountSheet({ onClose }: { onClose: () => void }): JSX.Element {
   const [flow, setFlow] = useState<AccountFlow | null>(null)
   const [error, setError] = useState('')
   const opened = useRef('')
-  useEffect(() => { void window.term.accounts.chromeProfiles().then(list => { setProfiles(list); setProfile(p => p || list[0]?.dir || '') }) }, [])
+  // An empty list means macOS keeps Chrome's profiles from TerminAI: the link goes to the clipboard and Chrome's picker opens.
+  useEffect(() => { void window.term.accounts.chromeProfiles().then(list => { setProfiles(list); setProfile(p => p || list[0]?.dir || '__picker') }) }, [])
   useEffect(() => window.term.accounts.onFlow(f => setFlow(prev => prev && prev.id === f.id ? f : prev)), [])
   // The link opens by itself, once, in the profile picked before asking for it.
   useEffect(() => {
     if (!flow?.url || opened.current === flow.url || !profile) return
     opened.current = flow.url
+    if (profile === '__picker') void navigator.clipboard.writeText(flow.url)
     void window.term.accounts.openInChrome(flow.id, profile).catch((e: Error) => setError(e.message))
   }, [flow, profile])
   const close = () => {
@@ -175,6 +177,7 @@ function AddAccountSheet({ onClose }: { onClose: () => void }): JSX.Element {
     try { setFlow(await window.term.accounts.add(label)) } catch (e) { setError((e as Error).message) }
   }
   const profileName = profiles.find(p => p.dir === profile)?.name ?? 'Chrome'
+  const picker = profile === '__picker'
 
   return (
     <div className="sheet-backdrop" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }}>
@@ -187,8 +190,10 @@ function AddAccountSheet({ onClose }: { onClose: () => void }): JSX.Element {
             <label className="account-field"><span>Chrome profile</span>
               <select value={profile} onChange={(e) => setProfile(e.target.value)}>
                 {profiles.map(p => <option key={p.dir} value={p.dir}>{p.name}</option>)}
+                <option value="__picker">{profiles.length ? 'Pick it in Chrome (paste the link)' : 'Pick it in Chrome: macOS hides the profile list'}</option>
               </select>
             </label>
+            {!profiles.length && <p className="account-hint">The link is copied for you and Chrome’s profile picker opens: choose the profile signed in to that account and paste the link into its address bar. To list the profiles here, give TerminAI Full Disk Access in System Settings › Privacy &amp; Security.</p>}
             {error && <p className="account-sheet-error">{error}</p>}
             <div className="recovery-actions">
               <button type="button" className="btn" onClick={close}>Cancel</button>
@@ -199,13 +204,14 @@ function AddAccountSheet({ onClose }: { onClose: () => void }): JSX.Element {
         {flow && flow.stage !== 'saved' && flow.stage !== 'error' && (
           <>
             <p className="welcome-lead">{flow.url
-              ? `The sign-in page is open in Chrome (${profileName}). Check that it shows ${flow.label}'s account, then click Authorize. This window moves on by itself once you have.`
+              ? picker ? `The link is copied. In Chrome's profile picker, open the profile signed in to ${flow.label}'s account, paste the link (⌘V) into its address bar and press Return, then click Authorize. This window moves on by itself once you have.`
+                : `The sign-in page is open in Chrome (${profileName}). Check that it shows ${flow.label}'s account, then click Authorize. This window moves on by itself once you have.`
               : 'Asking Claude Code for a sign-in link…'}</p>
             {error && <p className="account-sheet-error">{error}</p>}
             <div className="recovery-actions">
               <button className="btn" onClick={close}>Cancel</button>
               {flow.url && <button className="btn" onClick={() => void navigator.clipboard.writeText(flow.url!)}>Copy link</button>}
-              {flow.url && <button className="btn" onClick={() => void window.term.accounts.openInChrome(flow.id, profile).catch((e: Error) => setError(e.message))}>Open again</button>}
+              {flow.url && <button className="btn" onClick={() => void window.term.accounts.openInChrome(flow.id, profile).catch((e: Error) => setError(e.message))}>{picker ? 'Open profile picker' : 'Open again'}</button>}
             </div>
           </>
         )}

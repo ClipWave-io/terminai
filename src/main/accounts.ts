@@ -449,6 +449,9 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   function openInChrome(flowId: string, profileDir: string) {
     const url = flows.get(flowId)?.flow.url
     if (!url) throw new Error('The sign-in link is not ready yet.')
+    // macOS can keep Chrome's profile list from TerminAI ("Operation not permitted" on Local State): then Chrome's own
+    // profile picker opens, and the user pastes the link (already on the clipboard) into the right profile.
+    if (profileDir === '__picker') return void execFile('open', ['-na', 'Google Chrome', '--args', 'chrome://profile-picker/'])
     if (!chromeProfiles().some(p => p.dir === profileDir)) throw new Error('Unknown Chrome profile')
     execFile('open', ['-na', 'Google Chrome', '--args', `--profile-directory=${profileDir}`, url])
   }
