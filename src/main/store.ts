@@ -29,6 +29,10 @@ function hydrate(raw: unknown): Prefs {
     seenWelcome: p.seenWelcome === true,
     groupByFolder: p.groupByFolder !== false,
     tasksUser: p.tasksUser === 'livio' || p.tasksUser === 'ilai' ? p.tasksUser : '',
+    todoHiddenColumns: Array.isArray(p.todoHiddenColumns) ? p.todoHiddenColumns.filter(c => ['livio', 'ilai', 'both'].includes(c)) : [],
+    todoProducts: Array.isArray(p.todoProducts) ? p.todoProducts.filter((x): x is string => typeof x === 'string').slice(0, 50) : [],
+    todoActivity: p.todoActivity === true,
+    todoActivitySeen: typeof p.todoActivitySeen === 'string' ? p.todoActivitySeen : '',
     tabs: Array.isArray(p.tabs) ? p.tabs : [],
   }
 }

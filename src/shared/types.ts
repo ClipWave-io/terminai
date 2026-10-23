@@ -85,6 +85,8 @@ export interface Task {
   createdBy: string
   updatedAt: string
   updatedBy: string
+  /** 'ai': the last change came from an agent in a tab (`terminai todo`), not from the person in the app */
+  updatedVia?: 'ai'
 }
 
 export interface TasksSync {
@@ -139,6 +141,29 @@ export interface TasksChange {
   by: string
   changed: Task[]
   removed: string[]
+  /** changed tasks whose title or note tags this person (@Ilai, @Matteo) and did not before */
+  mentioned?: Task[]
+}
+
+/** One change to the shared tasks, by either person: a commit of the build-tasks repo. */
+export interface TaskActivity {
+  hash: string
+  /** commit time, ISO */
+  at: string
+  by: string
+  /** made by an agent in one of that person's tabs */
+  ai: boolean
+  /** what was done, e.g. "edit Fix login" */
+  message: string
+  /** the tasks the commit touched */
+  ids: string[]
+}
+
+/** Who a note or title tags: @Matteo (or @Livio) and @Ilai. */
+export function mentionsOf(text: string): TasksUser[] {
+  const found = new Set<TasksUser>()
+  for (const [, name] of text.matchAll(/(?:^|[^\w@])@(matteo|livio|ilai)\b/gi)) found.add(name.toLowerCase() === 'ilai' ? 'ilai' : 'livio')
+  return [...found]
 }
 
 /** What the To-do sheet sends; the main process stamps the dates and authors. */
@@ -317,6 +342,14 @@ export interface Prefs {
   groupByFolder: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
+  /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
+  todoHiddenColumns: string[]
+  /** the To-do shows only these products; '' stands for tasks without one; empty: every task */
+  todoProducts: string[]
+  /** the Activity panel beside the To-do columns is open */
+  todoActivity: boolean
+  /** ISO: the newest change the Activity panel has shown; later ones by the other person count as new */
+  todoActivitySeen: string
   /** restored on launch, in the user's chosen priority order */
   tabs: SavedTab[]
 }
@@ -348,5 +381,9 @@ export const DEFAULT_PREFS: Prefs = {
   seenWelcome: false,
   groupByFolder: true,
   tasksUser: '',
+  todoHiddenColumns: [],
+  todoProducts: [],
+  todoActivity: false,
+  todoActivitySeen: '',
   tabs: [],
 }

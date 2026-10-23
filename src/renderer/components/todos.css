@@ -8,6 +8,7 @@
   --todo-matteo: light-dark(#7fa2cd, #8fb2e2);
   --todo-ilai: light-dark(#9b72cf, #b391e8);
   --todo-ink: color-mix(in srgb, var(--fg) 84%, transparent);
+  --todo-product: light-dark(#1f7fd1, #7cc4ff);
   position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box;
   background: var(--pane); color: var(--fg); border: 1px solid var(--border); border-radius: 14px; outline: none;
   font-size: 13px; line-height: 1.38;
@@ -32,9 +33,9 @@
 .todo-note h1 { margin: 8px 0 6px; font-size: 18px; font-weight: 700; color: var(--todo-ink); }
 .todo-rule { margin: 0 0 4px; font-weight: 700; color: var(--todo-ink); }
 /* Each column scrolls on its own, its @name staying on top. */
-.todo-note > .todo-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 14px; margin-top: 2px; }
+.todo-main > .todo-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 14px; margin-top: 2px; }
 /* Private notes: one box, the width of a note. */
-.todo-note > .todo-cols.single { grid-template-columns: minmax(0, 760px); justify-content: center; }
+.todo-main > .todo-cols.single { grid-template-columns: minmax(0, 760px); justify-content: center; }
 /* Each column is a card, so the three lists do not float on the page. */
 .todo-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 20px; background: var(--pane); border: 1.5px solid color-mix(in srgb, var(--border) 70%, var(--dim)); border-radius: 12px; box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow) 45%, transparent), 0 6px 18px color-mix(in srgb, var(--shadow) 18%, transparent); }
 .todo-at { position: sticky; top: 0; z-index: 1; margin: 0 -12px; padding: 10px 12px 6px; font-size: inherit; font-weight: 700; color: var(--todo-ink); letter-spacing: .04em; background: var(--pane); border-bottom: 1px solid var(--border); }
@@ -161,7 +162,7 @@ button.todo-circle:hover { border-color: var(--dim); }
 @media (max-width: 1100px) {
   .todo-sheet { display: block; overflow: auto; }
   .todo-note { display: block; padding-bottom: 96px; }
-  .todo-note > .todo-cols { display: block; margin-top: 0; }
+  .todo-main > .todo-cols { display: block; margin-top: 0; }
   .todo-col { overflow: visible; padding-bottom: 12px; margin-bottom: 12px; scroll-margin-top: 48px; }
   .todo-at { position: static; }
 }
@@ -200,3 +201,51 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-history-notes .del { display: block; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); }
 .todo-history-notes .add { display: block; color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .todo-history-notes .same { display: block; color: var(--fg); }
+
+/* ---- hidden columns, the product filter, @tags ---- */
+/* The columns and the Activity panel side by side. */
+.todo-main { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.todo-main > .todo-cols { flex: 1 1 auto; min-width: 0; }
+.todo-at { display: flex; align-items: center; gap: 6px; }
+.todo-col-hide { margin-left: auto; opacity: 0; transition: opacity 100ms ease; }
+.todo-col:hover .todo-col-hide, .todo-col-hide:focus-visible { opacity: 1; }
+.todo-eye { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+.todo-hidden-cols { color: var(--accent); }
+/* The product stands out from the grey tags: light blue, and a click filters by it. */
+.todo-tag.todo-product { font: inherit; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 5px; color: var(--todo-product); background: color-mix(in srgb, var(--todo-product) 13%, transparent); border: 0; cursor: pointer; }
+.todo-tag.todo-product:hover { background: color-mix(in srgb, var(--todo-product) 22%, transparent); }
+.todo-tag.todo-product.on { box-shadow: inset 0 0 0 1px var(--todo-product); }
+.todo-drop.todo-products.on { color: var(--todo-product); border-color: color-mix(in srgb, var(--todo-product) 55%, transparent); }
+.todo-mention { color: var(--todo-product); font-weight: 600; }
+.todo-mention.me { padding: 0 2px; border-radius: 3px; background: color-mix(in srgb, var(--todo-yellow) 28%, transparent); color: var(--fg); }
+
+/* ---- Activity: every edit, both people's ---- */
+.todo-activity { flex: 0 0 300px; min-height: 0; display: flex; flex-direction: column; background: var(--pane); border: 1.5px solid color-mix(in srgb, var(--border) 70%, var(--dim)); border-radius: 12px; overflow: hidden; }
+.todo-activity-head { display: flex; align-items: center; padding: 10px 12px 6px; border-bottom: 1px solid var(--border); }
+.todo-activity-head h3 { margin: 0; flex: 1; font-size: inherit; letter-spacing: .04em; text-transform: uppercase; color: var(--todo-ink); }
+.todo-activity-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px; }
+.todo-activity-filters button { font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); background: none; color: var(--dim); cursor: pointer; }
+.todo-activity-filters button[aria-pressed="true"] { color: var(--fg); background: color-mix(in srgb, var(--fg) 9%, transparent); border-color: var(--dim); }
+.todo-activity-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 6px 8px; list-style: none; }
+.todo-activity-list li > button { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; width: 100%; padding: 6px 8px; font: inherit; text-align: left; color: var(--fg); background: none; border: 0; border-radius: 8px; cursor: pointer; }
+.todo-activity-list li > button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.todo-activity-list li > button:disabled { cursor: default; opacity: .7; }
+.todo-activity-list li.fresh > button { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.todo-activity-list li.tagged > button { box-shadow: inset 3px 0 0 var(--todo-yellow); }
+.todo-activity-who { font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.todo-activity-who.ilai { color: var(--todo-ilai); }
+.todo-activity-who.livio { color: var(--todo-matteo); }
+.todo-activity-ai { font-size: 9.5px; font-weight: 700; letter-spacing: .05em; padding: 0 4px; border-radius: 4px; color: var(--dim); border: 1px solid var(--border); }
+.todo-activity-when { font-size: 11px; color: var(--dim); }
+.todo-activity-msg { grid-column: 1 / -1; font-size: 12px; color: var(--todo-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-activity-empty { padding: 10px 8px; }
+.todo-activity-foot { margin: 0; padding: 6px 12px 10px; font-size: 11px; }
+@media (max-width: 900px) { .todo-main { flex-direction: column; } .todo-activity { flex: 0 0 auto; max-height: 40vh; } }
+
+/* The bell beside the To-do button, and the in-window notice of the other Mac's edits. */
+.todo-bell { position: relative; }
+.todo-bell-count { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; font-size: 9.5px; font-weight: 700; line-height: 15px; text-align: center; color: #fff; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.todo-notice { position: fixed; top: 56px; right: 16px; z-index: 1300; max-width: 340px; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; font: inherit; font-size: 12.5px; text-align: left; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; box-shadow: 0 10px 30px var(--shadow); cursor: pointer; animation: todo-notice-in 180ms ease-out; }
+.todo-notice strong { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+.todo-notice.mention { border-left-color: #f5b400; }
+@keyframes todo-notice-in { from { opacity: 0; transform: translateY(-6px); } }

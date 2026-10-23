@@ -6,6 +6,9 @@ const NAME: Record<string, string> = { livio: 'Matteo', ilai: 'Ilai' }
 const STATUS: Record<string, string> = { open: 'Open', doing: 'In progress', done: 'Done' }
 const WHO: Record<string, string> = { livio: 'Matteo', ilai: 'Ilai', both: 'Together' }
 
+/** Who made a version: "Matteo", or "Matteo’s AI" when an agent in one of his tabs did. */
+const by = (v: TaskVersion | undefined) => v ? `${NAME[v.by] ?? v.by}${v.task?.updatedVia === 'ai' ? '’s AI' : ''}` : ''
+
 /** "14:32" today, "21 Oct 14:32" before. Europe/Rome like the rest of the app. */
 export function when(iso: string): string {
   const zone = { timeZone: 'Europe/Rome' }, d = new Date(iso)
@@ -91,13 +94,13 @@ export function TodoHistory({ task, onClose }: { task: Task; onClose: () => void
         <ol className="todo-history-list" aria-label="Versions, newest first">
           {versions.map((v, i) => <li key={v.hash}>
             <button aria-current={i === at} onClick={() => setAt(i)}>
-              <span className="todo-history-who">{NAME[v.by] ?? v.by}</span>
+              <span className="todo-history-who">{by(v)}</span>
               <span className="todo-history-msg">{v.message.replace(/^\w+: /, '')}</span>
               <span className="todo-history-when">{when(v.at)}</span>
             </button>
           </li>)}
         </ol>
-        <div ref={diff} className="todo-history-diff">{shown && <Change before={versions[at + 1] ?? null} after={shown} beforeBy={NAME[versions[at + 1]?.by] ?? versions[at + 1]?.by ?? ''} afterBy={NAME[shown.by] ?? shown.by} />}</div>
+        <div ref={diff} className="todo-history-diff">{shown && <Change before={versions[at + 1] ?? null} after={shown} beforeBy={by(versions[at + 1])} afterBy={by(shown)} />}</div>
       </div>}
       <div className="recovery-actions"><button className="btn primary" autoFocus onClick={onClose}>Done</button></div>
     </div>
