@@ -12,9 +12,10 @@ const delay = ms => new Promise(r => setTimeout(r, ms))
 const fxDir = path.join(__dirname, 'fixtures/questions')
 const cli = (...args) => new Promise(resolve => execFile(process.execPath, [path.join(__dirname, '..', 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => resolve({ ok: !e, out: String(out), err: String(err) })))
 
-// A tab that prints the fixture then sleeps: the screen stays on the prompt.
+// A tab that prints the fixture then sleeps: the screen stays on the prompt. `exec`, so the
+// foreground is not a bare shell, which statusOf rightly reads as "ready" before any prompt.
 async function ask(name, fixture) {
-  const r = await cli('open', '--cwd', dir, '--name', name, '--', 'sh', '-c', `cat "$1"; sleep 40`, '_', path.join(fxDir, fixture))
+  const r = await cli('open', '--cwd', dir, '--name', name, '--', 'sh', '-c', `cat "$1"; exec sleep 40`, '_', path.join(fxDir, fixture))
   assert.ok(r.ok, r.err)
   return JSON.parse(r.out).id
 }
