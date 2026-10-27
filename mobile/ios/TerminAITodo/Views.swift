@@ -1,374 +1,300 @@
 import SwiftUI
 
 @main
-struct TerminAITodoApp: App {
+struct TerminAITeamApp: App {
     @StateObject private var store = Store()
     var body: some Scene {
-        WindowGroup {
-            Root().environmentObject(store)
-        }
+        WindowGroup { Root().environmentObject(store) }
     }
 }
 
-let productBlue = Color(light: Color(red: 0.12, green: 0.50, blue: 0.82), dark: Color(red: 0.49, green: 0.77, blue: 1.0))
-let personColor: [String: Color] = ["ilai": Color(red: 0.70, green: 0.57, blue: 0.91), "livio": Color(red: 0.56, green: 0.70, blue: 0.89)]
-
+let accent = Color(light: Color(red: 0.43, green: 0.36, blue: 0.82), dark: Color(red: 0.55, green: 0.49, blue: 0.96))
 extension Color {
-    init(light: Color, dark: Color) {
-        self.init(UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) })
-    }
+    init(light: Color, dark: Color) { self.init(UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) }) }
 }
+func initials(_ name: String) -> String { name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }.joined().uppercased() }
 
 struct Root: View {
     @EnvironmentObject var store: Store
+    @Environment(\.scenePhase) private var phase
     var body: some View {
         Group {
-            if store.token.isEmpty || store.user.isEmpty { Setup() }
+            if store.token.isEmpty { Welcome() }
+            else if store.me != nil && store.teams.isEmpty { NoTeam() }
             else {
                 TabView {
-                    Board().tabItem { Label("To-do", systemImage: "checklist") }
-                    Activity().tabItem { Label("Activity", systemImage: "bell") }
+                    NotesList().tabItem { Label("My notes", systemImage: "lock") }
+                    TeamBoard().tabItem { Label("Team", systemImage: "person.3") }
                     Settings().tabItem { Label("Settings", systemImage: "gearshape") }
                 }
                 .task { await store.refresh() }
             }
         }
-        .tint(productBlue)
-    }
-}
-
-// MARK: - First launch
-
-struct Setup: View {
-    @EnvironmentObject var store: Store
-    @State private var token = ""
-    @State private var checking = false
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Text("The shared To-do from TerminAI, on your phone. It reads and writes the same build-tasks repo, so changes show on both Macs at their next sync.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Section("Who are you?") {
-                    Picker("You are", selection: $store.user) {
-                        Text("Choose").tag("")
-                        Text("Ilai").tag("ilai")
-                        Text("Matteo").tag("livio")
-                    }
-                }
-                Section {
-                    SecureField("GitHub token", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Link("Make a token on GitHub", destination: URL(string: "https://github.com/settings/tokens/new?scopes=repo&description=TerminAI%20To-do%20iPhone")!)
-                } header: { Text("GitHub access") } footer: {
-                    Text("A token that can read and write ClipWave-io/build-tasks. It stays in this iPhone's keychain.")
-                }
-                if let error = store.error { Section { Text(error).foregroundStyle(.red) } }
-                Section {
-                    Button(checking ? "Connecting…" : "Connect") {
-                        checking = true
-                        store.saveToken(token)
-                        Task { await store.refresh(); checking = false }
-                    }.disabled(token.isEmpty || store.user.isEmpty || checking)
-                }
-            }
-            .navigationTitle("TerminAI To-do")
-        }
-    }
-}
-
-// MARK: - Board
-
-struct Board: View {
-    @EnvironmentObject var store: Store
-    @State private var column = "mine"
-    @State private var adding = false
-    @State private var showDone = false
-
-    private var columns: [(key: String, label: String)] {
-        let other = store.user == "ilai" ? "livio" : "ilai"
-        return [("mine", names[store.user] ?? "Me"), ("both", "Together"), (other, names[other] ?? ""), ("none", "Unassigned")]
-    }
-    private var assignee: String? { column == "mine" ? store.user : column == "none" ? nil : column }
-    private var visible: [TodoTask] {
-        store.tasks.filter { $0.assignee == assignee && (store.picked.isEmpty || store.picked.contains($0.product.trimmingCharacters(in: .whitespaces))) }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                // The column switcher scrolls with the list: pinned under the bar it was drawn behind it.
-                Picker("Column", selection: $column) { ForEach(columns, id: \.key) { Text($0.label).tag($0.key) } }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                Section {
-                    ForEach(visible.filter { !$0.isDone }.sorted { $0.rank < $1.rank }) { TaskRow(task: $0) }
-                    if visible.allSatisfy(\.isDone) { Text("Nothing open here.").foregroundStyle(.secondary) }
-                }
-                let done = visible.filter(\.isDone).sorted { $0.updatedAt > $1.updatedAt }
-                if !done.isEmpty {
-                    Section {
-                        if showDone { ForEach(done) { TaskRow(task: $0) } }
-                        Button(showDone ? "Hide done" : "Show done (\(done.count))") { withAnimation { showDone.toggle() } }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .refreshable { await store.refresh() }
-            .navigationTitle("To-do")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: TodoTask.self) { TaskDetail(task: $0) }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ProductMenu() }
-                ToolbarItem(placement: .topBarTrailing) { Button { adding = true } label: { Image(systemName: "plus") }.accessibilityLabel("New task") }
-            }
-            .overlay(alignment: .bottom) { if let error = store.error { ErrorBanner(text: error) } }
-            .sheet(isPresented: $adding) { NewTask(assignee: assignee) }
-        }
-    }
-}
-
-struct ProductMenu: View {
-    @EnvironmentObject var store: Store
-    var body: some View {
-        Menu {
-            Button { store.productFilter = "" } label: { Label("All products", systemImage: store.picked.isEmpty ? "checkmark" : "") }
-            Divider()
-            ForEach(store.products, id: \.self) { p in
-                Button {
-                    var next = store.picked
-                    if let i = next.firstIndex(of: p) { next.remove(at: i) } else { next.append(p) }
-                    store.productFilter = next.joined(separator: "\n")
-                } label: { Label(p, systemImage: store.picked.contains(p) ? "checkmark" : "") }
-            }
-        } label: {
-            Label(store.picked.isEmpty ? "All products" : store.picked.count == 1 ? store.picked[0] : "\(store.picked[0]) +\(store.picked.count - 1)",
-                  systemImage: "line.3.horizontal.decrease.circle")
-                .labelStyle(.titleAndIcon).font(.subheadline)
-        }
-    }
-}
-
-struct TaskRow: View {
-    @EnvironmentObject var store: Store
-    let task: TodoTask
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button {
-                Task { await store.save(task, verb: task.isDone ? "reopen" : "done") { $0.status = task.isDone ? "open" : "done" } }
-            } label: {
-                Image(systemName: task.isDone ? "checkmark.circle.fill" : task.status == "doing" ? "circle.dotted" : "circle")
-                    .font(.title3).foregroundStyle(task.isDone ? productBlue : .secondary)
-            }.buttonStyle(.plain)
-            NavigationLink(value: task) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(task.title).strikethrough(task.isDone).foregroundStyle(task.isDone ? .secondary : .primary)
-                    HStack(spacing: 6) {
-                        if !task.product.isEmpty { ProductTag(product: task.product) }
-                        if task.status == "doing" { Text("in progress").font(.caption).italic().foregroundStyle(.secondary) }
-                        if mentions(task.notes).contains(store.user) { Text("@you").font(.caption.bold()).foregroundStyle(.orange) }
-                        if task.updatedBy != store.user && task.updatedBy != "" {
-                            Text("\(names[task.updatedBy] ?? task.updatedBy)\(task.updatedVia == "ai" ? "’s AI" : "")").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                    if !task.notes.isEmpty { Text(task.notes).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                }
-            }
-        }
-        .swipeActions(edge: .leading) {
-            Button { Task { await store.save(task, verb: task.status == "doing" ? "reopen" : "start") { $0.status = task.status == "doing" ? "open" : "doing" } } } label: {
-                Label(task.status == "doing" ? "Stop" : "Start", systemImage: "play.circle")
-            }.tint(.orange)
-        }
-    }
-}
-
-struct ProductTag: View {
-    let product: String
-    var body: some View {
-        Text(product).font(.caption.weight(.semibold)).foregroundStyle(productBlue)
-            .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(productBlue.opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
+        .tint(accent)
+        .onChange(of: phase) { _, now in if now == .active { Task { await store.refresh() } } }
     }
 }
 
 struct ErrorBanner: View {
-    let text: String
+    @EnvironmentObject var store: Store
     var body: some View {
-        Text(text).font(.footnote).padding(10).frame(maxWidth: .infinity)
-            .background(.red.opacity(0.9), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(.white).padding()
+        if !store.error.isEmpty {
+            Text(store.error).font(.footnote).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading)
+                .onTapGesture { store.error = "" }
+        }
     }
 }
 
-// MARK: - New task and details
+// MARK: - Sign in, start a team, join one
 
-struct NewTask: View {
+struct Welcome: View {
     @EnvironmentObject var store: Store
-    @Environment(\.dismiss) private var dismiss
-    @State var assignee: String?
-    @State private var title = ""
-    @State private var product = ""
-    @State private var saving = false
-    @FocusState private var focused: Bool
+    enum Mode: String, CaseIterable { case signIn = "Sign in", start = "Start a team", join = "Join" }
+    @State private var mode = Mode.signIn
+    @State private var name = ""
+    @State private var team = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var invite = ""
+    var ready: Bool {
+        switch mode {
+        case .signIn: return !email.isEmpty && !password.isEmpty
+        case .start: return !name.isEmpty && !team.isEmpty && !email.isEmpty && password.count >= 12
+        case .join: return !invite.isEmpty && !name.isEmpty && password.count >= 12
+        }
+    }
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Task", text: $title, axis: .vertical).focused($focused)
-                Picker("Column", selection: $assignee) {
-                    Text(names[store.user] ?? "Me").tag(Optional(store.user))
-                    Text("Together").tag(Optional("both"))
-                    let other = store.user == "ilai" ? "livio" : "ilai"
-                    Text(names[other] ?? "").tag(Optional(other))
-                    Text("Unassigned").tag(String?.none)
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("›_").font(.system(.title2, design: .monospaced).weight(.semibold)).foregroundStyle(accent)
+                        Text("TerminAI Team").font(.title.bold())
+                        Text("Your private notes and your team’s board, the same as in the Mac app and on the web.").foregroundStyle(.secondary)
+                    }.listRowBackground(Color.clear)
+                    Picker("", selection: $mode) { ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) } }
+                        .pickerStyle(.segmented).listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                 }
-                Section("Product") {
-                    TextField("e.g. ManyMotions", text: $product)
-                    if !store.products.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack { ForEach(store.products, id: \.self) { p in Button { product = p } label: { ProductTag(product: p) }.buttonStyle(.plain) } }
-                        }
-                    }
+                Section {
+                    if mode == .join { TextField("Invitation link", text: $invite).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    if mode != .signIn { TextField("Your name", text: $name).textContentType(.name) }
+                    if mode == .start { TextField("Team or company", text: $team) }
+                    if mode != .join { TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.username).textInputAutocapitalization(.never) }
+                    SecureField(mode == .signIn ? "Password" : "Password (12+ characters)", text: $password).textContentType(mode == .signIn ? .password : .newPassword)
+                } footer: {
+                    Text(mode == .join ? "Paste the link a teammate sent you." : mode == .start ? "You’ll own the team and can invite anyone from the Mac app or the web." : "")
                 }
-            }
-            .navigationTitle("New task").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Adding…" : "Add") {
-                        saving = true
-                        Task { if await store.add(title: title, assignee: assignee, product: product) { dismiss() }; saving = false }
-                    }.disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || saving)
-                }
-            }
-            .onAppear {
-                focused = true
-                if store.picked.count == 1 { product = store.picked[0] }
-            }
-        }
-    }
-}
-
-struct TaskDetail: View {
-    @EnvironmentObject var store: Store
-    @Environment(\.dismiss) private var dismiss
-    let task: TodoTask
-    @State private var title = ""
-    @State private var notes = ""
-    @State private var product = ""
-    @State private var images: [String: UIImage] = [:]
-    @State private var confirmDelete = false
-
-    private var current: TodoTask { store.tasks.first { $0.id == task.id } ?? task }
-    private var dirty: Bool { title != current.title || notes != current.notes || product != current.product }
-
-    var body: some View {
-        Form {
-            Section { TextField("Task", text: $title, axis: .vertical).font(.headline) }
-            Section("Note") {
-                TextField("Note", text: $notes, axis: .vertical).lineLimit(3...)
-                let other = store.user == "ilai" ? "livio" : "ilai"
-                if !mentions(notes).contains(other) {
-                    Button("Tag \(names[other] ?? "")") { notes += (notes.isEmpty ? "" : "\n") + "@\(names[other] ?? "") " }
-                }
-            }
-            if let names = current.images, !names.isEmpty {
-                Section("Pictures") {
-                    ScrollView(.horizontal) {
-                        HStack {
-                            ForEach(names, id: \.self) { name in
-                                Group {
-                                    if let image = images[name] { Image(uiImage: image).resizable().scaledToFill() } else { ProgressView() }
-                                }
-                                .frame(width: 120, height: 120).clipShape(RoundedRectangle(cornerRadius: 8))
-                                .task { if images[name] == nil, let img = await store.image(current, name) { images[name] = img } }
+                Section {
+                    Button {
+                        Task {
+                            switch mode {
+                            case .signIn: await store.signIn(email: email, password: password)
+                            case .start: await store.signUp(name: name, team: team, email: email, password: password)
+                            case .join: await store.join(invite: invite, name: name, password: password)
                             }
                         }
-                    }
+                    } label: { HStack { Spacer(); if store.loading { ProgressView() } else { Text(mode == .start ? "Create team" : mode == .join ? "Join team" : "Sign in").bold() }; Spacer() } }
+                    .disabled(!ready || store.loading)
+                    ErrorBanner()
+                }
+                Section("Server") {
+                    TextField("Team server", text: $store.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).font(.footnote)
                 }
             }
-            Section("Product") { TextField("Product", text: $product) }
-            Section {
-                Picker("Status", selection: Binding(get: { current.status }, set: { s in Task { await store.save(current, verb: s == "done" ? "done" : s == "doing" ? "start" : "reopen") { $0.status = s } } })) {
-                    Text("Open").tag("open"); Text("In progress").tag("doing"); Text("Done").tag("done")
-                }
-                Picker("Column", selection: Binding(get: { current.assignee }, set: { a in Task { await store.save(current, verb: "assign to \(a ?? "nobody")") { $0.assignee = a } } })) {
-                    Text("Ilai").tag(Optional("ilai")); Text("Together").tag(Optional("both")); Text("Matteo").tag(Optional("livio")); Text("Unassigned").tag(String?.none)
-                }
-            }
-            Section {
-                LabeledContent("Created", value: "\(names[current.createdBy] ?? current.createdBy), \(short(current.createdAt))")
-                LabeledContent("Last change", value: "\(names[current.updatedBy] ?? current.updatedBy)\(current.updatedVia == "ai" ? "’s AI" : ""), \(short(current.updatedAt))")
-            }
-            Section { Button("Delete task", role: .destructive) { confirmDelete = true } }
         }
-        .navigationTitle("Task").navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    Task {
-                        _ = await store.save(current, verb: "edit") { $0.title = title.trimmingCharacters(in: .whitespacesAndNewlines); $0.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines); $0.product = product.trimmingCharacters(in: .whitespaces) }
-                    }
-                }.disabled(!dirty || title.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .confirmationDialog("Delete “\(current.title)” for both of you?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await store.delete(current); dismiss() } }
-        }
-        .onAppear { title = current.title; notes = current.notes; product = current.product }
     }
 }
 
-func short(_ iso: String) -> String {
-    guard let d = TodoTask.date(iso) else { return iso }
-    return d.formatted(date: .abbreviated, time: .shortened)
+struct NoTeam: View {
+    @EnvironmentObject var store: Store
+    @State private var name = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section { TextField("Team name", text: $name); Button("Create team") { Task { await store.createTeam(name) } }.disabled(name.isEmpty) }
+                    header: { Text("You’re not in a team yet") } footer: { Text("Or open an invitation link from a teammate.") }
+                Section { ErrorBanner(); Button("Sign out", role: .destructive) { Task { await store.signOut() } } }
+            }.navigationTitle("Welcome")
+        }
+    }
 }
 
-// MARK: - Activity and settings
+// MARK: - Notes
 
-struct Activity: View {
+struct NoteRow: View {
     @EnvironmentObject var store: Store
-    @State private var who = "all"
+    let note: Note
+    var showOwner = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button { Task { await store.update(note, ["status": note.isDone ? "open" : "done"]) } } label: {
+                Image(systemName: note.isDone ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(note.isDone ? accent : .secondary)
+            }.buttonStyle(.plain).disabled(note.visibility == "company" && !store.canEditBoard)
+            NavigationLink(value: note.id) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(note.title).strikethrough(note.isDone).foregroundStyle(note.isDone ? .secondary : .primary)
+                    if !note.body.isEmpty { Text(note.body).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+                    if showOwner, let by = note.updatedByName { Text(note.updatedBy == store.me?.id ? "You" : by).font(.caption2).foregroundStyle(.tertiary) }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+struct AddField: View {
+    @EnvironmentObject var store: Store
+    let placeholder: String
+    let visibility: String
+    var assignee: String?
+    @State private var text = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        HStack {
+            Image(systemName: "plus").foregroundStyle(accent)
+            TextField(placeholder, text: $text).focused($focused).submitLabel(.done).onSubmit {
+                let t = text.trimmingCharacters(in: .whitespaces); guard !t.isEmpty else { return }
+                text = ""; focused = true
+                Task { await store.add(t, visibility: visibility, assignee: assignee) }
+            }
+        }
+    }
+}
+
+struct NotesList: View {
+    @EnvironmentObject var store: Store
+    @State private var showDone = false
+    var open: [Note] { store.notes.filter { $0.visibility == "private" && !$0.isDone }.sorted { $0.position < $1.position } }
+    var done: [Note] { store.notes.filter { $0.visibility == "private" && $0.isDone } }
     var body: some View {
         NavigationStack {
             List {
-                Picker("Whose", selection: $who) {
-                    Text("All").tag("all"); Text("Ilai").tag("ilai"); Text("Matteo").tag("livio"); Text("AI").tag("ai")
-                }.pickerStyle(.segmented).listRowBackground(Color.clear)
-                ForEach(store.changes.filter { who == "all" || (who == "ai" ? $0.ai : $0.by == who) }) { c in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(names[c.by] ?? c.by).font(.subheadline.bold()).foregroundStyle(personColor[c.by] ?? .primary)
-                            if c.ai { Text("AI").font(.caption2.bold()).padding(.horizontal, 4).overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary)) }
-                            if c.phone { Image(systemName: "iphone").font(.caption2).foregroundStyle(.secondary) }
-                            Spacer()
-                            Text(c.at, style: .relative).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Text(c.message).font(.callout)
+                Section { AddField(placeholder: "Add a note", visibility: "private") } footer: { Text("Only you can see these.") }
+                Section {
+                    ForEach(open) { NoteRow(note: $0) }
+                        .onMove { from, to in Task { await store.move(open, from: from, to: to) } }
+                        .onDelete { idx in for i in idx { let n = open[i]; Task { await store.delete(n) } } }
+                }
+                if !done.isEmpty {
+                    Section(isExpanded: $showDone) { ForEach(done) { NoteRow(note: $0) } } header: { Text("Done (\(done.count))") }
+                }
+                ErrorBanner()
+            }
+            .listStyle(.sidebar)
+            .navigationTitle("My notes")
+            .navigationDestination(for: String.self) { NoteDetail(id: $0) }
+            .toolbar { EditButton() }
+            .refreshable { await store.refresh() }
+        }
+    }
+}
+
+struct TeamBoard: View {
+    @EnvironmentObject var store: Store
+    @State private var column: String = "all"
+    var columns: [(id: String, label: String)] {
+        [("all", "All")] + store.members.map { ($0.id, $0.id == store.me?.id ? "Me" : String($0.name.split(separator: " ").first ?? "")) } + [("none", "Unassigned")]
+    }
+    func items(_ id: String) -> [Note] {
+        store.notes.filter { $0.visibility == "company" && !$0.isDone && (id == "all" || ($0.assigneeId ?? "none") == id) }.sorted { $0.position < $1.position }
+    }
+    var groups: [(id: String, label: String)] {
+        column == "all" ? store.members.map { ($0.id, $0.id == store.me?.id ? "\($0.name) (you)" : $0.name) } + [("none", "Unassigned")] : columns.filter { $0.id == column }
+    }
+    var body: some View {
+        NavigationStack {
+            List {
+                Picker("Column", selection: $column) { ForEach(columns, id: \.id) { Text($0.label).tag($0.id) } }
+                    .pickerStyle(.segmented).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                ForEach(groups, id: \.id) { g in
+                    let list = items(g.id)
+                    Section {
+                        if store.canEditBoard { AddField(placeholder: g.id == store.me?.id ? "Add for yourself" : "Add", visibility: "company", assignee: g.id == "none" ? nil : g.id) }
+                        ForEach(list) { NoteRow(note: $0, showOwner: true) }
+                            .onMove { from, to in Task { await store.move(list, from: from, to: to) } }
+                    } header: { Text("\(g.label) · \(list.count)") }
+                }
+                ErrorBanner()
+            }
+            .navigationTitle(store.team?.name ?? "Team")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: String.self) { NoteDetail(id: $0) }
+            .refreshable { await store.refresh() }
+        }
+    }
+}
+
+struct NoteDetail: View {
+    @EnvironmentObject var store: Store
+    @Environment(\.dismiss) private var dismiss
+    let id: String
+    @State private var title = ""
+    @State private var body_ = ""
+    @State private var confirmDelete = false
+    var note: Note? { store.notes.first { $0.id == id } }
+    var body: some View {
+        if let note {
+            let readOnly = note.visibility == "company" && !store.canEditBoard
+            Form {
+                Section {
+                    TextField("Title", text: $title, axis: .vertical).font(.headline).disabled(readOnly)
+                    TextField("Details", text: $body_, axis: .vertical).lineLimit(4...).disabled(readOnly)
+                }
+                if note.visibility == "company" && store.canEditBoard {
+                    Section("Assigned to") {
+                        Picker("Assigned to", selection: Binding(get: { note.assigneeId ?? "" }, set: { v in Task { await store.update(note, ["assigneeId": v.isEmpty ? nil : v]) } })) {
+                            Text("Unassigned").tag("")
+                            ForEach(store.members) { Text($0.name).tag($0.id) }
+                        }.pickerStyle(.menu).labelsHidden()
                     }
                 }
+                Section {
+                    if note.visibility == "private" && store.canEditBoard { Button("Share with team") { Task { await store.update(note, ["visibility": "company"]) } } }
+                    if note.visibility == "company" && note.ownerId == store.me?.id { Button("Make private") { Task { await store.update(note, ["visibility": "private"]) } } }
+                    if note.ownerId == store.me?.id || store.isAdmin { Button("Delete", role: .destructive) { confirmDelete = true } }
+                } footer: { if let by = note.updatedByName { Text("Last changed by \(note.updatedBy == store.me?.id ? "you" : by)") } }
             }
-            .refreshable { await store.refresh() }
-            .navigationTitle("Activity")
-        }
+            .navigationTitle(note.visibility == "private" ? "Private note" : "Team note")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear { title = note.title; body_ = note.body }
+            .onDisappear {
+                var patch: [String: Any?] = [:]
+                if !title.trimmingCharacters(in: .whitespaces).isEmpty && title != note.title { patch["title"] = title }
+                if body_ != note.body { patch["body"] = body_ }
+                if !patch.isEmpty { Task { await store.update(note, patch) } }
+            }
+            .confirmationDialog("Delete this note?", isPresented: $confirmDelete) {
+                Button("Delete", role: .destructive) { Task { await store.delete(note); dismiss() } }
+            }
+        } else { ContentUnavailableView("Note removed", systemImage: "note.text") }
     }
 }
 
 struct Settings: View {
     @EnvironmentObject var store: Store
-    @State private var token = ""
     var body: some View {
         NavigationStack {
             Form {
-                Picker("You are", selection: $store.user) { Text("Ilai").tag("ilai"); Text("Matteo").tag("livio") }
-                Section("GitHub token") {
-                    SecureField("Replace the token", text: $token)
-                    Button("Save token") { store.saveToken(token); token = ""; Task { await store.refresh() } }.disabled(token.isEmpty)
-                    Button("Sign out", role: .destructive) { store.saveToken("") }
+                if let me = store.me {
+                    Section {
+                        HStack(spacing: 12) {
+                            Text(initials(me.name)).font(.footnote.bold()).foregroundStyle(.white).frame(width: 36, height: 36).background(Circle().fill(accent))
+                            VStack(alignment: .leading) { Text(me.name).bold(); Text(me.email).font(.footnote).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+                if store.teams.count > 1 {
+                    Section("Team") {
+                        Picker("Team", selection: Binding(get: { store.team?.id ?? "" }, set: { v in Task { await store.switchTeam(v) } })) { ForEach(store.teams) { Text($0.name).tag($0.id) } }
+                    }
                 }
                 Section {
-                    LabeledContent("Repository", value: "\(Store.owner)/\(Store.repo)")
-                    if let last = store.lastSync { LabeledContent("Synced", value: last.formatted(date: .omitted, time: .shortened)) }
-                }
+                    LabeledContent("Team", value: store.team?.name ?? "—")
+                    LabeledContent("Your role", value: store.team?.role.capitalized ?? "—")
+                    LabeledContent("Members", value: "\(store.members.count)")
+                    if let url = URL(string: store.server) { Link("Invite people on the web", destination: url) }
+                } footer: { Text("Notes are stored on \(URL(string: store.server)?.host ?? store.server), shared with the TerminAI Mac app and the website.") }
+                Section { Button("Sign out", role: .destructive) { Task { await store.signOut() } } }
             }
             .navigationTitle("Settings")
         }

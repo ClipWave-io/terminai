@@ -1211,3 +1211,45 @@ textarea.card-notes.editing {
 .pdf-toolbar span { font-size: 12px; color: var(--dim); }
 .pdf-pages { flex: 1; min-height: 0; overflow: auto; padding: 16px 0; }
 .pdf-pages canvas { display: block; margin: 0 auto; background: white; }
+
+/* ---------- browser, Arc-style: tabs in a sidebar, page as an inset card ---------- */
+.browser-pane.arc { flex-direction: row; gap: 0; background: var(--pane); padding: 6px; }
+.arc-side { width: clamp(150px, 34%, 220px); flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 6px 4px 2px; min-height: 0; }
+.arc-nav, .arc-foot { display: flex; align-items: center; gap: 2px; }
+.arc-grow { flex: 1; }
+.arc-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--dim); cursor: pointer; flex: 0 0 auto; }
+.arc-icon:hover:not(:disabled) { background: var(--surface); color: var(--fg); }
+.arc-icon[aria-pressed=true] { color: var(--accent); }
+.arc-icon.spin svg { animation: arc-spin .9s linear infinite; }
+@keyframes arc-spin { to { transform: rotate(360deg); } }
+.arc-address input { width: 100%; box-sizing: border-box; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--surface); border: 1px solid transparent; border-radius: 9px; padding: 8px 10px; }
+.arc-address input:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+.arc-tabs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-top: 4px; border-top: 1px solid var(--border); }
+.arc-tabs::-webkit-scrollbar { width: 0; }
+.arc-new, .arc-group-label { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 12.5px; padding: 7px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
+.arc-new:hover, .arc-group-label:hover { background: var(--surface); color: var(--fg); }
+.arc-group { display: flex; flex-direction: column; gap: 2px; }
+.arc-group-label { font-weight: 600; font-size: 11.5px; letter-spacing: .02em; padding: 8px 8px 4px; }
+.arc-group-label small { margin-left: auto; color: var(--dim); font-weight: 400; }
+.arc-chev { display: inline-flex; transition: transform .15s; }
+.arc-group-label[aria-expanded=true] .arc-chev { transform: rotate(90deg); }
+.arc-group:has(.arc-group-label) .arc-tab { margin-left: 8px; }
+.arc-tab { display: flex; align-items: center; gap: 8px; padding: 6px 4px 6px 8px; border-radius: 8px; cursor: pointer; color: var(--fg); font-size: 12.5px; min-width: 0; }
+.arc-tab:hover { background: var(--surface); }
+.arc-tab.active { background: var(--surface); box-shadow: 0 1px 2px var(--shadow), inset 0 0 0 1px var(--border); }
+.arc-fav { flex: 0 0 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--accent); background: var(--selection); }
+.arc-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc-tab button { display: none; border: 0; background: transparent; color: var(--dim); padding: 3px; border-radius: 5px; cursor: pointer; }
+.arc-tab:hover button { display: inline-grid; }
+.arc-tab button:hover { color: var(--fg); background: var(--pane); }
+.arc-edit input { width: 100%; box-sizing: border-box; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--bg); border: 1px solid var(--accent); border-radius: 8px; padding: 7px 9px; outline: none; }
+.arc-foot { border-top: 1px solid var(--border); padding-top: 6px; }
+.arc-profile { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--dim); padding: 0 4px; }
+.arc-profile select { flex: 1; min-width: 0; font: inherit; font-size: 12px; color: var(--fg); background: transparent; border: 0; padding: 4px 0; cursor: pointer; }
+.arc-page { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px var(--shadow); }
+.arc-page .browser-status { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.arc-page .browser-start { flex: 1; font-size: 16px; font-weight: 600; color: var(--fg); }
+.arc-page .browser-start span { color: var(--dim); font-weight: 400; }
+.arc-page .browser-start .arc-start-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--selection); color: var(--accent); }
+.arc-page:has(.browser-start) .browser-viewport { flex: 0; }
+.arc-mini { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 0 0; }

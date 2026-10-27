@@ -38,7 +38,7 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
  await js(`document.querySelector('.workspace-tabs [aria-label="Browser"]').click()`);await delay(300);
  await js(`document.querySelector('[aria-label="Toggle browser only"]').click()`);await delay(200);
  assert.equal(await js(`getComputedStyle(document.querySelector('.workspace > .pane')).display`),'none');assert.ok(await js(`document.querySelectorAll('.term-host').length`)>0);
- await js(`document.querySelector('[aria-label="Create browser profile"]').click()`);await delay(100);
+ await js(`const s=document.querySelector('[aria-label="Browser profile"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'__new');s.dispatchEvent(new Event('change',{bubbles:true}))`);await delay(100);
  await js(`const p=document.querySelector('[aria-label="Profile name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(p,'Research');p.dispatchEvent(new Event('input',{bubbles:true}))`);await delay(100);
  await js(`document.querySelector('[aria-label="Profile name"]').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);await delay(250);
  assert.equal(await js(`document.querySelector('[aria-label="Browser profile"] option:checked').textContent`),'Research');assert.equal(await js(`document.querySelectorAll('[role=tab]').length`),2);

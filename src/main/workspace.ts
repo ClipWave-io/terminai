@@ -48,7 +48,9 @@ export async function workspaceState(): Promise<WorkspaceState> {
 export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceState> {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Unlock your macOS keychain before signing in.')
   const url = managerOrigin(input.url)
-  const result = input.inviteToken
+  const result = input.companyName
+    ? await request(url, '/api/auth/signup', 'POST', { name: input.name, email: input.email, companyName: input.companyName, password: input.password, client: 'desktop' })
+    : input.inviteToken
     ? await request(url, '/api/auth/accept-invite', 'POST', { token: input.inviteToken, name: input.name, password: input.password, client: 'desktop' })
     : await request(url, '/api/auth/login', 'POST', { email: input.email, password: input.password, client: 'desktop' })
   if (typeof result.token !== 'string' || result.token.length < 20) throw new Error('The manager did not return a desktop session.')
@@ -67,8 +69,9 @@ export async function workspaceLogout(): Promise<void> {
 }
 export async function workspaceRequest(path: string, method = 'GET', body?: unknown): Promise<any> {
   // This is deliberately a narrow API bridge, not an authenticated fetch proxy.
-  if (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
-    || !['GET', 'POST', 'PATCH'].includes(method)) throw new Error('Unsupported workspace action.')
+  if (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations|notes)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
+    || !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)
+    || (method === 'DELETE' && !/\/notes\/[a-zA-Z0-9-]+$/.test(path))) throw new Error('Unsupported workspace action.')
   const session = await load()
   if (!session) throw new Error('Sign in to your company workspace first.')
   if (body !== undefined && JSON.stringify(body).length > 70000) throw new Error('This message is too large.')
