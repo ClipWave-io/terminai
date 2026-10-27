@@ -97,6 +97,10 @@ struct Board: View {
     var body: some View {
         NavigationStack {
             List {
+                // The column switcher scrolls with the list: pinned under the bar it was drawn behind it.
+                Picker("Column", selection: $column) { ForEach(columns, id: \.key) { Text($0.label).tag($0.key) } }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 Section {
                     ForEach(visible.filter { !$0.isDone }.sorted { $0.rank < $1.rank }) { TaskRow(task: $0) }
                     if visible.allSatisfy(\.isDone) { Text("Nothing open here.").foregroundStyle(.secondary) }
@@ -111,11 +115,8 @@ struct Board: View {
             }
             .listStyle(.insetGrouped)
             .refreshable { await store.refresh() }
-            .safeAreaInset(edge: .top) {
-                Picker("Column", selection: $column) { ForEach(columns, id: \.key) { Text($0.label).tag($0.key) } }
-                    .pickerStyle(.segmented).padding(.horizontal).padding(.bottom, 6).background(.bar)
-            }
-            .navigationTitle(columns.first { $0.key == column }?.label ?? "To-do")
+            .navigationTitle("To-do")
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: TodoTask.self) { TaskDetail(task: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ProductMenu() }
