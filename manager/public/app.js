@@ -14,6 +14,9 @@ function el(tag, value, attributes = {}, ...children) {
   return node;
 }
 const ICONS = {
+  notes: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2 2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2zM9 12l2 2 4-4',
+  trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3',
+  grip: 'M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01',
   overview: 'M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
   conversations: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
   team: 'M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 19v-1a4 4 0 0 0-3-3.9M16 3.1a3.5 3.5 0 0 1 0 6.8',
@@ -108,25 +111,42 @@ function authPage(title, subtitle, f) {
   app.replaceChildren(el('div', null, { class: 'auth' }, art, main));
   f.querySelector('input')?.focus();
 }
+let authMode = 'signin';
 async function start() {
   const setup = await api('/api/setup');
   try { me = await api('/api/me'); } catch { me = null; }
   if (inviteToken) return showInvitation();
   if (me) return workspace();
-  if (setup.setupRequired) {
+  // Only when a server operator turned public sign-up off: the first owner proves they run the server.
+  if (setup.setupRequired && !setup.signupOpen) {
     const f = form(async data => { await api('/api/setup', 'POST', data); await refresh(); });
     field(f, 'Setup token', 'setupToken', 'password', setupToken || '');
-    const two = el('div', null, { class: 'fields' }); field(two, 'Your name', 'name'); field(two, 'Company', 'companyName'); f.append(two);
+    const two = el('div', null, { class: 'fields' }); field(two, 'Your name', 'name'); field(two, 'Team name', 'companyName'); f.append(two);
     field(f, 'Email', 'email', 'email'); field(f, 'Password', 'password', 'password');
-    submit(f, 'Create company', 'block');
-    f.append(el('small', setup.setupEnabled ? 'The setup token is the one-time SETUP_TOKEN in this service’s settings.' : 'Setup is turned off: set SETUP_TOKEN in the server environment first.'));
-    return authPage('Set up your company', 'Create the owner account. Everyone else joins by invitation.', f);
+    submit(f, 'Create team', 'block');
+    f.append(el('small', 'Sign-up is closed on this server. The token is the SETUP_TOKEN variable of the server’s hosting (for example Railway → Variables).'));
+    return authPage('Set up this server', 'Create the first owner account.', f);
+  }
+  const toggle = (text, link, mode) => {
+    const p = el('small', text + ' '), a = el('a', link, { href: '#' });
+    a.addEventListener('click', e => { e.preventDefault(); authMode = mode; start(); }); p.append(a); return p;
+  };
+  if (authMode === 'signup' && setup.signupOpen) {
+    const f = form(async data => { await api('/api/auth/signup', 'POST', data); await refresh(); });
+    const two = el('div', null, { class: 'fields' }); field(two, 'Your name', 'name'); field(two, 'Team or company', 'companyName'); f.append(two);
+    field(f, 'Work email', 'email', 'email');
+    const pw = field(f, 'Password', 'password', 'password'); pw.placeholder = '12 characters or more'; pw.autocomplete = 'new-password';
+    submit(f, 'Create team', 'block');
+    f.append(toggle('Already have an account?', 'Sign in', 'signin'),
+      el('small', 'Joining a team that already exists? Ask its admin for an invitation link instead.'));
+    return authPage('Start a team', 'Free. You’ll be its owner and can invite people right after.', f);
   }
   const f = form(async data => { await api('/api/auth/login', 'POST', data); await refresh(); });
   field(f, 'Email', 'email', 'email');
   const password = field(f, 'Password', 'password', 'password'); password.removeAttribute('minlength'); password.autocomplete = 'current-password';
   submit(f, 'Sign in', 'block');
-  f.append(el('small', 'New here? Open the invitation link your company admin sent you.'));
+  if (setup.signupOpen) f.append(toggle('New to TerminAI?', 'Start a team', 'signup'));
+  f.append(el('small', 'Invited by a teammate? Open the link they sent you.'));
   authPage('Welcome back', 'Sign in to your team workspace.', f);
 }
 function showInvitation() {
@@ -139,15 +159,17 @@ function showInvitation() {
 
 // ---- workspace shell
 const PAGES = [
-  ['overview', 'Overview', 'overview'], ['conversations', 'Conversations', 'conversations'],
+  ['overview', 'Overview', 'overview'], ['notes', 'Notes', 'notes'], ['conversations', 'Conversations', 'conversations'],
   ['team', 'Team', 'team', c => ['owner', 'admin'].includes(c.role)], ['tools', 'Tools', 'tools'],
   ['settings', 'Company settings', 'settings', c => c.role === 'owner'], ['account', 'Account', 'account'],
 ];
 async function workspace() {
   if (!me.companies.length) {
-    const box = el('div', null, { class: 'stack' }, el('p', 'You’re not in a company yet. Ask an owner for an invitation link.', { class: 'dim' }),
+    const f = form(async data => { await api('/api/companies', 'POST', data); await refresh(); });
+    field(f, 'Team or company name', 'name'); submit(f, 'Create team', 'block');
+    f.append(el('small', 'Or open an invitation link from an existing team.'),
       button('Sign out', async () => { await api('/api/auth/logout', 'POST', {}); location.reload(); }, 'secondary'));
-    return authPage(`Hi ${me.user.name}`, 'No workspace yet.', box);
+    return authPage(`Hi ${me.user.name.split(' ')[0]}`, 'You’re not in a team yet. Start one:', f);
   }
   if (!me.companies.some(c => c.id === companyId)) companyId = me.companies[0].id;
   const company = me.companies.find(c => c.id === companyId);
@@ -177,7 +199,7 @@ async function workspace() {
       (() => { const b = button('', async () => { await api('/api/auth/logout', 'POST', {}); location.reload(); }, 'secondary'); b.append(icon('out')); b.title = 'Sign out'; return b; })()));
   const main = el('main', null, { class: 'main' });
   app.replaceChildren(el('div', null, { class: 'shell' }, side, main));
-  await ({ overview, conversations, team, tools, settings, account })[page](main, company);
+  await ({ overview, notes, conversations, team, tools, settings, account })[page](main, company);
 }
 function head(main, title, subtitle, action) {
   main.append(el('div', null, { class: 'page-head' }, el('div', null, {}, el('h1', title), subtitle && el('p', subtitle)), action));
@@ -198,11 +220,99 @@ async function overview(main, company) {
     el('h2', 'Getting started'),
     el('div', null, { class: 'steps' },
       step('Invite your team', 'Create an invitation link under Team. It works once and expires after 48 hours.'),
+      step('Write things down', 'Notes has your private list, which only you ever see, and a team board with a column for each person.'),
       step('Pick tools per role', 'Developers get the browser tools, analysts and marketing get Google Ads. Change it under Tools.'),
       step('Sign in from TerminAI', 'On each Mac, click the Team icon in TerminAI and sign in with this site’s address and your account.'),
       step('Share on purpose', 'Conversations are private unless you share them. Nobody’s messages ever run as commands.'))));
   function stat(n, label) { return el('div', null, { class: 'stat' }, el('b', String(n)), el('small', label)); }
   function step(title, text) { return el('div', null, { class: 'card' }, el('h3', title), el('p', text, { class: 'small' })); }
+}
+
+// ---- notes: a private list per person and the team's board, a column for each member
+let notesView = 'private', showDone = false;
+const NOTE_MIME = 'application/x-terminai-note';
+async function notes(main, company) {
+  const [{ notes: all }, { members }] = await Promise.all([api(`${base()}/notes`), api(`${base()}/members`)]);
+  const canTeam = company.role !== 'viewer';
+  const save = (n, patch) => api(`${base()}/notes/${n.id}`, 'PATCH', patch);
+  const tabs = el('div', null, { class: 'seg' });
+  for (const [key, label] of [['private', 'My notes'], ['company', 'Team board']]) {
+    const b = el('button', label, { type: 'button', 'aria-pressed': String(notesView === key) });
+    b.addEventListener('click', run(async () => { notesView = key; await workspace(); })); tabs.append(b);
+  }
+  const doneCount = all.filter(n => n.visibility === notesView && n.status === 'done').length;
+  const doneToggle = button(showDone ? 'Hide done' : `Show done${doneCount ? ` (${doneCount})` : ''}`, async () => { showDone = !showDone; await workspace(); }, 'secondary');
+  head(main, 'Notes', notesView === 'private' ? 'Only you can see these. Not even the team owner.' : `Shared with everyone in ${company.name}.`, el('div', null, { class: 'actions' }, tabs, doneToggle));
+  const visible = all.filter(n => n.visibility === notesView && (showDone || n.status === 'open'));
+
+  function adder(extra = {}, placeholder = 'Add a note…') {
+    const f = form(async (data, f) => {
+      await api(`${base()}/notes`, 'POST', { title: data.title, visibility: notesView, ...extra });
+      await workspace(); document.querySelector(`[data-adder="${extra.assigneeId || 'none'}"] input`)?.focus();
+    });
+    f.className = 'adder'; f.dataset.adder = extra.assigneeId || 'none';
+    const input = el('input', null, { name: 'title', placeholder, 'aria-label': placeholder, maxlength: '500', autocomplete: 'off' }); input.required = true;
+    f.append(input); return f;
+  }
+  function noteCard(n) {
+    const box = el('input', null, { type: 'checkbox', 'aria-label': 'Done' }); box.checked = n.status === 'done';
+    box.addEventListener('change', run(async () => { await save(n, { status: box.checked ? 'done' : 'open' }); await workspace(); }));
+    const title = el('input', null, { class: 'note-title', 'aria-label': 'Title', maxlength: '500' }); title.value = n.title;
+    title.addEventListener('change', run(async () => { if (title.value.trim()) await save(n, { title: title.value }); }));
+    title.addEventListener('keydown', e => { if (e.key === 'Enter') title.blur(); });
+    const body = el('textarea', null, { class: 'note-body', placeholder: 'Details…', 'aria-label': 'Details', rows: '1' }); body.value = n.body;
+    const grow = () => { body.style.height = 'auto'; body.style.height = body.scrollHeight + 'px'; };
+    body.addEventListener('input', grow); requestAnimationFrame(grow);
+    body.addEventListener('change', run(async () => { await save(n, { body: body.value }); }));
+    const tools = el('div', null, { class: 'note-tools' });
+    if (n.visibility === 'private' && canTeam) tools.append(button('Share with team', async () => { await save(n, { visibility: 'company' }); message('Moved to the team board.'); await workspace(); }, 'ghost'));
+    if (n.visibility === 'company' && n.ownerId === me.user.id) tools.append(button('Make private', async () => { await save(n, { visibility: 'private' }); await workspace(); }, 'ghost'));
+    if (n.ownerId === me.user.id || ['owner', 'admin'].includes(company.role)) {
+      const del = button('', async () => { if (confirm(`Delete “${n.title}”?`)) { await api(`${base()}/notes/${n.id}`, 'DELETE'); await workspace(); } }, 'ghost'); del.append(icon('trash')); del.title = 'Delete'; tools.append(del);
+    }
+    const by = n.visibility === 'company' && n.updatedByName ? el('small', `${n.updatedBy === me.user.id ? 'You' : n.updatedByName} · ${new Date(n.updatedAt).toLocaleDateString()}`) : null;
+    const grip = el('span', null, { class: 'grip', draggable: 'true', title: 'Drag to move' }); grip.append(icon('grip'));
+    grip.addEventListener('dragstart', e => { e.dataTransfer.setData(NOTE_MIME, n.id); e.dataTransfer.effectAllowed = 'move'; card.classList.add('dragging'); });
+    grip.addEventListener('dragend', () => card.classList.remove('dragging'));
+    const card = el('article', null, { class: `note ${n.status}`, 'data-id': n.id }, grip, box, el('div', null, { class: 'note-main' }, title, body, by), tools);
+    return card;
+  }
+  // Dropping on a card puts the note above or below it; on a column's empty space, at its end.
+  function dropZone(list, items, assigneeId) {
+    list.addEventListener('dragover', e => { if (e.dataTransfer.types.includes(NOTE_MIME)) { e.preventDefault(); list.classList.add('over'); } });
+    list.addEventListener('dragleave', e => { if (!list.contains(e.relatedTarget)) list.classList.remove('over'); });
+    list.addEventListener('drop', run(async e => {
+      list.classList.remove('over'); const id = e.dataTransfer.getData(NOTE_MIME); if (!id) return;
+      const target = e.target.closest('.note'), rest = items.filter(n => n.id !== id);
+      let at = rest.length;
+      if (target && target.dataset.id !== id) { const r = target.getBoundingClientRect(); at = rest.findIndex(n => n.id === target.dataset.id) + (e.clientY > r.top + r.height / 2 ? 1 : 0); }
+      const before = rest[at - 1]?.position, after = rest[at]?.position;
+      const position = before === undefined && after === undefined ? 1 : before === undefined ? after - 1 : after === undefined ? before + 1 : (before + after) / 2;
+      await save({ id }, { position, ...(notesView === 'company' ? { assigneeId } : {}) }); await workspace();
+    }));
+  }
+  if (notesView === 'private') {
+    const list = el('div', null, { class: 'notes-list' });
+    if (!visible.length) list.append(el('div', 'Nothing here yet. Type above and press Return.', { class: 'empty' }));
+    for (const n of visible) list.append(noteCard(n));
+    dropZone(list, visible, null);
+    main.append(el('div', null, { class: 'notes-solo' }, adder(), list));
+    main.querySelector('.adder input').focus();
+    return;
+  }
+  const board = el('div', null, { class: 'board' });
+  const columns = [...members.map(m => ({ id: m.id, label: m.id === me.user.id ? `${m.name} (you)` : m.name, avatar: initials(m.name) })), { id: null, label: 'Unassigned' }];
+  for (const col of columns) {
+    const items = visible.filter(n => (n.assigneeId || null) === col.id);
+    const list = el('div', null, { class: 'notes-list' });
+    for (const n of items) list.append(noteCard(n));
+    dropZone(list, items, col.id);
+    board.append(el('section', null, { class: 'column' },
+      el('header', null, {}, col.avatar ? el('span', col.avatar, { class: 'avatar sm' }) : null, el('h3', col.label), el('span', String(items.filter(n => n.status === 'open').length), { class: 'count' })),
+      canTeam ? adder(col.id ? { assigneeId: col.id } : {}, col.id === me.user.id ? 'Add for yourself…' : col.id ? `Add for ${col.label.split(' ')[0]}…` : 'Add…') : null,
+      list));
+  }
+  main.append(board);
 }
 
 async function conversations(main, company) {

@@ -8,6 +8,7 @@ const unsafe = method => !['GET', 'HEAD', 'OPTIONS'].includes(method);
 const publicUser = user => ({ id: user.id, email: user.email, name: user.name });
 const publicCompany = row => ({ id: row.id, name: row.name, role: row.role, classification: row.classification, defaultVisibility: row.default_visibility, allowCompanySharing: row.allow_company_sharing });
 const publicConversation = row => ({ id: row.id, companyId: row.company_id, ownerId: row.owner_id, title: row.title, visibility: row.visibility, allowedRoles: row.allowed_roles, createdAt: row.created_at, updatedAt: row.updated_at });
+const publicNote = row => ({ id: row.id, ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
 const publicMessage = row => ({ id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorName: row.author_name, kind: row.kind, content: row.content, clientMessageId: row.client_message_id, createdAt: row.created_at });
 function roles(value) {
   requireThat(Array.isArray(value) && value.length > 0 && value.length <= ROLES.length, 400, 'Choose at least one allowed role.');
@@ -83,9 +84,9 @@ export function createApp(pool, config) {
       await limit(pool, `api:${ip}`, 300, 60);
       if (req.method === 'GET' && path === '/api/setup') {
         const { rows: [row] } = await pool.query('SELECT EXISTS(SELECT 1 FROM manager_users) AS initialized');
-        return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken) });
+        return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken), signupOpen: config.signupOpen !== false });
       }
-      if (req.method === 'POST' && ['/api/setup','/api/auth/login','/api/auth/accept-invite'].includes(path)) {
+      if (req.method === 'POST' && ['/api/setup','/api/auth/signup','/api/auth/login','/api/auth/accept-invite'].includes(path)) {
         await limit(pool, `auth:${ip}`, 20, 900);
         const input = await body(req);
         if (path === '/api/auth/login') {
@@ -97,6 +98,26 @@ export function createApp(pool, config) {
           const response = await transaction(pool,async db=>{
             const {rows:[current]}=await db.query('SELECT password_hash FROM manager_users WHERE id=$1 FOR UPDATE',[user.id]);
             requireThat(current.password_hash===user.password_hash,401,'Password changed. Sign in again.');
+            return signedInResponse(req,res,db,user,input);
+          });
+          return json(res,response.status,response.value,response.headers);
+        }
+        if (path === '/api/auth/signup') {
+          // Anyone can start a team: a new account that owns a new, empty company. Joining an existing one is by invitation only.
+          requireThat(config.signupOpen !== false, 403, 'Sign-up is closed on this server. Ask for an invitation.');
+          const accountEmail = email(input.email), name = text(input.name,'Name'), companyName = text(input.companyName,'Team name');
+          await limit(pool, `signup:${ip}`, 5, 3600);
+          const passwordHash = await hashPassword(input.password);
+          const response = await transaction(pool, async db => {
+            await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[accountEmail]);
+            const { rowCount } = await db.query('SELECT id FROM manager_users WHERE email=$1',[accountEmail]);
+            requireThat(!rowCount, 409, 'An account with this email already exists. Sign in instead.');
+            const user = { id: randomUUID(), email: accountEmail, name }, companyId = randomUUID();
+            await db.query('INSERT INTO manager_users(id,email,name,password_hash) VALUES($1,$2,$3,$4)', [user.id,user.email,user.name,passwordHash]);
+            await db.query('INSERT INTO manager_companies(id,name) VALUES($1,$2)',[companyId,companyName]);
+            await db.query("INSERT INTO manager_memberships(company_id,user_id,role) VALUES($1,$2,'owner')",[companyId,user.id]);
+            await defaultAssignments(db,companyId);
+            await audit(db,companyId,user.id,'company.created',companyId);
             return signedInResponse(req,res,db,user,input);
           });
           return json(res,response.status,response.value,response.headers);
@@ -307,6 +328,42 @@ export function createApp(pool, config) {
             if(inserted)await db.query('UPDATE manager_conversations SET updated_at=now() WHERE id=$1',[conversationId]);
             return {message:publicMessage({...row,author_name:user.name}),deduplicated:!inserted};
           }
+        }
+        // Notes: a private list per person (only its owner ever reads it) and the team's shared board.
+        if(tail==='/notes'&&req.method==='GET') {
+          const {rows}=await db.query(`SELECT n.*,u.name AS updated_by_name FROM manager_notes n LEFT JOIN manager_users u ON u.id=n.updated_by
+            WHERE n.company_id=$1 AND (n.visibility='company' OR n.owner_id=$2) ORDER BY n.position,n.created_at LIMIT 2000`,[companyId,user.id]);
+          return {notes:rows.map(publicNote)};
+        }
+        const assignee=async value=>{
+          if(value===null||value===undefined||value==='')return null;
+          const {rowCount}=await db.query('SELECT 1 FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[companyId,uuid(value)]);
+          requireThat(rowCount,400,'That person is not in this team.');return value;
+        };
+        if(tail==='/notes'&&req.method==='POST') {
+          const visibility=enumValue(input.visibility??'private',['private','company'],'visibility');
+          requireThat(visibility==='private'||member.role!=='viewer',403,'Viewers cannot add to the team board.');
+          const {rows:[last]}=await db.query('SELECT coalesce(max(position),0)+1 AS p FROM manager_notes WHERE company_id=$1',[companyId]);
+          const {rows:[row]}=await db.query('INSERT INTO manager_notes(id,company_id,owner_id,visibility,title,body,assignee_id,position,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$3) RETURNING *',
+            [randomUUID(),companyId,user.id,visibility,text(input.title,'Title',500),typeof input.body==='string'?input.body.slice(0,20000):'',visibility==='company'?await assignee(input.assigneeId):null,last.p]);
+          return {note:publicNote({...row,updated_by_name:user.name})};
+        }
+        const noteMatch=tail.match(/^\/notes\/([^/]+)$/);
+        if(noteMatch&&['PATCH','DELETE'].includes(req.method)) {
+          const {rows:[note]}=await db.query('SELECT * FROM manager_notes WHERE id=$1 AND company_id=$2 FOR UPDATE',[uuid(noteMatch[1]),companyId]);
+          requireThat(note&&(note.visibility==='company'||note.owner_id===user.id),404,'Note not found.');
+          requireThat(note.visibility==='private'||member.role!=='viewer',403,'Viewers cannot change the team board.');
+          if(req.method==='DELETE'){requireThat(note.owner_id===user.id||isAdmin(member),403,'Only its author or an admin can delete it.');await db.query('DELETE FROM manager_notes WHERE id=$1',[note.id]);return {ok:true};}
+          const visibility=input.visibility===undefined?note.visibility:enumValue(input.visibility,['private','company'],'visibility');
+          requireThat(visibility===note.visibility||note.owner_id===user.id,403,'Only its author can move it between private and team.');
+          const {rows:[row]}=await db.query('UPDATE manager_notes SET title=$1,body=$2,status=$3,assignee_id=$4,position=$5,visibility=$6,updated_by=$7,updated_at=now() WHERE id=$8 RETURNING *',[
+            input.title===undefined?note.title:text(input.title,'Title',500),
+            input.body===undefined?note.body:String(input.body).slice(0,20000),
+            input.status===undefined?note.status:enumValue(input.status,['open','done'],'status'),
+            visibility==='private'?null:input.assigneeId===undefined?note.assignee_id:await assignee(input.assigneeId),
+            input.position===undefined?note.position:(requireThat(Number.isFinite(input.position),400,'Invalid position.'),input.position),
+            visibility,user.id,note.id]);
+          return {note:publicNote({...row,updated_by_name:user.name})};
         }
         if(tail==='/audit'&&req.method==='GET'){admin();const {rows}=await db.query('SELECT id,actor_id,action,target_id,created_at FROM manager_audit WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100',[companyId]);return {events:rows};}
         throw new HttpError(404,'Not found.');

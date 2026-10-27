@@ -73,6 +73,16 @@ export async function migrate(pool) {
       CREATE TABLE IF NOT EXISTS manager_rate_limits (
         key text PRIMARY KEY, count integer NOT NULL, resets_at timestamptz NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS manager_notes (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        owner_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
+        visibility text NOT NULL CHECK(visibility IN ('private','company')),
+        title text NOT NULL, body text NOT NULL DEFAULT '', status text NOT NULL DEFAULT 'open' CHECK(status IN ('open','done')),
+        assignee_id uuid REFERENCES manager_users ON DELETE SET NULL, position double precision NOT NULL DEFAULT 0,
+        updated_by uuid REFERENCES manager_users ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS manager_notes_company ON manager_notes(company_id,visibility,owner_id);
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

@@ -119,3 +119,41 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 form>button:not(.block){justify-self:start}
 button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .badge{text-transform:none}
+
+/* Notes */
+.main:has(.board){max-width:none}
+.seg{display:inline-flex;background:var(--pane);border:1px solid var(--border);border-radius:9px;padding:3px}
+.seg button{background:transparent;color:var(--dim);padding:5px 12px;border-radius:6px;font-weight:550}
+.seg button[aria-pressed=true]{background:var(--raised);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.2)}
+button.ghost{background:transparent;color:var(--dim);padding:4px 8px;font-size:12.5px;font-weight:500}
+button.ghost:hover{background:var(--raised);color:var(--fg);filter:none}
+.adder input{background:var(--surface);border-style:dashed}
+.adder input:focus{border-style:solid}
+.notes-solo{display:grid;gap:12px;max-width:720px}
+.notes-list{display:grid;gap:8px;align-content:start;min-height:60px;border-radius:10px;transition:background .15s}
+.notes-list.over{background:var(--accent-soft)}
+.notes-list .empty{border:1px dashed var(--border-strong);border-radius:10px}
+.note{display:grid;grid-template-columns:auto auto 1fr;gap:10px;align-items:start;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 12px 9px 6px;transition:border-color .15s,opacity .15s}
+.note:hover{border-color:var(--border-strong)}
+.note input[type=checkbox]{margin-top:4px;border-radius:50%}
+.note.done .note-title{text-decoration:line-through;color:var(--dim)}
+.note.dragging{opacity:.4}
+.grip{cursor:grab;color:var(--faint);opacity:0;padding-top:2px;transition:opacity .15s}.note:hover .grip{opacity:1}
+.note-main{display:grid;gap:2px;min-width:0}
+.note-title,.note-body{background:transparent;border:0;padding:0;border-radius:4px;width:100%}
+.note-title{font-weight:550}
+.note-body{min-height:0;resize:none;font-size:13px;color:var(--dim);overflow:hidden}
+.note-title:focus,.note-body:focus{box-shadow:none;background:var(--pane);outline:none}
+.note-foot{display:flex;align-items:center;gap:8px;min-height:22px}
+.note-tools{margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .15s}
+.note:hover .note-tools,.note:focus-within .note-tools{opacity:1}
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(260px,1fr);gap:14px;overflow-x:auto;padding-bottom:12px;align-items:start}
+.column{display:grid;gap:10px;background:var(--pane);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.column header{display:flex;align-items:center;gap:8px;padding:2px 2px 4px}
+.column .count{margin-left:auto;font-size:12px;color:var(--faint)}
+.avatar.sm{width:22px;height:22px;font-size:10px}
+nav button{justify-content:flex-start}
+.note{position:relative}
+.note-main small{margin-top:4px}
+.note-tools{position:absolute;top:6px;right:6px;background:var(--surface);border-radius:7px}
+.note:not(:hover):not(:focus-within) .note-body:placeholder-shown{display:none}
