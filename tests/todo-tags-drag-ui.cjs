@@ -1,0 +1,66 @@
+// @ in a note offers people and projects from a list; a task moves by dragging its grip.
+// After `npx electron-vite build`: CODEX_HOME=<scratch dir> TERMINAI_TEST_BUILD=1 npx electron tests/todo-tags-drag-ui.cjs
+const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict')
+if (!process.env.CODEX_HOME) { console.error('Set CODEX_HOME to a scratch folder: the app writes its Codex config there.'); process.exit(1) }
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-todo-tags-')); app.setPath('userData', dir)
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, tasksUser: 'ilai' }))
+const delay = ms => new Promise(r => setTimeout(r, ms))
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = code => win.webContents.executeJavaScript(code)
+  await delay(1200); win.setSize(1400, 860); await delay(300)
+  for (const [title, product] of [['First', 'ManyMotions.org'], ['Second', 'Abracadabrax'], ['Third', '']])
+    await js(`window.term.todos.save('personal', { title: ${JSON.stringify(title)}, product: ${JSON.stringify(product)} })`)
+  await js(`document.querySelector('[aria-label^="To-do"]').click()`); await delay(500)
+  await js(`document.querySelector('[aria-label="Showing shared tasks"]').click()`); await delay(150)
+  await js(`[...document.querySelectorAll('.todo-menu button')].find(b => b.textContent === 'Private').click()`); await delay(600)
+  const titles = () => js(`[...document.querySelectorAll('.todo-part .todo-row[data-id] .todo-text')].map(t => t.value)`)
+  assert.deepEqual(await titles(), ['First', 'Second', 'Third'])
+
+  // @ in the note of "Third": the list, narrowed by typing, picked with Return.
+  await js(`[...document.querySelectorAll('.todo-row')].find(r => r.querySelector('.todo-text')?.value === 'Third').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 }))`); await delay(150)
+  await js(`[...document.querySelectorAll('.todo-menu button')].find(b => b.textContent === 'Add note').click()`); await delay(300)
+  await js(`document.querySelector('.todo-notes').focus()`)
+  await win.webContents.insertText('Ask @'); await delay(150)
+  const all = await js(`[...document.querySelectorAll('.todo-tag-picker li .person, .todo-tag-picker li .product')].map(e => e.textContent)`)
+  assert.deepEqual(all, ['@Matteo', '@Ilai', '@Abracadabrax', '@ManyMotions.org'])
+  await win.webContents.insertText('Ma'); await delay(150)
+  assert.deepEqual(await js(`[...document.querySelectorAll('.todo-tag-picker li')].map(e => e.querySelector('span').textContent)`), ['@Matteo', '@ManyMotions.org'])
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' }); await delay(80)
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' }); await delay(150)
+  assert.equal(await js(`document.querySelector('.todo-notes').value`), 'Ask @ManyMotions.org ')
+  assert.equal(await js(`!!document.querySelector('.todo-tag-picker')`), false)
+  await win.webContents.insertText('and @'); await delay(120)
+  await js(`[...document.querySelectorAll('.todo-tag-picker li')].find(li => li.textContent.startsWith('@Matteo')).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`); await delay(150)
+  assert.equal(await js(`document.querySelector('.todo-notes').value`), 'Ask @ManyMotions.org and @Matteo ')
+  // Esc closes the list without leaving the note.
+  await win.webContents.insertText('@'); await delay(100)
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' }); await delay(120)
+  assert.equal(await js(`!!document.querySelector('.todo-tag-picker') || !document.querySelector('.todo-notes')`), false)
+  await js(`(() => { const f = document.querySelector('.todo-notes'); f.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); f.blur() })()`); await delay(500)
+  assert.deepEqual(await js(`[...document.querySelectorAll('.todo-note-text .todo-mention')].map(e => e.className + ':' + e.textContent)`), ['todo-mention product:@ManyMotions.org', 'todo-mention:@Matteo'])
+
+  // Drag "Third" by its grip onto the top half of "First": it moves to the top, and stays after a reload.
+  await js(`(() => {
+    const row = t => [...document.querySelectorAll('.todo-row')].find(r => r.querySelector('.todo-text')?.value === t)
+    const dt = new DataTransfer(), grip = row('Third').querySelector('.todo-grip'), target = row('First'), b = target.getBoundingClientRect()
+    grip.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientY: b.top + 2 }))
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientY: b.top + 2 }))
+  })()`); await delay(700)
+  assert.deepEqual(await titles(), ['Third', 'First', 'Second'])
+  const saved = (await js(`window.term.todos.list()`)).personal.filter(t => t.status !== 'done').sort((a, b) => (a.order ?? Date.parse(a.createdAt)) - (b.order ?? Date.parse(b.createdAt))).map(t => t.title)
+  assert.deepEqual(saved, ['Third', 'First', 'Second'])
+  // Onto the bottom half of "Second": to the end.
+  await js(`(() => {
+    const row = t => [...document.querySelectorAll('.todo-row')].find(r => r.querySelector('.todo-text')?.value === t)
+    const dt = new DataTransfer(), grip = row('Third').querySelector('.todo-grip'), target = row('Second'), b = target.getBoundingClientRect()
+    grip.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientY: b.bottom - 2 }))
+  })()`); await delay(700)
+  assert.deepEqual(await titles(), ['First', 'Second', 'Third'])
+  fs.writeFileSync(path.join(os.tmpdir(), 'terminai-todo-tags.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
+  console.log('PASS todo tags and drag: @ lists people and projects, narrows, arrows/Return/click/Esc, product tags blue, grip drag above and below, order saved')
+  fs.rmSync(dir, { recursive: true, force: true }); app.quit()
+})().catch(e => { console.error(e); fs.rmSync(dir, { recursive: true, force: true }); app.exit(1) }) }))
+setTimeout(() => { console.error('todo tags UI timeout'); app.exit(1) }, 40000).unref()
+require(path.join(__dirname, '../out/main/index.js'))

@@ -241,8 +241,8 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
   }
 
   /** ⌘V: the cut tasks move to `spot` (another column, private ⇄ shared, or up and down their own), copied ones are duplicated there. */
-  const paste = ({ part, after }: Spot) => serial(async () => {
-    const then = latest.current, take = clip
+  const paste = ({ part, after }: Spot, given?: Clip) => serial(async () => {
+    const then = latest.current, take = given ?? clip
     const movers = (take?.ids ?? []).flatMap(id => { const snap = find(then, id); return snap ? [snap] : [] })
     if (!then || !take || !movers.length) return
     const cut = take.mode === 'cut', away = new Set(cut ? take.ids : [])
@@ -269,7 +269,7 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
     if (ok && inputs.length) ok = !!(await act(() => window.term.todos.saveMany(part.scope, inputs)))
     const copies = cut ? [] : (latest.current?.[part.scope] ?? []).filter(task => !find(then, task.id) && movers.some(snap => snap.task.title === task.title)).map(task => task.id)
     remember(then, [...moves.map(m => m.id), ...inputs.flatMap(input => input.id ?? []), ...copies])
-    if (cut && ok) setClip(null)
+    if (cut && ok && !given) setClip(null)
     const landed = cut ? movers.map(snap => snap.task.id) : copies
     setSel(landed)
     anchor.current = landed[0] ?? null
@@ -424,6 +424,7 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
   }
   const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]} session={sessionOf(task)}
     fresh={scope === 'shared' && unseen.includes(task.id) ? { by: `${NAME[task.updatedBy as TasksUser] ?? task.updatedBy}${task.updatedVia === 'ai' ? '’s AI' : ''}`, at: task.updatedAt, added: task.createdAt === task.updatedAt } : null} onHistory={() => openHistory(task)}
+    tags={{ people: [NAME[other], NAME[me]], products }} onDropTask={dropTask}
     product={task.product ? { on: picked.length === 1 && picked[0] === task.product.trim(), toggle: () => onPrefs({ todoProducts: picked.length === 1 && picked[0] === task.product.trim() ? [] : [task.product.trim()] }) } : null} me={me}
     confirming={confirm === task.id} openNote={noteFor === task.id} selected={sel.includes(task.id)} cut={clip?.mode === 'cut' && clip.ids.includes(task.id)}
     onSave={save} onImage={act} onLeave={onClose} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
@@ -466,6 +467,19 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
     if (!part) return null
     const last = [...col.querySelectorAll<HTMLElement>(`.todo-part[data-part="${part.section}"] .todo-row[data-id]`)].pop()
     return { part, after: last?.dataset.id ?? null }
+  }
+  /** A row dragged by its grip onto another: above or below it, in that column (several when it was one of a selection). */
+  function dropTask(id: string, target: HTMLElement, below: boolean) {
+    const ids = sel.includes(id) ? inOrder(sel) : [id]
+    if (ids.includes(target.dataset.id ?? '')) return
+    let spot = spotOf(target)
+    if (!spot) return
+    if (!below && target.closest('.todo-part')) {
+      let above = target.previousElementSibling
+      while (above && !(above instanceof HTMLElement && above.dataset.id)) above = above.previousElementSibling
+      spot = { part: spot.part, after: above instanceof HTMLElement ? above.dataset.id ?? null : null }
+    }
+    void paste(spot, { ids, mode: 'cut' })
   }
   /** ⌘V in a field pastes the tasks only on a row's title left as it is or an empty "New task" row; once something is typed, the text. */
   function spotIn(field: HTMLElement): Spot | null {
@@ -596,7 +610,7 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
  * `lock`: a private task in a list that mixes both (my completed ones). `other`: who loses a task made private.
  * `confirming`: the row asks "Make it private?"; deleting is asked by the sheet (onDelete).
  */
-function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product, me, confirming, openNote, selected, cut, onSave, onImage, onLeave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
+function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product, me, tags, onDropTask, confirming, openNote, selected, cut, onSave, onImage, onLeave, onPrivate, onConfirm, onDelete, onNoteOpened, onSelect, onMenu, onEnter }: {
   task: Task; scope: TaskScope; lock: boolean; other: string; confirming: boolean; openNote: boolean; selected: boolean; cut: boolean; onSave: Save
   /** The tab of this Mac that started it (`terminai todo start`); `open` goes there, missing when the tab is closed. */
   session: { name: string; open?: () => void } | null
@@ -608,6 +622,10 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
   fresh: { by: string; at: string; added: boolean } | null; onHistory: () => void
   /** The product tag: a click shows only that product's tasks, again shows them all. */
   product: { on: boolean; toggle: () => void } | null; me: TasksUser
+  /** What @ offers in the title and the note: the two people, then the products. */
+  tags: Tags
+  /** This row was dropped on `target` (a row), above or below its middle. */
+  onDropTask: (id: string, target: HTMLElement, below: boolean) => void
   onPrivate: () => Promise<boolean>; onConfirm: (on: boolean) => void; onDelete: () => void; onNoteOpened: () => void; onSelect: (how: 'toggle' | 'range') => void
   onMenu: (x: number, y: number, up?: number) => void; onEnter?: () => void
 }): JSX.Element {
@@ -617,6 +635,9 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [dropping, setDropping] = useState(false)
+  // A task row dragged by its grip over this one: the line shows above or below it.
+  const [landing, setLanding] = useState<'above' | 'below' | null>(null)
+  const titleTag = useTagPicker(tags, setTitle), noteTag = useTagPicker(tags, setNotes)
   const editing = useRef(false)
   const cancel = useRef(false)
   const caret = useRef<number | null>(null)
@@ -660,13 +681,26 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
   // ⌘-click and ⇧-click select the row: no editing, no tick. ⇧-click inside the text being edited still extends its selection.
   const picking = (event: { button: number; metaKey: boolean; shiftKey: boolean; target: EventTarget }) => event.button === 0 && (event.metaKey || (event.shiftKey && event.target !== document.activeElement))
 
-  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}${fresh ? ' fresh' : ''}${dropping ? ' dropping' : ''}`} data-id={task.id}
-    onDragOver={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropping(true) } }}
-    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false) }}
-    onDrop={event => { setDropping(false); const files = pictures(event.dataTransfer.files); if (files.length) { event.preventDefault(); addPictures(files) } }}
+  return <li className={`todo-row ${task.status}${checking ? ' checking' : ''}${selected ? ' selected' : ''}${cut ? ' cut' : ''}${fresh ? ' fresh' : ''}${dropping ? ' dropping' : ''}${landing ? ` landing-${landing}` : ''}`} data-id={task.id}
+    onDragOver={event => {
+      if (event.dataTransfer.types.includes(TASK_MIME)) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; const b = event.currentTarget.getBoundingClientRect(); setLanding(event.clientY > b.top + b.height / 2 ? 'below' : 'above'); return }
+      if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropping(true) }
+    }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setDropping(false); setLanding(null) } }}
+    onDrop={event => {
+      setDropping(false); setLanding(null)
+      const moved = event.dataTransfer.getData(TASK_MIME)
+      if (moved) { event.preventDefault(); const b = event.currentTarget.getBoundingClientRect(); onDropTask(moved, event.currentTarget, event.clientY > b.top + b.height / 2); return }
+      const files = pictures(event.dataTransfer.files); if (files.length) { event.preventDefault(); addPictures(files) }
+    }}
     onMouseDownCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation(); onSelect(event.shiftKey ? 'range' : 'toggle') } }}
     onClickCapture={event => { if (picking(event)) { event.preventDefault(); event.stopPropagation() } }}
     onContextMenu={event => { event.preventDefault(); onMenu(event.clientX, event.clientY) }}>
+    {/* Dragged by this grip only, so text in the row still selects as text. */}
+    <span className="todo-grip" draggable aria-hidden="true" title="Drag to move"
+      onDragStart={event => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData(TASK_MIME, task.id); const row = event.currentTarget.closest('li'); if (row) event.dataTransfer.setDragImage(row, 16, 14) }}>
+      <svg viewBox="0 0 8 14" aria-hidden="true"><circle cx="2" cy="2" r="1.2" /><circle cx="6" cy="2" r="1.2" /><circle cx="2" cy="7" r="1.2" /><circle cx="6" cy="7" r="1.2" /><circle cx="2" cy="12" r="1.2" /><circle cx="6" cy="12" r="1.2" /></svg>
+    </span>
     <button className={`todo-circle ${status}`} aria-label={task.status === 'done' ? 'Reopen' : 'Mark done'} title={task.status === 'done' ? 'Reopen' : task.status === 'doing' ? 'In progress · mark done' : 'Mark done'} onClick={() => void check()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.8 10.4l2.8 2.8 5.6-6" /></svg>
     </button>
@@ -674,15 +708,17 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
       <div className="todo-line" onMouseDown={event => { if (event.button === 0 && event.target === event.currentTarget) { event.preventDefault(); const el = text.current!; el.focus(); el.setSelectionRange(el.value.length, el.value.length) } }}>
         <textarea ref={text} className="todo-text" rows={1} value={title} maxLength={300} aria-label="Task" spellCheck={false}
           onFocus={() => { editing.current = true }}
-          onChange={event => setTitle(event.target.value.replace(/\n/g, ' '))}
+          onChange={event => { setTitle(event.target.value.replace(/\n/g, ' ')); titleTag.look(event.currentTarget) }}
           onPaste={pasteImages}
-          onBlur={() => { editing.current = false; commitTitle() }}
+          onBlur={() => { editing.current = false; titleTag.close(); commitTitle() }}
           onKeyDown={event => {
             if (event.nativeEvent.isComposing) return
+            if (titleTag.key(event)) return
             if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); onEnter?.() }
             else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel.current = true; setTitle(task.title); event.currentTarget.blur() }
             else if (event.key === 'Backspace' && !title) { event.preventDefault(); onDelete() }
           }} />
+        {titleTag.list}
         {task.status === 'doing' && <span className="todo-tag doing">in progress</span>}
         {session && <button className="todo-tag todo-session" disabled={!session.open} title={session.open ? 'Go to the tab working on it' : 'That tab is closed'} onClick={session.open}><TabIcon />{session.name}</button>}
         {task.product && product && <button className={`todo-tag todo-product${product.on ? ' on' : ''}`} title={product.on ? 'Show every product again' : `Show only ${task.product}`} onClick={product.toggle}>{task.product}</button>}
@@ -692,14 +728,16 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
       {noteEditing
         ? <textarea className="todo-notes" value={notes} maxLength={20000} aria-label="Note" placeholder="Note" spellCheck={false}
             ref={el => { if (el && caret.current !== null) { el.focus(); el.setSelectionRange(caret.current, caret.current); caret.current = null } }}
-            onChange={event => setNotes(event.target.value)} onBlur={commitNotes} onPaste={pasteImages}
+            onChange={event => { setNotes(event.target.value); noteTag.look(event.currentTarget) }} onBlur={() => { noteTag.close(); commitNotes() }} onPaste={pasteImages}
             onKeyDown={event => {
+              if (noteTag.key(event)) return
               if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel.current = true; setNotes(task.notes); event.currentTarget.blur() }
               else if (event.key === 'Enter' && event.metaKey) { event.preventDefault(); event.currentTarget.blur() }
             }} />
         : notes && <div className="todo-note-text" role="button" tabIndex={0} aria-label="Edit note"
             onMouseDown={event => { const range = document.caretRangeFromPoint(event.clientX, event.clientY); caret.current = range && event.currentTarget.contains(range.startContainer) ? offsetIn(event.currentTarget, range.startContainer, range.startOffset) : notes.length; event.preventDefault(); setNoteEditing(true) }}
-            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); caret.current = notes.length; setNoteEditing(true) } }}>{withMentions(notes, me)}</div>}
+            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); caret.current = notes.length; setNoteEditing(true) } }}>{withMentions(notes, me, tags.products)}</div>}
+      {noteEditing && noteTag.list}
       {!!task.images?.length && <div className="todo-images">
         {task.images.map(name => <TaskImage key={name} scope={scope} id={task.id} name={name} onLeave={onLeave} onRemove={() => void onImage(() => window.term.todos.removeImage(scope, task.id, name))} />)}
       </div>}
@@ -785,17 +823,67 @@ function DeleteDialog({ heading: asked, titles, onCancel, onDelete }: { heading?
   </div>
 }
 
+type Tags = { people: string[]; products: string[] }
+type TagPick = { at: number; query: string; index: number; field: HTMLTextAreaElement }
+/**
+ * @ in a title or a note: a list of the people and the products, narrowed as you type, picked with the arrows and
+ * Return or Tab (or a click). Esc closes the list and leaves what was typed.
+ */
+function useTagPicker(tags: Tags, setText: (value: string) => void) {
+  const [pick, setPick] = useState<TagPick | null>(null)
+  const items = !pick ? [] : [...tags.people.map(name => ({ name, person: true })), ...tags.products.map(name => ({ name, person: false }))]
+    .filter(item => item.name.toLowerCase().startsWith(pick.query.toLowerCase()) || (pick.query.length > 1 && item.name.toLowerCase().includes(pick.query.toLowerCase())))
+    .slice(0, 8)
+  const look = (field: HTMLTextAreaElement) => {
+    const before = field.value.slice(0, field.selectionStart ?? field.value.length)
+    const m = /(?:^|[\s(])@([\w.-]{0,30})$/.exec(before)
+    setPick(m ? { at: before.length - m[1].length - 1, query: m[1], index: 0, field } : null)
+  }
+  const choose = (name: string) => {
+    if (!pick) return
+    const { field, at } = pick, end = field.selectionStart ?? field.value.length
+    const value = `${field.value.slice(0, at)}@${name} ${field.value.slice(end)}`
+    setText(value)
+    setPick(null)
+    requestAnimationFrame(() => { field.focus(); field.setSelectionRange(at + name.length + 2, at + name.length + 2) })
+  }
+  /** true when the key was the list's. */
+  const key = (event: React.KeyboardEvent): boolean => {
+    if (!pick || !items.length) return false
+    const step = (d: number) => setPick({ ...pick, index: (pick.index + d + items.length) % items.length })
+    if (event.key === 'ArrowDown') step(1)
+    else if (event.key === 'ArrowUp') step(-1)
+    else if (event.key === 'Enter' || event.key === 'Tab') choose(items[Math.min(pick.index, items.length - 1)].name)
+    else if (event.key === 'Escape') setPick(null)
+    else return false
+    event.preventDefault(); event.stopPropagation()
+    return true
+  }
+  const list = pick && items.length ? <ul className="todo-tag-picker" role="listbox" aria-label="Tag">
+    {items.map((item, i) => <li key={item.name} role="option" aria-selected={i === pick.index}
+      // mousedown, so the field does not blur (and save) before the pick lands.
+      onMouseDown={event => { event.preventDefault(); choose(item.name) }}>
+      <span className={item.person ? 'person' : 'product'}>@{item.name}</span><span className="kind">{item.person ? 'person' : 'project'}</span>
+    </li>)}
+  </ul> : null
+  return { look, key, list, close: () => setPick(null) }
+}
+
 /** Right click or "•••" on a row. Not a native menu: Esc and a click outside close it, the arrows move through it. */
 const EyeOff = () => <svg className="todo-eye" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8Z" /><path d="M2.5 13.5l11-11" /></svg>
-const MENTION = /(^|[^\w@])(@(?:matteo|livio|ilai)\b)/gi
-/** A note with its @Matteo / @Ilai tags marked, the one for this person stronger. */
-function withMentions(text: string, me: TasksUser): (string | JSX.Element)[] {
+const TASK_MIME = 'application/x-terminai-task'
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** A note with its tags marked: @Matteo / @Ilai (this person's stronger) and @<product> in the products' blue. */
+function withMentions(text: string, me: TasksUser, products: string[] = []): (string | JSX.Element)[] {
   const out: (string | JSX.Element)[] = []
+  // Longest first, so "@ManyMotions.org" is not read as "@ManyMotions".
+  const names = ['matteo', 'livio', 'ilai', ...[...products].sort((a, b) => b.length - a.length).map(escape)]
+  const tag = new RegExp(`(^|[^\\w@])(@(?:${names.join('|')}))(?![\\w.-]*\\w)`, 'gi')
   let last = 0
-  for (const m of text.matchAll(MENTION)) {
-    const at = m.index! + m[1].length
+  for (const m of text.matchAll(tag)) {
+    const at = m.index! + m[1].length, person = mentionsOf(m[2])
     out.push(text.slice(last, at))
-    out.push(<span key={at} className={`todo-mention${mentionsOf(m[2]).includes(me) ? ' me' : ''}`}>{m[2]}</span>)
+    out.push(<span key={at} className={person.length ? `todo-mention${person.includes(me) ? ' me' : ''}` : 'todo-mention product'}>{m[2]}</span>)
     last = at + m[2].length
   }
   out.push(text.slice(last))
