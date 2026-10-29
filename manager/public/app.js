@@ -52,6 +52,10 @@ function run(fn) {
     try { await fn(event); } catch (error) { message(error.message, true); } finally { if (button) button.disabled = false; }
   };
 }
+function download() {
+  return el('a', null, { class: 'download', href: 'https://github.com/ClipWave-io/terminai/releases/latest', target: '_blank', rel: 'noopener' },
+    el('b', 'Download for Mac'), el('span', 'Apple Silicon · signed · updates itself'));
+}
 function button(label, fn, kind = '') {
   const b = el('button', label, { type: 'button' }); if (kind) b.className = kind;
   b.addEventListener('click', run(fn)); return b;
@@ -96,6 +100,7 @@ function authPage(title, subtitle, f) {
     el('div', null, {},
       el('h2', 'Your AI terminals, synced everywhere.'),
       el('p', 'Notes, conversations and tools for your Claude Code and Codex sessions, the same on your Mac, iPhone and the web. Use it alone, or invite people whenever you like.', { class: 'dim' }),
+      download(),
       el('div', null, { class: 'term' },
         el('div', null, { class: 'term-bar' }, el('i'), el('i'), el('i')),
         el('div', null, { class: 'term-body' },
@@ -107,7 +112,7 @@ function authPage(title, subtitle, f) {
     d.append(prompt ? el('b', strong) : el('em', strong)); if (rest) d.append(rest); return d;
   }
   const main = el('main', null, { class: 'auth-main' }, el('div', null, { class: 'auth-card' },
-    el('header', null, {}, el('h1', title), el('p', subtitle, { class: 'dim' })), f));
+    el('header', null, {}, el('h1', title), el('p', subtitle, { class: 'dim' })), f), el('div', null, { class: 'auth-download' }, download()));
   app.replaceChildren(el('div', null, { class: 'auth' }, art, main));
   f.querySelector('input')?.focus();
 }
@@ -217,10 +222,11 @@ async function overview(main, company) {
     const { members } = await api(`${base()}/members`); stats.prepend(stat(members.length, members.length === 1 ? 'member' : 'members'));
   }
   main.append(el('div', null, { class: 'stack' }, stats,
+    download(),
     el('h2', 'Getting started'),
     el('div', null, { class: 'steps' },
       step('Write things down', 'Notes has your private list, which only you ever see, and a shared board with a column for each person.'),
-      step('Sync your Mac and iPhone', 'Click the Sync icon in TerminAI, or open the TerminAI iPhone app, and sign in with this account.'),
+      step('Sync your Mac and iPhone', 'Download TerminAI for Mac (above) or open the TerminAI iPhone app, and sign in with this account.'),
       step('Invite people, if you want', 'Under People, create an invitation link. It works once and expires after 48 hours.'),
       step('Pick tools per role', 'Developers get the browser tools, analysts and marketing get Google Ads. Change it under Tools.'),
       step('Share on purpose', 'Conversations are private unless you share them. Nobody’s messages ever run as commands.'))));
