@@ -123,7 +123,7 @@ function TeamNotes({ base, me, members, role, teamName, onError }: { base: strin
   const [view, setView] = useState<'private' | 'company'>('private')
   const [showDone, setShowDone] = useState(false)
   const canTeam = role !== 'viewer'
-  const load = () => window.term.workspace.request(`${base}/notes`).then(v => setNotes(v.notes ?? [])).catch(onError)
+  const load = () => window.term.workspace.request(`${base}/notes`).then(v => setNotes((v.notes ?? []).filter((n: WorkspaceNote) => n.kind !== 'doc'))).catch(onError)
   useEffect(() => { void load(); const t = setInterval(() => void load(), 10000); return () => clearInterval(t) }, [base])
   const save = async (id: string, patch: Partial<WorkspaceNote>) => { try { await window.term.workspace.request(`${base}/notes/${id}`, 'PATCH', patch); await load() } catch (e) { onError(e) } }
   const add = async (title: string, assigneeId?: string | null) => { try { await window.term.workspace.request(`${base}/notes`, 'POST', { title, visibility: view, ...(assigneeId ? { assigneeId } : {}) }); await load() } catch (e) { onError(e) } }

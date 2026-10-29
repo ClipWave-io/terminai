@@ -937,7 +937,7 @@ export function App(): JSX.Element {
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} />}
       {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
-      {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)}
+      {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}
         prefs={{ hiddenColumns: prefs.todoHiddenColumns, products: prefs.todoProducts, activityOpen: prefs.todoActivity, activitySeen: prefs.todoActivitySeen }}
         onPrefs={patch => patchPrefs(patch)} activity={activity}
         tabs={tabs.map(tab => ({ id: tab.id, key: tab.browserKey || tab.id, label: tabLabel(tab) }))}

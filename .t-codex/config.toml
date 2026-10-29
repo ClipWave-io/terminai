@@ -1,0 +1,9 @@
+
+# BEGIN TERMINAI EMBEDDED BROWSER
+[mcp_servers.terminai_browser]
+command = "/Users/ilaibachrach/other projects/Claude and Codex Outputs/Task Workspaces/terminai-mentions-20261027/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+args = ["/var/folders/8n/3w0w74953013w8jjcl__r6480000gn/T/terminai-team-ui-BQzNqy/browser-mcp.cjs","/var/folders/8n/3w0w74953013w8jjcl__r6480000gn/T/terminai-team-ui-BQzNqy/browser-bridge.json"]
+env = { ELECTRON_RUN_AS_NODE = "1" }
+env_vars = ["TERMINAI_WORKSPACE_ID"]
+startup_timeout_sec = 15
+# END TERMINAI EMBEDDED BROWSER

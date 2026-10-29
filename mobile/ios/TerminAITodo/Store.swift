@@ -20,6 +20,7 @@ struct Note: Decodable, Identifiable, Equatable {
     var updatedBy: String?
     var updatedByName: String?
     var updatedAt: String
+    var kind: String?           // card (a task) | doc (a shared note, made on the Mac)
     var isDone: Bool { status == "done" }
 }
 private struct MeResponse: Decodable { let user: Me; let companies: [Team] }
@@ -127,7 +128,7 @@ final class Store: ObservableObject {
         guard !teamId.isEmpty else { notes = []; members = []; return }
         async let n: NotesResponse = call("/api/companies/\(teamId)/notes")
         async let m: MembersResponse = call("/api/companies/\(teamId)/members")
-        notes = try await n.notes; members = try await m.members
+        notes = try await n.notes.filter { ($0.kind ?? "card") == "card" }; members = try await m.members
     }
     func createTeam(_ name: String) async { await attempt { let _: [String: String] = try await call("/api/companies", "POST", ["name": name]); try await loadAll() } }
     func switchTeam(_ id: String) async { teamId = id; await refresh() }

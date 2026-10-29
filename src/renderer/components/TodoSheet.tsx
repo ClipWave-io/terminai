@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { SharedNotes } from './SharedNotes'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { DEFAULT_LIST, mentionsOf } from '../../shared/types'
@@ -109,7 +110,10 @@ function orders(rows: Task[], moving: Task[], at: number, loose: Set<string>): {
 export type TodoPrefs = { hiddenColumns: string[]; products: string[]; activityOpen: boolean; activitySeen: string }
 type TodoPrefsPatch = Partial<Pick<Prefs, 'todoHiddenColumns' | 'todoProducts' | 'todoActivity' | 'todoActivitySeen'>>
 
-export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, activity }: { user: TasksUser | ''; onUser: (user: TasksUser) => void; onClose: () => void; tabs: TabRef[]; onTab: (id: string) => void
+/** Tasks or Notes: which one the sheet opens on, for this run of the app. */
+let lastView: 'shared' | 'private' | 'notes' = 'shared'
+
+export function TodoSheet({ user, onUser, onClose, onSync, tabs, onTab, prefs, onPrefs, activity }: { user: TasksUser | ''; onUser: (user: TasksUser) => void; onClose: () => void; onSync: () => void; tabs: TabRef[]; onTab: (id: string) => void
   prefs: TodoPrefs; onPrefs: (patch: TodoPrefsPatch) => void; activity: TaskActivity[] }): JSX.Element {
   const [data, setData] = useState<TaskList | null>(null)
   const [allDone, setAllDone] = useState<Record<string, boolean>>({})
@@ -119,7 +123,7 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
   const [confirm, setConfirm] = useState<string | null>(null)
   const [noteFor, setNoteFor] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
-  const [view, setView] = useState<'shared' | 'private'>('shared')
+  const [view, setView] = useState<'shared' | 'private' | 'notes'>(lastView)
   const [sel, setSel] = useState<string[]>([])
   const [clip, setClip] = useState<Clip | null>(null)
   /** The tasks the delete question is about. */
@@ -128,6 +132,8 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null)
   const [page, setPage] = useState(lastPage)
   useEffect(() => { lastPage = page }, [page])
+  const lastTasks = useRef<'shared' | 'private'>(lastView === 'notes' ? 'shared' : lastView)
+  useEffect(() => { lastView = view; if (view !== 'notes') lastTasks.current = view }, [view])
   /** The page's name being edited in place; the list the delete question is about. */
   const [renaming, setRenaming] = useState(false)
   // "Add description" in the list's menu opens the description under its name.
@@ -496,7 +502,8 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
     anchor.current = ids[0] ?? null
   }
   keys.current = event => {
-    if (event.isComposing || menu || ask || askList || !user) return
+    // The shared notes are plain text fields: their keys are their own.
+    if (event.isComposing || menu || ask || askList || !user || view === 'notes') return
     const el = document.activeElement instanceof HTMLElement ? document.activeElement : null
     // The "Make private" question under a row keeps its own keys.
     if (el?.closest('.todo-confirm')) return
@@ -539,6 +546,12 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
         // the slot); inline above the columns only if the slot is missing.
         const controls = <div className="todo-sync">
           {user && <>
+            <span className="todo-seg" role="tablist" aria-label="Tasks or notes">
+              <button role="tab" aria-selected={view !== 'notes'} className={view !== 'notes' ? 'on' : ''} onClick={() => setView(lastTasks.current)}>Tasks</button>
+              <button role="tab" aria-selected={view === 'notes'} className={view === 'notes' ? 'on' : ''} onClick={() => setView('notes')}>Notes</button>
+            </span>
+          </>}
+          {user && view !== 'notes' && <>
             <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
               onClick={event => pick(event, showItems(), 'show')}>
               {view === 'private' && <Lock />}{view === 'private' ? current.name : 'Shared'}<Chevron /></button>
@@ -562,7 +575,7 @@ export function TodoSheet({ user, onUser, onClose, tabs, onTab, prefs, onPrefs, 
         <p>Who are you on this Mac?</p>
         <div className="todo-who" role="group" aria-label="You are">{(['livio', 'ilai'] as const).map(name => <button key={name} className="btn" onClick={() => onUser(name)}>{NAME[name]}</button>)}</div>
         <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; private ones stay here.</p>
-      </div> : <article className="todo-note" aria-label="BUILD">
+      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} /></article> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
         {sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
         <div className="todo-main">

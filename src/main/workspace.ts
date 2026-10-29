@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron'
-import { readFile, writeFile, mkdir, rename, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, writeFile, mkdir, rename, unlink, stat } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import type { WorkspaceIdentity, WorkspaceLogin, WorkspaceState } from '../shared/workspace'
 
@@ -69,11 +69,49 @@ export async function workspaceLogout(): Promise<void> {
 }
 export async function workspaceRequest(path: string, method = 'GET', body?: unknown): Promise<any> {
   // This is deliberately a narrow API bridge, not an authenticated fetch proxy.
-  if (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations|notes)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
+  const file = /^\/api\/companies\/[a-zA-Z0-9-]+\/notes\/[a-zA-Z0-9-]+\/files\/[a-zA-Z0-9-]+$/.test(path)
+  if (file ? method !== 'DELETE' : (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations|notes)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
     || !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)
-    || (method === 'DELETE' && !/\/notes\/[a-zA-Z0-9-]+$/.test(path))) throw new Error('Unsupported workspace action.')
+    || (method === 'DELETE' && !/\/notes\/[a-zA-Z0-9-]+$/.test(path)))) throw new Error('Unsupported workspace action.')
   const session = await load()
   if (!session) throw new Error('Sign in to your company workspace first.')
   if (body !== undefined && JSON.stringify(body).length > 70000) throw new Error('This message is too large.')
   return request(session.url, path, method, body, session.token)
+}
+
+// Files in shared notes. The renderer names a note and a file on disk; the bytes go straight from here to the manager.
+const notePath = /^\/api\/companies\/[a-zA-Z0-9-]+\/notes\/[a-zA-Z0-9-]+$/
+const TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.heic': 'image/heic',
+  '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv', '.json': 'application/json', '.zip': 'application/zip',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation', '.pages': 'application/x-iwork-pages', '.key': 'application/x-iwork-keynote', '.numbers': 'application/x-iwork-numbers' }
+export async function workspaceAttach(note: string, filePath: string): Promise<any> {
+  if (typeof note !== 'string' || !notePath.test(note) || typeof filePath !== 'string') throw new Error('Unsupported workspace action.')
+  const info = await stat(filePath)
+  if (!info.isFile()) throw new Error('Only files can be added to a note.')
+  if (info.size > 25 * 1024 * 1024) throw new Error(`${basename(filePath)} is larger than 25 MB.`)
+  const session = await load()
+  if (!session) throw new Error('Sign in with Sync first.')
+  const query = new URLSearchParams({ name: basename(filePath), type: TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream' })
+  const response = await fetch(`${session.url}${note}/files?${query}`, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120000),
+    headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${session.token}` }, body: await readFile(filePath) })
+  const value = await response.json().catch(() => ({})) as any
+  if (!response.ok) throw new Error(typeof value.error === 'string' ? value.error.slice(0, 240) : `Upload failed (${response.status}).`)
+  return value
+}
+/** Downloads a note's file into this Mac's cache and returns where it is, for the Files pane. */
+export async function workspaceFetchFile(note: string, fileId: string, name: string): Promise<string> {
+  if (typeof note !== 'string' || !notePath.test(note) || typeof fileId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(fileId)) throw new Error('Unsupported workspace action.')
+  const session = await load()
+  if (!session) throw new Error('Sign in with Sync first.')
+  const safe = String(name).replace(/[\\/:\u0000-\u001f]/g, '_').replace(/^\.+/, '').slice(0, 200) || 'file'
+  const directory = join(app.getPath('userData'), 'note-files', fileId), target = join(directory, safe)
+  try { if ((await stat(target)).isFile()) return target } catch {}
+  const response = await fetch(`${session.url}${note}/files/${fileId}`, { redirect: 'error', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${session.token}` } })
+  if (!response.ok) throw new Error(`Could not get ${safe} (${response.status}).`)
+  await mkdir(directory, { recursive: true })
+  await writeFile(target + '.part', Buffer.from(await response.arrayBuffer()), { mode: 0o600 })
+  await rename(target + '.part', target)
+  return target
 }

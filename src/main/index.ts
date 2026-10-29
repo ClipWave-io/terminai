@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
@@ -47,6 +47,10 @@ app.on('open-file', (event, path) => { event.preventDefault(); queueOpenFile(pat
 let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
+// The menus and About panel say TerminAI; the data folder keeps the old package name, so nothing moves.
+const dataFolder = app.getPath('userData')
+app.setName('TerminAI')
+app.setPath('userData', dataFolder)
 let activeTabId: string | null = null
 // Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen|add|about`.
 let todos: ReturnType<typeof createTodos>
@@ -254,6 +258,12 @@ function registerIpc(): void {
   appIpc.handle('workspace:login', (_event, input) => workspaceLogin(input))
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
+  appIpc.handle('workspace:attach', (_event, note, file) => workspaceAttach(note, file))
+  appIpc.handle('workspace:pick-files', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
+  appIpc.handle('workspace:open-file', async (_event, note, fileId, name, reveal) => {
+    const path = await workspaceFetchFile(note, fileId, name)
+    if (reveal) shell.showItemInFolder(path); else queueOpenFile(path)
+  })
   appIpc.handle('workspace:setup-tools', async (_event, companyId: string) => {
     if (typeof companyId !== 'string' || !/^[a-zA-Z0-9-]+$/.test(companyId)) throw new Error('Choose a company.')
     const response = await workspaceRequest(`/api/companies/${companyId}/catalog`)

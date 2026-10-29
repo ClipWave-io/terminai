@@ -232,7 +232,8 @@ async function overview(main, company) {
 let notesView = 'private', showDone = false;
 const NOTE_MIME = 'application/x-terminai-note';
 async function notes(main, company) {
-  const [{ notes: all }, { members }] = await Promise.all([api(`${base()}/notes`), api(`${base()}/members`)]);
+  const [{ notes: everything }, { members }] = await Promise.all([api(`${base()}/notes`), api(`${base()}/members`)]);
+  const all = everything.filter(n => n.kind !== 'doc');
   const canTeam = company.role !== 'viewer';
   const save = (n, patch) => api(`${base()}/notes/${n.id}`, 'PATCH', patch);
   // Alone in a workspace there is nobody to share a board with: just the private list.

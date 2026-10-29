@@ -17,7 +17,10 @@ export interface WorkspaceLogin {
 export interface WorkspaceNote {
   id: string; ownerId: string; visibility: 'private' | 'company'; title: string; body: string; status: 'open' | 'done'
   assigneeId: string | null; position: number; updatedBy?: string; updatedByName?: string; createdAt: string; updatedAt: string
+  /** card: a task on the board; doc: a shared note, like Apple Notes, that can hold files. */
+  kind?: 'card' | 'doc'; files?: WorkspaceNoteFile[]
 }
+export interface WorkspaceNoteFile { id: string; name: string; mime: string; size: number; createdAt: string }
 /** An invitation arrives as a link (…/#invite=TOKEN) or the bare token; both work. */
 export function inviteTokenOf(value: string): string {
   const raw = value.trim(), match = raw.match(/invite=([A-Za-z0-9_-]{43})/)

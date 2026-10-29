@@ -8,7 +8,7 @@ const unsafe = method => !['GET', 'HEAD', 'OPTIONS'].includes(method);
 const publicUser = user => ({ id: user.id, email: user.email, name: user.name });
 const publicCompany = row => ({ id: row.id, name: row.name, role: row.role, classification: row.classification, defaultVisibility: row.default_visibility, allowCompanySharing: row.allow_company_sharing });
 const publicConversation = row => ({ id: row.id, companyId: row.company_id, ownerId: row.owner_id, title: row.title, visibility: row.visibility, allowedRoles: row.allowed_roles, createdAt: row.created_at, updatedAt: row.updated_at });
-const publicNote = row => ({ id: row.id, ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
+const publicNote = row => ({ id: row.id, kind: row.kind || 'card', files: row.files || [], ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
 const publicMessage = row => ({ id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorName: row.author_name, kind: row.kind, content: row.content, clientMessageId: row.client_message_id, createdAt: row.created_at });
 function roles(value) {
   requireThat(Array.isArray(value) && value.length > 0 && value.length <= ROLES.length, 400, 'Choose at least one allowed role.');
@@ -21,6 +21,16 @@ async function body(req) {
   try { const value = JSON.parse(Buffer.concat(chunks).toString()); requireThat(value && typeof value === 'object' && !Array.isArray(value), 400, 'Use a JSON object.'); return value; }
   catch (error) { if (error instanceof HttpError) throw error; throw new HttpError(400, 'Invalid JSON.'); }
 }
+// A file attached to a note travels as the raw request body, never as JSON.
+const MAX_FILE = 25 * 1024 * 1024, MAX_COMPANY_FILES = 1024 * 1024 * 1024;
+async function rawBody(req) {
+  requireThat((req.headers['content-type'] || '').split(';')[0] === 'application/octet-stream', 415, 'Use application/octet-stream.');
+  let chunks = [], size = 0;
+  for await (const chunk of req) { size += chunk.length; requireThat(size <= MAX_FILE, 413, 'Files can be up to 25 MB.'); chunks.push(chunk); }
+  requireThat(size > 0, 400, 'The file is empty.');
+  return Buffer.concat(chunks);
+}
+const publicFile = row => ({ id: row.id, name: row.name, mime: row.mime, size: row.size, createdAt: row.created_at });
 async function limit(db, key, max, seconds) {
   const { rows: [row] } = await db.query(`INSERT INTO manager_rate_limits(key,count,resets_at) VALUES($1,1,now()+$2 * interval '1 second')
     ON CONFLICT(key) DO UPDATE SET count=CASE WHEN manager_rate_limits.resets_at<=now() THEN 1 ELSE manager_rate_limits.count+1 END,
@@ -204,6 +214,43 @@ export function createApp(pool, config) {
         });
         return json(res,201,{id:companyId,name});
       }
+      const fileRoute = path.match(/^\/api\/companies\/([^/]+)\/notes\/([^/]+)\/files(?:\/([^/]+))?$/);
+      if (fileRoute) {
+        const companyId=uuid(fileRoute[1]), noteId=uuid(fileRoute[2]), fileId=fileRoute[3]?uuid(fileRoute[3]):null;
+        requireThat(fileId ? ['GET','DELETE'].includes(req.method) : req.method==='POST', 405, 'Unsupported file action.');
+        const data = req.method==='POST' ? await rawBody(req) : null;
+        const result = await transaction(pool, async db => {
+          const { rows:[member] } = await db.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
+          requireThat(member,404,'Company not found.');
+          const { rows:[note] } = await db.query(`SELECT * FROM manager_notes WHERE id=$1 AND company_id=$2 FOR ${req.method==='GET'?'SHARE':'UPDATE'}`,[noteId,companyId]);
+          requireThat(note&&(note.visibility==='company'||note.owner_id===user.id),404,'Note not found.');
+          if (req.method==='GET') {
+            const { rows:[file] } = await db.query('SELECT name,data FROM manager_note_files WHERE id=$1 AND note_id=$2',[fileId,noteId]);
+            requireThat(file,404,'File not found.'); return file;
+          }
+          requireThat(note.visibility==='private'||member.role!=='viewer',403,'Viewers cannot change shared notes.');
+          if (req.method==='DELETE') {
+            const { rowCount } = await db.query('DELETE FROM manager_note_files WHERE id=$1 AND note_id=$2',[fileId,noteId]);
+            requireThat(rowCount,404,'File not found.');
+          } else {
+            const { rows:[used] } = await db.query('SELECT count(*)::int AS n FROM manager_note_files WHERE note_id=$1',[noteId]);
+            requireThat(used.n < 50, 400, 'A note can hold up to 50 files.');
+            const { rows:[total] } = await db.query('SELECT coalesce(sum(size),0)::bigint AS s FROM manager_note_files WHERE company_id=$1',[companyId]);
+            requireThat(Number(total.s) + data.length <= MAX_COMPANY_FILES, 413, 'This workspace is out of file space (1 GB).');
+            const name = text(url.searchParams.get('name'),'File name',200).replace(/[\\/\u0000-\u001f]/g,'_');
+            const mime = /^[a-z]+\/[a-z0-9.+-]{1,100}$/i.test(url.searchParams.get('type')||'') ? url.searchParams.get('type').toLowerCase() : 'application/octet-stream';
+            const { rows:[row] } = await db.query('INSERT INTO manager_note_files(id,note_id,company_id,name,mime,size,data,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,mime,size,created_at',
+              [randomUUID(),noteId,companyId,name,mime,data.length,data,user.id]);
+            await db.query('UPDATE manager_notes SET updated_by=$1,updated_at=now() WHERE id=$2',[user.id,noteId]);
+            return { file: publicFile(row) };
+          }
+          await db.query('UPDATE manager_notes SET updated_by=$1,updated_at=now() WHERE id=$2',[user.id,noteId]);
+          return { ok: true };
+        });
+        // Always a download, never rendered by the browser: an uploaded HTML or SVG file cannot run on this origin.
+        if (req.method==='GET') { res.writeHead(200,{ 'Content-Type':'application/octet-stream', 'Content-Length':result.data.length, 'Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(result.name)}` }); return res.end(result.data); }
+        return json(res,200,result);
+      }
       const match = path.match(/^\/api\/companies\/([^/]+)(\/.*)?$/);
       requireThat(match,404,'Not found.');
       const companyId=uuid(match[1]), tail=match[2]||'', input=unsafe(req.method) && req.method!=='DELETE' ? await body(req) : {};
@@ -331,7 +378,8 @@ export function createApp(pool, config) {
         }
         // Notes: a private list per person (only its owner ever reads it) and the team's shared board.
         if(tail==='/notes'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT n.*,u.name AS updated_by_name FROM manager_notes n LEFT JOIN manager_users u ON u.id=n.updated_by
+          const {rows}=await db.query(`SELECT n.*,u.name AS updated_by_name,(SELECT coalesce(json_agg(json_build_object('id',f.id,'name',f.name,'mime',f.mime,'size',f.size,'createdAt',f.created_at) ORDER BY f.created_at),'[]')
+              FROM manager_note_files f WHERE f.note_id=n.id) AS files FROM manager_notes n LEFT JOIN manager_users u ON u.id=n.updated_by
             WHERE n.company_id=$1 AND (n.visibility='company' OR n.owner_id=$2) ORDER BY n.position,n.created_at LIMIT 2000`,[companyId,user.id]);
           return {notes:rows.map(publicNote)};
         }
@@ -344,8 +392,9 @@ export function createApp(pool, config) {
           const visibility=enumValue(input.visibility??'private',['private','company'],'visibility');
           requireThat(visibility==='private'||member.role!=='viewer',403,'Viewers cannot add to the team board.');
           const {rows:[last]}=await db.query('SELECT coalesce(max(position),0)+1 AS p FROM manager_notes WHERE company_id=$1',[companyId]);
-          const {rows:[row]}=await db.query('INSERT INTO manager_notes(id,company_id,owner_id,visibility,title,body,assignee_id,position,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$3) RETURNING *',
-            [randomUUID(),companyId,user.id,visibility,text(input.title,'Title',500),typeof input.body==='string'?input.body.slice(0,20000):'',visibility==='company'?await assignee(input.assigneeId):null,last.p]);
+          const kind=enumValue(input.kind??'card',['card','doc'],'note kind');
+          const {rows:[row]}=await db.query('INSERT INTO manager_notes(id,company_id,owner_id,visibility,title,body,assignee_id,position,updated_by,kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$3,$9) RETURNING *',
+            [randomUUID(),companyId,user.id,visibility,kind==='doc'&&!input.title?'New note':text(input.title,'Title',500),typeof input.body==='string'?input.body.slice(0,kind==='doc'?100000:20000):'',visibility==='company'&&kind==='card'?await assignee(input.assigneeId):null,last.p,kind]);
           return {note:publicNote({...row,updated_by_name:user.name})};
         }
         const noteMatch=tail.match(/^\/notes\/([^/]+)$/);
@@ -358,12 +407,13 @@ export function createApp(pool, config) {
           requireThat(visibility===note.visibility||note.owner_id===user.id,403,'Only its author can move it between private and team.');
           const {rows:[row]}=await db.query('UPDATE manager_notes SET title=$1,body=$2,status=$3,assignee_id=$4,position=$5,visibility=$6,updated_by=$7,updated_at=now() WHERE id=$8 RETURNING *',[
             input.title===undefined?note.title:text(input.title,'Title',500),
-            input.body===undefined?note.body:String(input.body).slice(0,20000),
+            input.body===undefined?note.body:String(input.body).slice(0,note.kind==='doc'?100000:20000),
             input.status===undefined?note.status:enumValue(input.status,['open','done'],'status'),
             visibility==='private'?null:input.assigneeId===undefined?note.assignee_id:await assignee(input.assigneeId),
             input.position===undefined?note.position:(requireThat(Number.isFinite(input.position),400,'Invalid position.'),input.position),
             visibility,user.id,note.id]);
-          return {note:publicNote({...row,updated_by_name:user.name})};
+          const {rows:files}=await db.query('SELECT id,name,mime,size,created_at FROM manager_note_files WHERE note_id=$1 ORDER BY created_at',[note.id]);
+          return {note:publicNote({...row,updated_by_name:user.name,files:files.map(publicFile)})};
         }
         if(tail==='/audit'&&req.method==='GET'){admin();const {rows}=await db.query('SELECT id,actor_id,action,target_id,created_at FROM manager_audit WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100',[companyId]);return {events:rows};}
         throw new HttpError(404,'Not found.');

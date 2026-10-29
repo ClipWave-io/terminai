@@ -22,6 +22,9 @@ const api = {
     login: (input: WorkspaceLogin): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:login', input),
     logout: (): Promise<void> => ipcRenderer.invoke('workspace:logout'),
     request: (path: string, method = 'GET', body?: unknown): Promise<any> => ipcRenderer.invoke('workspace:request', path, method, body),
+    attach: (note: string, file: string): Promise<any> => ipcRenderer.invoke('workspace:attach', note, file),
+    pickFiles: (): Promise<string[]> => ipcRenderer.invoke('workspace:pick-files'),
+    openFile: (note: string, fileId: string, name: string, reveal = false): Promise<void> => ipcRenderer.invoke('workspace:open-file', note, fileId, name, reveal),
     setupTools: (companyId: string): Promise<McpSetupResult[]> => ipcRenderer.invoke('workspace:setup-tools', companyId),
   },
   project: {

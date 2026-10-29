@@ -70,6 +70,24 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.deepEqual((await request(notes,{token:cy.token})).body.notes.map(n=>n.title),['My own idea','Ship it']);
   assert.equal((await request(`${notes}/${shared.id}`,{token:a.body.token,method:'DELETE'})).status,200);
 
+  // Shared notes, like Apple Notes: a document with files in it, which the teammate reads and adds to.
+  const doc=(await request(notes,{token:a.body.token,method:'POST',data:{kind:'doc',visibility:'company',title:'Launch plan',body:'Line one\nLine two'}})).body.note;
+  assert.equal(doc.kind,'doc');assert.deepEqual(doc.files,[]);
+  const upload=async(token,name,bytes,type='text/plain')=>{const r=await fetch(`http://127.0.0.1:${server.address().port}${notes}/${doc.id}/files?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/octet-stream'},body:bytes});return {status:r.status,body:await r.json()};};
+  const added=await upload(cy.token,'plan.txt',Buffer.from('hello file'));
+  assert.equal(added.status,200);assert.equal(added.body.file.size,10);assert.equal(added.body.file.mime,'text/plain');
+  assert.equal((await upload(vi.token,'nope.txt',Buffer.from('x'))).status,403);
+  assert.equal((await upload(cy.token,'big.bin',Buffer.alloc(25*1024*1024+1))).status,413);
+  const listed=(await request(notes,{token:a.body.token})).body.notes.find(n=>n.id===doc.id);
+  assert.deepEqual(listed.files.map(f=>f.name),['plan.txt']);assert.equal(listed.updatedBy,cy.user.id);
+  const got=await fetch(`http://127.0.0.1:${server.address().port}${notes}/${doc.id}/files/${added.body.file.id}`,{headers:{Authorization:`Bearer ${vi.token}`}});
+  assert.equal(got.headers.get('content-type'),'application/octet-stream');assert.match(got.headers.get('content-disposition'),/attachment/);
+  assert.equal(await got.text(),'hello file');
+  // Another workspace never reaches it, even with the ids.
+  assert.equal((await fetch(`http://127.0.0.1:${server.address().port}${notes}/${doc.id}/files/${added.body.file.id}`,{headers:{Authorization:`Bearer ${b.body.token}`}})).status,404);
+  assert.equal((await request(`${notes}/${doc.id}/files/${added.body.file.id}`,{token:a.body.token,method:'DELETE'})).status,200);
+  assert.deepEqual((await request(notes,{token:cy.token})).body.notes.find(n=>n.id===doc.id).files,[]);
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

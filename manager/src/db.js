@@ -83,6 +83,14 @@ export async function migrate(pool) {
         created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS manager_notes_company ON manager_notes(company_id,visibility,owner_id);
+      ALTER TABLE manager_notes ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'card' CHECK(kind IN ('card','doc'));
+      CREATE TABLE IF NOT EXISTS manager_note_files (
+        id uuid PRIMARY KEY, note_id uuid NOT NULL REFERENCES manager_notes ON DELETE CASCADE,
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        name text NOT NULL, mime text NOT NULL, size integer NOT NULL, data bytea NOT NULL,
+        created_by uuid REFERENCES manager_users ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS manager_note_files_note ON manager_note_files(note_id,created_at);
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,
