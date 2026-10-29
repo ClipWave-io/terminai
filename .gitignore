@@ -13,3 +13,4 @@ build/icon.png
 .ui-smoke-bootstrap.cjs
 release-test/
 .agent-guide.cjs
+.t-codex/

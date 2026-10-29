@@ -1,9 +1,10 @@
-// Shared notes in the To-do (Tasks | Notes): signed in with Sync, a note is written, a file dropped in and opened,
+// The account gate, then shared notes in the To-do (Tasks | Notes): signed in with Sync, a note is written, a file dropped in and opened,
 // and what the teammate adds on the server shows up. Runs against a local manager over HTTPS with a throwaway cert.
 // After `npx electron-vite build`: CODEX_HOME=<scratch dir> MANAGER_TEST_DATABASE_URL=postgres://…/terminai_test_x TERMINAI_TEST_BUILD=1 npx electron tests/shared-notes-ui.cjs
 const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), https = require('https'), { execFileSync } = require('child_process'), { randomUUID } = require('crypto')
 if (!process.env.CODEX_HOME || !process.env.MANAGER_TEST_DATABASE_URL) { console.error('Set CODEX_HOME and MANAGER_TEST_DATABASE_URL.'); process.exit(1) }
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // the throwaway local certificate only
+process.env.TERMINAI_TEST_ACCOUNT_GATE = '1'   // test builds skip the gate unless asked
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-shared-notes-')); app.setPath('userData', dir)
 fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, tasksUser: 'ilai' }))
 const delay = ms => new Promise(r => setTimeout(r, ms)), out = process.env.SHOTS || os.tmpdir()
@@ -23,7 +24,22 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const url = `https://localhost:${server.address().port}`, handler = createApp(pool, { publicOrigin: url, trustProxyHops: 0 })
   await delay(1000); win.setSize(1400, 860)
 
-  // Not signed in: the Notes view says what it is and offers Sync.
+  // No account on this Mac: the gate covers the window and offers sign in and sign up; once signed in it goes away for good.
+  await waitFor('account gate', `!!document.querySelector('.account-gate .team-auth h2')`)
+  assert.equal(await js(`document.querySelector('.account-gate h2').textContent`), 'Sign in to sync')
+  assert.equal(await js(`!!document.querySelector('.account-gate [aria-label="Close"]')`), false, 'the gate cannot be closed')
+  await js(`[...document.querySelectorAll('.account-gate .team-switch button')].find(b => b.textContent === 'Create an account').click()`); await delay(200)
+  await type('.account-gate input[autocomplete="username"]', 'gate@example.test')
+  await js(`(() => { const set = (sel, v) => { const el = document.querySelector(sel); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })) }
+    set('.account-gate label:first-of-type input', 'Gate Tester'); set('.account-gate input[type=password]', 'long gate test password')
+    const server = document.querySelector('.account-gate input[type=url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(server, ${JSON.stringify(url)}); server.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  fs.writeFileSync(path.join(out, 'terminai-account-gate.png'), (await win.webContents.capturePage()).toPNG())
+  await js(`document.querySelector('.account-gate .team-primary').click()`)
+  await waitFor('gate gone', `!document.querySelector('.account-gate')`)
+  assert.equal((await pool.query(`SELECT email FROM manager_users`)).rows[0].email, 'gate@example.test')
+  await js(`window.term.workspace.logout()`)
+
+  // Signed out again (the gate shows only at launch): the Notes view says what it is and offers Sync.
   await js(`document.querySelector('[aria-label^="To-do"]').click()`); await delay(700)
   await js(`[...document.querySelectorAll('.todo-seg button')].find(b => b.textContent === 'Notes').click()`)
   await waitFor('sign-in prompt', `document.querySelector('.snotes-empty button')?.textContent === 'Sign in to Sync'`)

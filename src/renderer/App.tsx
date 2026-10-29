@@ -7,7 +7,7 @@ import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
 import { WelcomeSheet } from './components/WelcomeSheet'
-import { WorkspaceSheet } from './components/WorkspaceSheet'
+import { WorkspaceSheet, AccountGate } from './components/WorkspaceSheet'
 import { TodoSheet } from './components/TodoSheet'
 import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
@@ -63,6 +63,9 @@ function applyThemeVars(prefs: Prefs): void {
 export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const [ready, setReady] = useState(false)
+  // TerminAI needs an account: null while checking, false shows the sign-in gate over everything.
+  const [account, setAccount] = useState<boolean | null>(null)
+  useEffect(() => { window.term.workspace.hasAccount().then(setAccount).catch(() => setAccount(true)) }, [])
   const [restored, setRestored] = useState(false)
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -853,7 +856,7 @@ export function App(): JSX.Element {
           {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome) && account !== false} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
@@ -890,7 +893,8 @@ export function App(): JSX.Element {
 
       {/* First run only. Waits for `ready` so it never flashes over an empty
           window before prefs have loaded. */}
-      {ready && !prefs.seenWelcome && (
+      {account === false && <AccountGate onDone={() => setAccount(true)} />}
+      {ready && !prefs.seenWelcome && account !== false && (
         <WelcomeSheet
           onOpenWorkspace={() => { patchPrefs({ seenWelcome: true }); setShowTeam(true) }}
           onDismiss={() => patchPrefs({ seenWelcome: true })}

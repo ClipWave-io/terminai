@@ -4,7 +4,7 @@ const project=path.join(dir,'demo-project');fs.mkdirSync(project);fs.writeFileSy
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
 await delay(1600); win.setSize(1500,900); await delay(300);
-await win.webContents.executeJavaScript(`for(const b of document.querySelectorAll('.topbar button')) if(['Files','Browser'].includes(b.getAttribute('aria-label'))) b.click()`);await delay(500);await win.webContents.executeJavaScript(`document.querySelector('[aria-label="New browser tab"]').click()`);await delay(200);
+await win.webContents.executeJavaScript(`for(const b of document.querySelectorAll('.topbar button')) if(['Files','Browser'].includes(b.getAttribute('aria-label'))) b.click()`);await delay(500);await win.webContents.executeJavaScript(`document.querySelector('.arc-new').click()`);await delay(200);
 await win.webContents.executeJavaScript(`document.querySelector('.files-toolbar button').click()`);await delay(300);await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.files-tree button')).find(b=>b.textContent.includes('README.md')).click()`);await delay(1800);assert.equal(await win.webContents.executeJavaScript(`typeof window.fileExecuted`),'undefined');assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.monaco-editor .view-lines').textContent.includes('<script>')`),true);
 fs.writeFileSync('/tmp/terminai-three-pane-wide.png',(await win.capturePage()).toPNG());
 assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.term-host').length>0`),true);

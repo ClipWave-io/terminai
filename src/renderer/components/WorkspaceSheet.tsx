@@ -83,7 +83,7 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: 
   </div>
 }
 
-function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: WorkspaceState) => void; onError: (e: unknown) => void; onClose: () => void }): JSX.Element {
+export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: WorkspaceState) => void; onError: (e: unknown) => void; onClose?: () => void }): JSX.Element {
   const [mode, setMode] = useState<'signin' | 'signup' | 'invite'>('signin')
   const [url, setUrl] = useState(DEFAULT_WORKSPACE_URL)
   const [form, setForm] = useState({ name: '', email: '', password: '', invite: '' })
@@ -98,7 +98,7 @@ function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: WorkspaceState) 
   }
   const titles = { signin: ['Sign in to sync', 'Your notes and conversations, the same on this Mac, the web and your iPhone.'], signup: ['Create an account', 'Free. Use it by yourself; invite people only if you want to.'], invite: ['Join with an invitation', 'Paste the link someone sent you.'] }
   return <div className="team-auth">
-    <button className="team-close" aria-label="Close" onClick={onClose}><Icon d={P.close} /></button>
+    {onClose && <button className="team-close" aria-label="Close" onClick={onClose}><Icon d={P.close} /></button>}
     <form onSubmit={submit}>
       <span className="team-mark big">›_</span>
       <h2>{titles[mode][0]}</h2><p className="team-muted">{titles[mode][1]}</p>
@@ -290,5 +290,16 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
         </> : <p className="team-empty">Pick a conversation.</p>}
       </div>
     </div>
+  </div>
+}
+
+/** TerminAI needs an account: until this Mac is signed in, this covers the whole window. The code is open; using the app takes an account. */
+export function AccountGate({ onDone }: { onDone: () => void }): JSX.Element {
+  const [error, setError] = useState('')
+  const fail = (err: unknown) => setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : 'The server could not be reached.')
+  return <div className="account-gate" role="dialog" aria-modal="true" aria-label="Sign in to TerminAI">
+    {error && <p className="team-error" role="alert" onClick={() => setError('')}>{error}</p>}
+    <TeamSignIn onDone={onDone} onError={fail} />
+    <p className="account-gate-foot">An account is free. It keeps your notes and conversations in sync across your Mac, the web and your iPhone.</p>
   </div>
 }

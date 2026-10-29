@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile, workspaceHasAccount } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
@@ -255,6 +255,7 @@ const appIpc = {
 function registerIpc(): void {
   appIpc.handle('workspace:open-manager', () => shell.openExternal(DEFAULT_WORKSPACE_URL))
   appIpc.handle('workspace:state', () => workspaceState())
+  appIpc.handle('workspace:has-account', () => workspaceHasAccount())
   appIpc.handle('workspace:login', (_event, input) => workspaceLogin(input))
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))

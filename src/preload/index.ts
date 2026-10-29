@@ -19,6 +19,7 @@ const api = {
   workspace: {
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),
     state: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:state'),
+    hasAccount: (): Promise<boolean> => ipcRenderer.invoke('workspace:has-account'),
     login: (input: WorkspaceLogin): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:login', input),
     logout: (): Promise<void> => ipcRenderer.invoke('workspace:logout'),
     request: (path: string, method = 'GET', body?: unknown): Promise<any> => ipcRenderer.invoke('workspace:request', path, method, body),

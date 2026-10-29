@@ -62,6 +62,11 @@ export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceSt
   current = next; loaded = true
   return workspaceState()
 }
+/** Whether this Mac has an account session, read locally so a server outage never locks anyone out. Test builds skip the gate. */
+export async function workspaceHasAccount(): Promise<boolean> {
+  if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_ACCOUNT_GATE) return true
+  return (await load()) !== null
+}
 export async function workspaceLogout(): Promise<void> {
   const session = await load()
   try { if (session) await request(session.url, '/api/auth/logout', 'POST', {}, session.token) }
