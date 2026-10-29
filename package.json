@@ -1,9 +1,9 @@
 {
   "name": "clipwave-term",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "A terminal that is easier on the eyes, and talks back.",
   "main": "out/main/index.js",
-  "author": "ilaiadaya",
+  "author": "Maracuya Labs UG",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -16,7 +16,8 @@
     "test:browser": "esbuild tests/browser-smoke.ts --bundle --platform=node --external:electron --external:@homebridge/node-pty-prebuilt-multiarch --outfile=.browser-smoke.cjs && electron .browser-smoke.cjs"
   },
   "dependencies": {
-    "@homebridge/node-pty-prebuilt-multiarch": "^0.12.0"
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.12.0",
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -50,11 +51,30 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Commands you run in TerminAI can control other apps.",
+        "NSMicrophoneUsageDescription": "Voice tools you run in TerminAI can use the microphone."
+      }
     },
     "fileAssociations": [
       {
@@ -89,7 +109,19 @@
         "role": "Editor",
         "rank": "Alternate"
       }
-    ]
+    ],
+    "copyright": "Copyright © 2026 Maracuya Labs UG",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ClipWave-io",
+        "repo": "terminai",
+        "releaseType": "release"
+      }
+    ],
+    "dmg": {
+      "title": "TerminAI ${version}"
+    }
   },
   "allowScripts": {
     "electron@44.4.4": true,

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
@@ -9,6 +9,7 @@ import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-fi
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile, workspaceHasAccount } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
+import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
 import { agentGuide, todoMap, writeAgentGuide } from './agent-guide'
@@ -166,6 +167,13 @@ function createWindow(): void {
 let crashedLastRun = false
 const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
 app.whenReady().then(() => {
+  // Electron's own menu, plus Check for Updates… under TerminAI.
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: app.name, submenu: [{ role: 'about' }, { label: 'Check for Updates…', click: () => void checkForUpdatesNow(win) }, { type: 'separator' },
+      { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+  ]))
+  startUpdates(() => win)
   // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
   const legacyMarker = join(app.getPath('userData'), 'alive')
   crashedLastRun = existsSync(aliveMarker()) || existsSync(legacyMarker)
