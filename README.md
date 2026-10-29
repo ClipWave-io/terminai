@@ -21,10 +21,20 @@ macOS on Apple Silicon only, and unsigned — see *Running it* below.
 - **Restyle it by asking.** Settings → *Customise the design* opens Claude Code in this app's
   own source with `DESIGN.md` loaded, then rebuilds and relaunches.
 
+## Account
+
+The code is open: read it, build it, run it. Using the app takes a free TerminAI account. On first
+launch it asks you to sign in or create one (on the website, it is the same account). The account
+syncs your notes, shared notes with their files and conversations across your Mac, the web and
+the iPhone app; you can use it by yourself or invite people into your workspace.
+
+You can also run your own server: `manager/` is the whole backend (Node and PostgreSQL), and the
+sign-in screen takes its address under *Server*.
+
 ## Running it
 
 ```bash
-git clone https://github.com/ilaiadaya/terminai.git
+git clone https://github.com/ClipWave-io/terminai.git
 cd terminai
 npm install     # approves the native install scripts electron + node-pty need
 npm run dev     # hot-reloading development window
