@@ -787,7 +787,7 @@ export function App(): JSX.Element {
               onKeyDown={event => { if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); stepPane(pane, event.key === 'ArrowLeft' ? -1 : 1) } }}
             ><PaneIcon kind={pane} /></button>)}
           </div>
-          {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Team" title="Team" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
+          {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
           <span className="topbar-spacer" />
           {showTodos && <div id="todo-topbar-slot" className="todo-topbar-slot no-drag" />}
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
@@ -883,7 +883,7 @@ export function App(): JSX.Element {
       {showToolbar && <div className="toolbar-customize-backdrop" onClick={() => setShowToolbar(false)}>
         <section className="toolbar-customize" role="dialog" aria-label="Customize toolbar" onClick={event => event.stopPropagation()}>
           <strong>Customize toolbar</strong><p>Choose icons to show. Drag the pane icons to reorder them.</p>
-          {(['terminal','browser','files','team','todo','sessions','maximize','sidebar'] as const).map(item => <label key={item}><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'todo' ? 'To-do' : item.charAt(0).toUpperCase() + item.slice(1)}</label>)}
+          {(['terminal','browser','files','team','todo','sessions','maximize','sidebar'] as const).map(item => <label key={item}><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>)}
           <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [] })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
         </section>
       </div>}

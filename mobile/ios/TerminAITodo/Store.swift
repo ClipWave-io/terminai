@@ -2,7 +2,7 @@ import Foundation
 import Security
 import SwiftUI
 
-// The team server is the one place notes live: this app, the TerminAI Mac app and the website read and write the same ones.
+// The sync server is the one place notes live: this app, the TerminAI Mac app and the website read and write the same ones.
 let defaultServer = "https://terminai-manager-production.up.railway.app"
 
 struct Me: Decodable { let id: String; let email: String; let name: String }
@@ -84,7 +84,7 @@ final class Store: ObservableObject {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             if status == 401, !token.isEmpty { signOutLocally() }
-            throw Failure((try? JSONDecoder().decode(APIError.self, from: data))?.error ?? "The team server answered \(status).")
+            throw Failure((try? JSONDecoder().decode(APIError.self, from: data))?.error ?? "The server answered \(status).")
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -96,8 +96,8 @@ final class Store: ObservableObject {
 
     // MARK: account
     func signIn(email: String, password: String) async { await authenticate("/api/auth/login", ["email": email, "password": password]) }
-    func signUp(name: String, team: String, email: String, password: String) async {
-        await authenticate("/api/auth/signup", ["name": name, "companyName": team, "email": email, "password": password])
+    func signUp(name: String, email: String, password: String) async {
+        await authenticate("/api/auth/signup", ["name": name, "email": email, "password": password])
     }
     func join(invite: String, name: String, password: String) async {
         await authenticate("/api/auth/accept-invite", ["token": inviteToken(invite), "name": name, "password": password])

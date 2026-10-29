@@ -24,7 +24,8 @@ struct Root: View {
             else {
                 TabView {
                     NotesList().tabItem { Label("My notes", systemImage: "lock") }
-                    TeamBoard().tabItem { Label("Team", systemImage: "person.3") }
+                    // A shared board only means something once someone else is in the workspace.
+                    if store.members.count > 1 { TeamBoard().tabItem { Label("Shared", systemImage: "person.2") } }
                     Settings().tabItem { Label("Settings", systemImage: "gearshape") }
                 }
                 .task { await store.refresh() }
@@ -45,21 +46,20 @@ struct ErrorBanner: View {
     }
 }
 
-// MARK: - Sign in, start a team, join one
+// MARK: - Sign in, create an account, join with an invitation
 
 struct Welcome: View {
     @EnvironmentObject var store: Store
-    enum Mode: String, CaseIterable { case signIn = "Sign in", start = "Start a team", join = "Join" }
+    enum Mode: String, CaseIterable { case signIn = "Sign in", start = "Create account", join = "Join" }
     @State private var mode = Mode.signIn
     @State private var name = ""
-    @State private var team = ""
     @State private var email = ""
     @State private var password = ""
     @State private var invite = ""
     var ready: Bool {
         switch mode {
         case .signIn: return !email.isEmpty && !password.isEmpty
-        case .start: return !name.isEmpty && !team.isEmpty && !email.isEmpty && password.count >= 12
+        case .start: return !name.isEmpty && !email.isEmpty && password.count >= 12
         case .join: return !invite.isEmpty && !name.isEmpty && password.count >= 12
         }
     }
@@ -69,8 +69,8 @@ struct Welcome: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("›_").font(.system(.title2, design: .monospaced).weight(.semibold)).foregroundStyle(accent)
-                        Text("TerminAI Team").font(.title.bold())
-                        Text("Your private notes and your team’s board, the same as in the Mac app and on the web.").foregroundStyle(.secondary)
+                        Text("TerminAI").font(.title.bold())
+                        Text("Your notes, synced with the TerminAI Mac app and the web. Use it alone, or invite people later.").foregroundStyle(.secondary)
                     }.listRowBackground(Color.clear)
                     Picker("", selection: $mode) { ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) } }
                         .pickerStyle(.segmented).listRowBackground(Color.clear).listRowInsets(EdgeInsets())
@@ -78,27 +78,26 @@ struct Welcome: View {
                 Section {
                     if mode == .join { TextField("Invitation link", text: $invite).textInputAutocapitalization(.never).autocorrectionDisabled() }
                     if mode != .signIn { TextField("Your name", text: $name).textContentType(.name) }
-                    if mode == .start { TextField("Team or company", text: $team) }
                     if mode != .join { TextField("Email", text: $email).keyboardType(.emailAddress).textContentType(.username).textInputAutocapitalization(.never) }
                     SecureField(mode == .signIn ? "Password" : "Password (12+ characters)", text: $password).textContentType(mode == .signIn ? .password : .newPassword)
                 } footer: {
-                    Text(mode == .join ? "Paste the link a teammate sent you." : mode == .start ? "You’ll own the team and can invite anyone from the Mac app or the web." : "")
+                    Text(mode == .join ? "Paste the link someone sent you." : mode == .start ? "Free. Use it by yourself; invite people only if you want to." : "")
                 }
                 Section {
                     Button {
                         Task {
                             switch mode {
                             case .signIn: await store.signIn(email: email, password: password)
-                            case .start: await store.signUp(name: name, team: team, email: email, password: password)
+                            case .start: await store.signUp(name: name, email: email, password: password)
                             case .join: await store.join(invite: invite, name: name, password: password)
                             }
                         }
-                    } label: { HStack { Spacer(); if store.loading { ProgressView() } else { Text(mode == .start ? "Create team" : mode == .join ? "Join team" : "Sign in").bold() }; Spacer() } }
+                    } label: { HStack { Spacer(); if store.loading { ProgressView() } else { Text(mode == .start ? "Create account" : mode == .join ? "Join" : "Sign in").bold() }; Spacer() } }
                     .disabled(!ready || store.loading)
                     ErrorBanner()
                 }
                 Section("Server") {
-                    TextField("Team server", text: $store.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).font(.footnote)
+                    TextField("Server address", text: $store.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).font(.footnote)
                 }
             }
         }
@@ -111,8 +110,8 @@ struct NoTeam: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section { TextField("Team name", text: $name); Button("Create team") { Task { await store.createTeam(name) } }.disabled(name.isEmpty) }
-                    header: { Text("You’re not in a team yet") } footer: { Text("Or open an invitation link from a teammate.") }
+                Section { TextField("Workspace name", text: $name); Button("Create workspace") { Task { await store.createTeam(name) } }.disabled(name.isEmpty) }
+                    header: { Text("You don’t have a workspace yet") } footer: { Text("Or open an invitation link someone sent you.") }
                 Section { ErrorBanner(); Button("Sign out", role: .destructive) { Task { await store.signOut() } } }
             }.navigationTitle("Welcome")
         }
@@ -216,7 +215,7 @@ struct TeamBoard: View {
                 }
                 ErrorBanner()
             }
-            .navigationTitle(store.team?.name ?? "Team")
+            .navigationTitle(store.team?.name ?? "Shared")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: String.self) { NoteDetail(id: $0) }
             .refreshable { await store.refresh() }
@@ -249,12 +248,12 @@ struct NoteDetail: View {
                     }
                 }
                 Section {
-                    if note.visibility == "private" && store.canEditBoard { Button("Share with team") { Task { await store.update(note, ["visibility": "company"]) } } }
+                    if note.visibility == "private" && store.canEditBoard && store.members.count > 1 { Button("Move to shared board") { Task { await store.update(note, ["visibility": "company"]) } } }
                     if note.visibility == "company" && note.ownerId == store.me?.id { Button("Make private") { Task { await store.update(note, ["visibility": "private"]) } } }
                     if note.ownerId == store.me?.id || store.isAdmin { Button("Delete", role: .destructive) { confirmDelete = true } }
                 } footer: { if let by = note.updatedByName { Text("Last changed by \(note.updatedBy == store.me?.id ? "you" : by)") } }
             }
-            .navigationTitle(note.visibility == "private" ? "Private note" : "Team note")
+            .navigationTitle(note.visibility == "private" ? "Private note" : "Shared note")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { title = note.title; body_ = note.body }
             .onDisappear {
@@ -284,12 +283,12 @@ struct Settings: View {
                     }
                 }
                 if store.teams.count > 1 {
-                    Section("Team") {
-                        Picker("Team", selection: Binding(get: { store.team?.id ?? "" }, set: { v in Task { await store.switchTeam(v) } })) { ForEach(store.teams) { Text($0.name).tag($0.id) } }
+                    Section("Workspace") {
+                        Picker("Workspace", selection: Binding(get: { store.team?.id ?? "" }, set: { v in Task { await store.switchTeam(v) } })) { ForEach(store.teams) { Text($0.name).tag($0.id) } }
                     }
                 }
                 Section {
-                    LabeledContent("Team", value: store.team?.name ?? "—")
+                    LabeledContent("Workspace", value: store.team?.name ?? "—")
                     LabeledContent("Your role", value: store.team?.role.capitalized ?? "—")
                     LabeledContent("Members", value: "\(store.members.count)")
                     if let url = URL(string: store.server) { Link("Invite people on the web", destination: url) }

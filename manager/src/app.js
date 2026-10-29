@@ -103,9 +103,9 @@ export function createApp(pool, config) {
           return json(res,response.status,response.value,response.headers);
         }
         if (path === '/api/auth/signup') {
-          // Anyone can start a team: a new account that owns a new, empty company. Joining an existing one is by invitation only.
+          // Anyone can create an account: it owns a workspace of its own, used alone or shared later. Joining someone else's is by invitation only.
           requireThat(config.signupOpen !== false, 403, 'Sign-up is closed on this server. Ask for an invitation.');
-          const accountEmail = email(input.email), name = text(input.name,'Name'), companyName = text(input.companyName,'Team name');
+          const accountEmail = email(input.email), name = text(input.name,'Name'), companyName = input.companyName ? text(input.companyName,'Workspace name') : `${name.split(' ')[0]}’s workspace`.slice(0,120);
           await limit(pool, `signup:${ip}`, 5, 3600);
           const passwordHash = await hashPassword(input.password);
           const response = await transaction(pool, async db => {

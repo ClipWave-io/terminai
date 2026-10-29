@@ -29,6 +29,11 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   const b=await request('/api/auth/signup',{method:'POST',data:{name:'Bo',email:'bo@example.test',companyName:'Beta',password,client:'desktop'}});
   assert.equal(b.status,200);
   assert.equal((await request('/api/auth/signup',{method:'POST',data:{name:'Again',email:'ADA@example.test',companyName:'Dup',password}})).status,409);
+  // Solo use: no workspace name needed, one is made for you.
+  const solo=await request('/api/auth/signup',{method:'POST',data:{name:'Sol Lee',email:'sol@example.test',password,client:'desktop'}});
+  assert.equal(solo.status,200);
+  const soloMe=(await request('/api/me',{token:solo.body.token})).body.companies;
+  assert.equal(soloMe.length,1);assert.equal(soloMe[0].name,'Sol’s workspace');assert.equal(soloMe[0].role,'owner');
   const alpha=(await request('/api/me',{token:a.body.token})).body.companies[0],beta=(await request('/api/me',{token:b.body.token})).body.companies[0];
   assert.equal(alpha.role,'owner');assert.notEqual(alpha.id,beta.id);
   const notes=`/api/companies/${alpha.id}/notes`;

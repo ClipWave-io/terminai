@@ -48,8 +48,8 @@ export async function workspaceState(): Promise<WorkspaceState> {
 export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceState> {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Unlock your macOS keychain before signing in.')
   const url = managerOrigin(input.url)
-  const result = input.companyName
-    ? await request(url, '/api/auth/signup', 'POST', { name: input.name, email: input.email, companyName: input.companyName, password: input.password, client: 'desktop' })
+  const result = input.signup
+    ? await request(url, '/api/auth/signup', 'POST', { name: input.name, email: input.email, companyName: input.companyName || undefined, password: input.password, client: 'desktop' })
     : input.inviteToken
     ? await request(url, '/api/auth/accept-invite', 'POST', { token: input.inviteToken, name: input.name, password: input.password, client: 'desktop' })
     : await request(url, '/api/auth/login', 'POST', { email: input.email, password: input.password, client: 'desktop' })

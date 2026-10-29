@@ -48,15 +48,15 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: 
 
   const signedIn = (value: WorkspaceState) => { setState(value); setCompany(value.identity?.companies[0]?.id ?? ''); setError('') }
   return <div className="workspace-overlay" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-    <section className="team-sheet" role="dialog" aria-modal="true" aria-label="Team workspace">
+    <section className="team-sheet" role="dialog" aria-modal="true" aria-label="TerminAI Sync">
       {error && <p className="team-error" role="alert" onClick={() => setError('')}>{error}</p>}
       {loading ? <div className="team-empty">Connecting…</div>
         : !state.signedIn ? <TeamSignIn onDone={signedIn} onError={fail} onClose={onClose} />
         : <div className="team-shell">
           <aside className="team-side">
-            <div className="team-brand"><span className="team-mark">›_</span>Team</div>
+            <div className="team-brand"><span className="team-mark">›_</span>Sync</div>
             {(state.identity?.companies.length ?? 0) > 1
-              ? <select aria-label="Team" value={company} onChange={e => setCompany(e.target.value)}>{state.identity?.companies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
+              ? <select aria-label="Workspace" value={company} onChange={e => setCompany(e.target.value)}>{state.identity?.companies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
               : <div className="team-company">{membership?.name}<small>{membership?.role}</small></div>}
             <nav>{(['notes', 'conversations', 'tools'] as Section[]).map(key => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => setSection(key)}><Icon d={P[key]} />{key[0].toUpperCase() + key.slice(1)}</button>)}</nav>
             <div className="team-me">
@@ -64,16 +64,16 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: 
               <div><strong>{state.identity?.user.name}</strong><small>{state.identity?.user.email}</small></div>
             </div>
             <div className="team-side-actions">
-              <button title="Invite people, roles and settings on the web" onClick={() => void window.term.workspace.openManager().catch(fail)}><Icon d={P.web} size={13} />Manage on the web</button>
+              <button title="Invite people and change settings on the web" onClick={() => void window.term.workspace.openManager().catch(fail)}><Icon d={P.web} size={13} />Manage on the web</button>
               <button onClick={() => void window.term.workspace.logout().catch(fail).finally(() => { setState({ url: state.url, signedIn: false }); setCompany('') })}><Icon d={P.out} size={13} />Sign out</button>
             </div>
           </aside>
           <main className="team-main">
-            <button className="team-close" aria-label="Close team workspace" onClick={onClose}><Icon d={P.close} /></button>
+            <button className="team-close" aria-label="Close sync" onClick={onClose}><Icon d={P.close} /></button>
             {company && section === 'notes' && <TeamNotes key={company} base={base} me={state.identity!.user.id} members={members} role={membership?.role ?? 'viewer'} teamName={membership?.name ?? ''} onError={fail} />}
             {company && section === 'conversations' && <TeamConversations key={company} base={base} me={state.identity!.user.id} membership={membership} activeTab={activeTab} tabs={tabs} onError={fail} />}
             {section === 'tools' && <div className="team-page">
-              <header><h2>Tools</h2><p>What your role gets on this Mac. Your admin chooses them on the web.</p></header>
+              <header><h2>Tools</h2><p>The tools set up for you on this Mac. Change them on the web.</p></header>
               {tools.length ? <div className="team-list">{tools.map(tool => <div className="team-row" key={tool.id}><div><strong>{tool.id}</strong><small>{tool.message}</small></div><span className={`team-badge ${tool.status === 'configured' ? 'ok' : 'warn'}`}>{tool.status === 'configured' ? 'Ready' : tool.status === 'needs-setup' ? 'Needs setup' : 'Error'}</span></div>)}</div>
                 : <p className="team-muted">No tools are assigned to your role.</p>}
             </div>}
@@ -86,17 +86,17 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: 
 function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: WorkspaceState) => void; onError: (e: unknown) => void; onClose: () => void }): JSX.Element {
   const [mode, setMode] = useState<'signin' | 'signup' | 'invite'>('signin')
   const [url, setUrl] = useState(DEFAULT_WORKSPACE_URL)
-  const [form, setForm] = useState({ name: '', email: '', password: '', companyName: '', invite: '' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', invite: '' })
   const [busy, setBusy] = useState(false)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value })
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true)
     try {
       onDone(await window.term.workspace.login({ url, password: form.password,
-        ...(mode === 'signin' ? { email: form.email } : mode === 'signup' ? { name: form.name, email: form.email, companyName: form.companyName } : { name: form.name, inviteToken: inviteTokenOf(form.invite) }) }))
+        ...(mode === 'signin' ? { email: form.email } : mode === 'signup' ? { signup: true, name: form.name, email: form.email } : { name: form.name, inviteToken: inviteTokenOf(form.invite) }) }))
     } catch (err) { onError(err) } finally { setBusy(false) }
   }
-  const titles = { signin: ['Sign in to your team', 'Notes, a shared board and conversations, the same on the web and your iPhone.'], signup: ['Start a team', 'You’ll own it and can invite anyone. Free.'], invite: ['Join with an invitation', 'Paste the link your teammate sent you.'] }
+  const titles = { signin: ['Sign in to sync', 'Your notes and conversations, the same on this Mac, the web and your iPhone.'], signup: ['Create an account', 'Free. Use it by yourself; invite people only if you want to.'], invite: ['Join with an invitation', 'Paste the link someone sent you.'] }
   return <div className="team-auth">
     <button className="team-close" aria-label="Close" onClick={onClose}><Icon d={P.close} /></button>
     <form onSubmit={submit}>
@@ -104,16 +104,15 @@ function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: WorkspaceState) 
       <h2>{titles[mode][0]}</h2><p className="team-muted">{titles[mode][1]}</p>
       {mode === 'invite' && <label>Invitation link<input required autoFocus value={form.invite} onChange={set('invite')} placeholder="https://…/#invite=…" /></label>}
       {mode !== 'signin' && <label>Your name<input required value={form.name} onChange={set('name')} autoFocus={mode === 'signup'} /></label>}
-      {mode === 'signup' && <label>Team or company<input required value={form.companyName} onChange={set('companyName')} /></label>}
       {mode !== 'invite' && <label>Email<input required type="email" autoComplete="username" value={form.email} onChange={set('email')} autoFocus={mode === 'signin'} /></label>}
       <label>Password<input required type="password" minLength={mode === 'signin' ? 1 : 12} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={mode === 'signin' ? '' : '12 characters or more'} value={form.password} onChange={set('password')} /></label>
-      <button className="team-primary" disabled={busy}>{busy ? 'Connecting…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create team' : 'Join team'}</button>
+      <button className="team-primary" disabled={busy}>{busy ? 'Connecting…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Join'}</button>
       <div className="team-switch">
         {mode !== 'signin' && <button type="button" onClick={() => setMode('signin')}>I have an account</button>}
-        {mode !== 'signup' && <button type="button" onClick={() => setMode('signup')}>Start a team</button>}
+        {mode !== 'signup' && <button type="button" onClick={() => setMode('signup')}>Create an account</button>}
         {mode !== 'invite' && <button type="button" onClick={() => setMode('invite')}>I have an invitation</button>}
       </div>
-      <details className="team-server"><summary>Server</summary><label>Team server address<input type="url" value={url} onChange={e => setUrl(e.target.value)} /></label><small>Leave it unless your company runs its own TerminAI server.</small></details>
+      <details className="team-server"><summary>Server</summary><label>Server address<input type="url" value={url} onChange={e => setUrl(e.target.value)} /></label><small>Leave it unless you run your own TerminAI server.</small></details>
     </form>
   </div>
 }
@@ -150,7 +149,7 @@ function TeamNotes({ base, me, members, role, teamName, onError }: { base: strin
   return <div className="team-page wide">
     <header><div><h2>Notes</h2><p>{view === 'private' ? 'Only you can see these, on this Mac, the web and your iPhone.' : `Shared with everyone in ${teamName}.`}</p></div>
       <div className="team-head-actions">
-        <div className="team-seg">{([['private', 'My notes'], ['company', 'Team board']] as const).map(([k, l]) => <button key={k} aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}</div>
+        <div className="team-seg">{members.length > 1 && ([['private', 'My notes'], ['company', 'Shared board']] as const).map(([k, l]) => <button key={k} aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}</div>
         <button className="team-ghost" onClick={() => setShowDone(!showDone)}>{showDone ? 'Hide done' : `Show done${done ? ` (${done})` : ''}`}</button>
       </div></header>
     {view === 'private' ? <div className="team-notes-solo">
@@ -191,7 +190,7 @@ function NoteCard({ note, me, admin, canTeam, save, remove }: { note: WorkspaceN
       {note.visibility === 'company' && note.updatedByName && <small>{note.updatedBy === me ? 'You' : note.updatedByName} · {new Date(note.updatedAt).toLocaleDateString()}</small>}
     </div>
     <div className="team-note-tools">
-      {note.visibility === 'private' && canTeam && <button onClick={() => void save(note.id, { visibility: 'company' })}>Share with team</button>}
+      {note.visibility === 'private' && canTeam && <button onClick={() => void save(note.id, { visibility: 'company' })}>Move to shared board</button>}
       {note.visibility === 'company' && note.ownerId === me && <button onClick={() => void save(note.id, { visibility: 'private' })}>Make private</button>}
       {(note.ownerId === me || admin) && <button aria-label="Delete" title="Delete" onClick={() => { if (confirm(`Delete “${note.title}”?`)) void remove() }}><Icon d={P.trash} size={13} /></button>}
     </div>
@@ -259,7 +258,7 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
   const shown = conversations.filter(c => filter === 'all' || (filter === 'shared' ? c.visibility === 'company' : owner(c)))
   const active = conversations.find(c => c.id === selected)
   return <div className="team-page wide">
-    <header><div><h2>Conversations</h2><p>Threads your team can read. Share a session to post its screen live while this panel is open; nothing is ever run on anyone’s Mac.</p></div>
+    <header><div><h2>Conversations</h2><p>Your conversation threads, private unless you share them. Share a session to post its screen live while this panel is open; nothing is ever run on anyone’s Mac.</p></div>
       {!viewer && <div className="team-head-actions">
         <select className="team-share-pick" aria-label="Share a session" value={sharePick} onChange={e => { setSharePick(e.target.value); void startShare(e.target.value) }}>
           <option value="">Share a session…</option>
@@ -287,7 +286,7 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
           </div>
           <div className="team-messages" aria-live="polite">{messages.map(m => <article key={m.id} className={m.kind}><header><strong>{m.authorName || m.author_name || m.kind}</strong>{m.createdAt && <small>{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>}</header><pre>{m.content}</pre></article>)}
             {!messages.length && <p className="team-empty small">No messages yet.</p>}</div>
-          {!viewer && <form className="team-compose" onSubmit={send}><textarea aria-label="Message" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(e) }} maxLength={16000} placeholder="Write to your team…  ⌘Return to send" /><button className="team-primary small" disabled={!draft.trim()}>Send</button></form>}
+          {!viewer && <form className="team-compose" onSubmit={send}><textarea aria-label="Message" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(e) }} maxLength={16000} placeholder="Write a message…  ⌘Return to send" /><button className="team-primary small" disabled={!draft.trim()}>Send</button></form>}
         </> : <p className="team-empty">Pick a conversation.</p>}
       </div>
     </div>

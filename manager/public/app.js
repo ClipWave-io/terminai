@@ -94,13 +94,13 @@ function authPage(title, subtitle, f) {
   const art = el('aside', null, { class: 'auth-art' },
     brand(),
     el('div', null, {},
-      el('h2', 'Your team’s AI terminals, in one place.'),
-      el('p', 'Shared conversations, approved tools and roles for every Claude Code and Codex session your company runs.', { class: 'dim' }),
+      el('h2', 'Your AI terminals, synced everywhere.'),
+      el('p', 'Notes, conversations and tools for your Claude Code and Codex sessions, the same on your Mac, iPhone and the web. Use it alone, or invite people whenever you like.', { class: 'dim' }),
       el('div', null, { class: 'term' },
         el('div', null, { class: 'term-bar' }, el('i'), el('i'), el('i')),
         el('div', null, { class: 'term-body' },
-          line('$ ', 'terminai team join', ''), line('', '✓ ', 'Signed in to your company'),
-          line('', '✓ ', 'Google Ads and browser tools ready'), line('', '✓ ', '3 shared conversations')))),
+          line('$ ', 'terminai sync', ''), line('', '✓ ', 'Signed in'),
+          line('', '✓ ', 'Notes synced to your iPhone'), line('', '✓ ', '3 conversations')))),
     el('small', 'Agents run on each person’s Mac. This server only stores accounts, access and shared history.'));
   function line(prompt, strong, rest) {
     const d = el('div'); if (prompt) d.append(prompt);
@@ -121,9 +121,9 @@ async function start() {
   if (setup.setupRequired && !setup.signupOpen) {
     const f = form(async data => { await api('/api/setup', 'POST', data); await refresh(); });
     field(f, 'Setup token', 'setupToken', 'password', setupToken || '');
-    const two = el('div', null, { class: 'fields' }); field(two, 'Your name', 'name'); field(two, 'Team name', 'companyName'); f.append(two);
+    const two = el('div', null, { class: 'fields' }); field(two, 'Your name', 'name'); field(two, 'Workspace name', 'companyName'); f.append(two);
     field(f, 'Email', 'email', 'email'); field(f, 'Password', 'password', 'password');
-    submit(f, 'Create team', 'block');
+    submit(f, 'Create account', 'block');
     f.append(el('small', 'Sign-up is closed on this server. The token is the SETUP_TOKEN variable of the server’s hosting (for example Railway → Variables).'));
     return authPage('Set up this server', 'Create the first owner account.', f);
   }
@@ -133,43 +133,43 @@ async function start() {
   };
   if (authMode === 'signup' && setup.signupOpen) {
     const f = form(async data => { await api('/api/auth/signup', 'POST', data); await refresh(); });
-    const two = el('div', null, { class: 'fields' }); field(two, 'Your name', 'name'); field(two, 'Team or company', 'companyName'); f.append(two);
-    field(f, 'Work email', 'email', 'email');
+    field(f, 'Your name', 'name');
+    field(f, 'Email', 'email', 'email');
     const pw = field(f, 'Password', 'password', 'password'); pw.placeholder = '12 characters or more'; pw.autocomplete = 'new-password';
-    submit(f, 'Create team', 'block');
+    submit(f, 'Create account', 'block');
     f.append(toggle('Already have an account?', 'Sign in', 'signin'),
-      el('small', 'Joining a team that already exists? Ask its admin for an invitation link instead.'));
-    return authPage('Start a team', 'Free. You’ll be its owner and can invite people right after.', f);
+      el('small', 'Joining someone’s workspace? Open the invitation link they sent you instead.'));
+    return authPage('Create your account', 'Free. Use it by yourself; invite people only if you want to.', f);
   }
   const f = form(async data => { await api('/api/auth/login', 'POST', data); await refresh(); });
   field(f, 'Email', 'email', 'email');
   const password = field(f, 'Password', 'password', 'password'); password.removeAttribute('minlength'); password.autocomplete = 'current-password';
   submit(f, 'Sign in', 'block');
-  if (setup.signupOpen) f.append(toggle('New to TerminAI?', 'Start a team', 'signup'));
-  f.append(el('small', 'Invited by a teammate? Open the link they sent you.'));
-  authPage('Welcome back', 'Sign in to your team workspace.', f);
+  if (setup.signupOpen) f.append(toggle('New to TerminAI?', 'Create an account', 'signup'));
+  f.append(el('small', 'Invited by someone? Open the link they sent you.'));
+  authPage('Welcome back', 'Sign in to sync your notes and sessions.', f);
 }
 function showInvitation() {
   const f = form(async data => { await api('/api/auth/accept-invite', 'POST', { ...data, token: inviteToken }); location.replace('/'); });
   field(f, 'Your name', 'name'); field(f, 'Password', 'password', 'password');
-  submit(f, 'Join the team', 'block');
+  submit(f, 'Join', 'block');
   f.append(el('small', 'Already have an account? Enter its password. Otherwise choose a new one, 12 characters or more.'));
-  authPage('You’re invited', 'Join your company on TerminAI.', f);
+  authPage('You’re invited', 'Join a shared workspace on TerminAI.', f);
 }
 
 // ---- workspace shell
 const PAGES = [
   ['overview', 'Overview', 'overview'], ['notes', 'Notes', 'notes'], ['conversations', 'Conversations', 'conversations'],
-  ['team', 'Team', 'team', c => ['owner', 'admin'].includes(c.role)], ['tools', 'Tools', 'tools'],
-  ['settings', 'Company settings', 'settings', c => c.role === 'owner'], ['account', 'Account', 'account'],
+  ['team', 'People', 'team', c => ['owner', 'admin'].includes(c.role)], ['tools', 'Tools', 'tools'],
+  ['settings', 'Workspace settings', 'settings', c => c.role === 'owner'], ['account', 'Account', 'account'],
 ];
 async function workspace() {
   if (!me.companies.length) {
     const f = form(async data => { await api('/api/companies', 'POST', data); await refresh(); });
-    field(f, 'Team or company name', 'name'); submit(f, 'Create team', 'block');
-    f.append(el('small', 'Or open an invitation link from an existing team.'),
+    field(f, 'Workspace name', 'name', 'text', `${me.user.name.split(' ')[0]}’s workspace`); submit(f, 'Create workspace', 'block');
+    f.append(el('small', 'Or open an invitation link someone sent you.'),
       button('Sign out', async () => { await api('/api/auth/logout', 'POST', {}); location.reload(); }, 'secondary'));
-    return authPage(`Hi ${me.user.name.split(' ')[0]}`, 'You’re not in a team yet. Start one:', f);
+    return authPage(`Hi ${me.user.name.split(' ')[0]}`, 'You don’t have a workspace yet. Create one:', f);
   }
   if (!me.companies.some(c => c.id === companyId)) companyId = me.companies[0].id;
   const company = me.companies.find(c => c.id === companyId);
@@ -185,7 +185,7 @@ async function workspace() {
   }
   let switcher = null;
   if (me.companies.length > 1) {
-    switcher = el('select', null, { 'aria-label': 'Company' });
+    switcher = el('select', null, { 'aria-label': 'Workspace' });
     for (const c of me.companies) switcher.append(el('option', c.name, { value: c.id }));
     switcher.value = companyId;
     switcher.addEventListener('change', run(async () => { companyId = switcher.value; activeConversation = null; await workspace(); }));
@@ -211,7 +211,7 @@ async function overview(main, company) {
   const { conversations: list } = await api(`${base()}/conversations`);
   const { catalog } = await api(`${base()}/catalog`);
   const stats = el('div', null, { class: 'stats' },
-    stat(list.length, 'conversations'), stat(list.filter(c => c.visibility === 'company').length, 'shared with the company'),
+    stat(list.length, 'conversations'), stat(list.filter(c => c.visibility === 'company').length, 'shared'),
     stat(catalog.filter(t => t.assigned).length, `of ${catalog.length} tools assigned to you`));
   if (['owner', 'admin'].includes(company.role)) {
     const { members } = await api(`${base()}/members`); stats.prepend(stat(members.length, members.length === 1 ? 'member' : 'members'));
@@ -219,10 +219,10 @@ async function overview(main, company) {
   main.append(el('div', null, { class: 'stack' }, stats,
     el('h2', 'Getting started'),
     el('div', null, { class: 'steps' },
-      step('Invite your team', 'Create an invitation link under Team. It works once and expires after 48 hours.'),
-      step('Write things down', 'Notes has your private list, which only you ever see, and a team board with a column for each person.'),
+      step('Write things down', 'Notes has your private list, which only you ever see, and a shared board with a column for each person.'),
+      step('Sync your Mac and iPhone', 'Click the Sync icon in TerminAI, or open the TerminAI iPhone app, and sign in with this account.'),
+      step('Invite people, if you want', 'Under People, create an invitation link. It works once and expires after 48 hours.'),
       step('Pick tools per role', 'Developers get the browser tools, analysts and marketing get Google Ads. Change it under Tools.'),
-      step('Sign in from TerminAI', 'On each Mac, click the Team icon in TerminAI and sign in with this site’s address and your account.'),
       step('Share on purpose', 'Conversations are private unless you share them. Nobody’s messages ever run as commands.'))));
   function stat(n, label) { return el('div', null, { class: 'stat' }, el('b', String(n)), el('small', label)); }
   function step(title, text) { return el('div', null, { class: 'card' }, el('h3', title), el('p', text, { class: 'small' })); }
@@ -235,14 +235,16 @@ async function notes(main, company) {
   const [{ notes: all }, { members }] = await Promise.all([api(`${base()}/notes`), api(`${base()}/members`)]);
   const canTeam = company.role !== 'viewer';
   const save = (n, patch) => api(`${base()}/notes/${n.id}`, 'PATCH', patch);
+  // Alone in a workspace there is nobody to share a board with: just the private list.
+  if (members.length < 2) notesView = 'private';
   const tabs = el('div', null, { class: 'seg' });
-  for (const [key, label] of [['private', 'My notes'], ['company', 'Team board']]) {
+  for (const [key, label] of [['private', 'My notes'], ['company', 'Shared board']]) {
     const b = el('button', label, { type: 'button', 'aria-pressed': String(notesView === key) });
     b.addEventListener('click', run(async () => { notesView = key; await workspace(); })); tabs.append(b);
   }
   const doneCount = all.filter(n => n.visibility === notesView && n.status === 'done').length;
   const doneToggle = button(showDone ? 'Hide done' : `Show done${doneCount ? ` (${doneCount})` : ''}`, async () => { showDone = !showDone; await workspace(); }, 'secondary');
-  head(main, 'Notes', notesView === 'private' ? 'Only you can see these. Not even the team owner.' : `Shared with everyone in ${company.name}.`, el('div', null, { class: 'actions' }, tabs, doneToggle));
+  head(main, 'Notes', notesView === 'private' ? 'Only you can see these, even in a shared workspace.' : `Shared with everyone in ${company.name}.`, el('div', null, { class: 'actions' }, members.length > 1 ? tabs : null, doneToggle));
   const visible = all.filter(n => n.visibility === notesView && (showDone || n.status === 'open'));
 
   function adder(extra = {}, placeholder = 'Add a note…') {
@@ -265,7 +267,7 @@ async function notes(main, company) {
     body.addEventListener('input', grow); requestAnimationFrame(grow);
     body.addEventListener('change', run(async () => { await save(n, { body: body.value }); }));
     const tools = el('div', null, { class: 'note-tools' });
-    if (n.visibility === 'private' && canTeam) tools.append(button('Share with team', async () => { await save(n, { visibility: 'company' }); message('Moved to the team board.'); await workspace(); }, 'ghost'));
+    if (n.visibility === 'private' && canTeam) tools.append(button('Move to shared board', async () => { await save(n, { visibility: 'company' }); message('Moved to the shared board.'); await workspace(); }, 'ghost'));
     if (n.visibility === 'company' && n.ownerId === me.user.id) tools.append(button('Make private', async () => { await save(n, { visibility: 'private' }); await workspace(); }, 'ghost'));
     if (n.ownerId === me.user.id || ['owner', 'admin'].includes(company.role)) {
       const del = button('', async () => { if (confirm(`Delete “${n.title}”?`)) { await api(`${base()}/notes/${n.id}`, 'DELETE'); await workspace(); } }, 'ghost'); del.append(icon('trash')); del.title = 'Delete'; tools.append(del);
@@ -346,7 +348,7 @@ async function conversations(main, company) {
     pane.append(card('New conversation', '“Owner” keeps it private to you; “company” shares it with the roles you choose.', f));
     return;
   }
-  if (!activeConversation) { pane.append(el('div', null, { class: 'card empty' }, el('p', 'Create a conversation, or share one from TerminAI’s Team panel.'))); return; }
+  if (!activeConversation) { pane.append(el('div', null, { class: 'card empty' }, el('p', 'Create a conversation, or share one from TerminAI’s Sync panel.'))); return; }
 
   const thread = el('div', null, { class: 'thread' });
   const shell = card(activeConversation.title, activeConversation.visibility === 'owner' ? 'Private to its owner' : `Shared with ${activeConversation.allowedRoles.join(', ') || 'the company'}`, thread);
@@ -388,7 +390,7 @@ async function conversations(main, company) {
 async function team(main, company) {
   const owner = company.role === 'owner';
   const { members } = await api(`${base()}/members`), { invites } = await api(`${base()}/invites`);
-  head(main, 'Team', `${members.length} ${members.length === 1 ? 'person' : 'people'} in ${company.name}`);
+  head(main, 'People', `${members.length} ${members.length === 1 ? 'person' : 'people'} in ${company.name}`);
 
   const list = el('div', null, { class: 'list' });
   for (const member of members) {
@@ -461,15 +463,15 @@ async function tools(main, company) {
 }
 
 async function settings(main, company) {
-  head(main, 'Company settings', 'Only the owner sees this page.');
+  head(main, 'Workspace settings', 'Only the owner sees this page.');
   const f = form(async data => {
     await api(base(), 'PATCH', { name: data.name, defaultVisibility: data.defaultVisibility, allowCompanySharing: data.allowCompanySharing === 'yes' });
     await refresh(); message('Settings saved.');
   });
-  field(f, 'Company name', 'name', 'text', company.name);
+  field(f, 'Workspace name', 'name', 'text', company.name);
   const two = el('div', null, { class: 'fields' });
   field(two, 'New conversations are', 'defaultVisibility', 'text', company.defaultVisibility, ['owner', 'company']);
-  field(two, 'Allow sharing with the company', 'allowCompanySharing', 'text', company.allowCompanySharing ? 'yes' : 'no', ['yes', 'no']);
+  field(two, 'Allow sharing with everyone here', 'allowCompanySharing', 'text', company.allowCompanySharing ? 'yes' : 'no', ['yes', 'no']);
   f.append(two, el('small', 'Turning sharing off makes every shared conversation private at once. Turning it back on doesn’t re-share them.'));
   submit(f, 'Save settings');
   main.append(card(null, null, f));

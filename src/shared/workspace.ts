@@ -12,7 +12,7 @@ export interface WorkspaceState {
   url: string; signedIn: boolean; identity?: WorkspaceIdentity
 }
 export interface WorkspaceLogin {
-  url: string; email?: string; password: string; name?: string; inviteToken?: string; companyName?: string
+  url: string; email?: string; password: string; name?: string; inviteToken?: string; companyName?: string; signup?: boolean
 }
 export interface WorkspaceNote {
   id: string; ownerId: string; visibility: 'private' | 'company'; title: string; body: string; status: 'open' | 'done'
