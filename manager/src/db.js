@@ -91,6 +91,11 @@ export async function migrate(pool) {
         created_by uuid REFERENCES manager_users ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS manager_note_files_note ON manager_note_files(note_id,created_at);
+      CREATE TABLE IF NOT EXISTS manager_device_logins (
+        id uuid PRIMARY KEY, code_hash text NOT NULL UNIQUE, poll_hash text NOT NULL UNIQUE,
+        user_id uuid REFERENCES manager_users ON DELETE CASCADE, created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL, consumed_at timestamptz
+      );
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

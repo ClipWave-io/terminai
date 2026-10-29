@@ -88,6 +88,19 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request(`${notes}/${doc.id}/files/${added.body.file.id}`,{token:a.body.token,method:'DELETE'})).status,200);
   assert.deepEqual((await request(notes,{token:cy.token})).body.notes.find(n=>n.id===doc.id).files,[]);
 
+  // Sign in with the browser: the app gets a code, a signed-in person allows it, the app collects a desktop session once.
+  const started=(await request('/api/auth/device/start',{method:'POST',data:{}})).body;
+  assert.match(started.code,/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);assert.equal(started.verifyUrl,`http://localhost:8080/#device=${started.code}`);
+  assert.deepEqual((await request('/api/auth/device/poll',{method:'POST',data:{pollToken:started.pollToken}})).body,{pending:true});
+  assert.equal((await request('/api/auth/device/approve',{method:'POST',data:{code:started.code}})).status,401,'only a signed-in person allows it');
+  assert.equal((await request('/api/auth/device/approve',{token:cy.token,method:'POST',data:{code:'AAAA-AAAA'}})).status,404);
+  assert.equal((await request('/api/auth/device/approve',{token:cy.token,method:'POST',data:{code:started.code.toLowerCase()}})).status,200);
+  assert.equal((await request('/api/auth/device/approve',{token:a.body.token,method:'POST',data:{code:started.code}})).status,404,'a code is allowed once');
+  const collected=(await request('/api/auth/device/poll',{method:'POST',data:{pollToken:started.pollToken}})).body;
+  assert.equal(collected.user.email,'cy@example.test');assert.match(collected.token,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await request('/api/me',{token:collected.token})).body.user.email,'cy@example.test');
+  assert.equal((await request('/api/auth/device/poll',{method:'POST',data:{pollToken:started.pollToken}})).status,410,'collected once');
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdtemp, open, readdir, realpath, rename, rm, unlink, readFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, unlink, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, isAbsolute, relative, resolve, sep, dirname, join } from 'node:path'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
@@ -133,6 +133,44 @@ export class ProjectFiles {
   }
   /** The real file behind a project path, for "Open with the default app". */
   async resolved(path: string): Promise<string> { return this.scoped(path) }
+  /** Finder's right-click actions that change files: names are one path segment, never overwriting anything. */
+  private name(value: unknown): string {
+    if (typeof value !== 'string' || !value.trim() || value.length > 255 || /[/\0:]/.test(value) || ['.', '..'].includes(value.trim())) throw new Error('Enter a name without / or :.')
+    return value.trim()
+  }
+  private async free(target: string): Promise<void> {
+    try { await lstat(target) } catch { return }
+    throw new Error(`“${basename(target)}” already exists here.`)
+  }
+  async renameEntry(path: string, to: unknown): Promise<string> {
+    const source = await this.scoped(path), target = join(dirname(source), this.name(to))
+    if (source === this.root) throw new Error('The project folder itself cannot be renamed here.')
+    if (target !== source) { await this.free(target); await rename(source, target) }
+    return relative(this.root, target)
+  }
+  async create(folder: string, name: unknown, directory: boolean): Promise<string> {
+    const target = join(await this.scoped(folder), this.name(name))
+    await this.free(target)
+    if (directory) await mkdir(target); else await writeFile(target, '', { flag: 'wx' })
+    return relative(this.root, target)
+  }
+  /** "name copy", "name copy 2"… beside the original, as Finder names duplicates. */
+  async duplicate(path: string): Promise<string> {
+    const source = await this.scoped(path), ext = (await lstat(source)).isDirectory() ? '' : extname(source), stem = basename(source, ext)
+    for (let n = 1; n < 100; n++) {
+      const target = join(dirname(source), `${stem} copy${n > 1 ? ` ${n}` : ''}${ext}`)
+      try { await lstat(target) } catch { await cp(source, target, { recursive: true, errorOnExist: true, force: false }); return relative(this.root, target) }
+    }
+    throw new Error('Too many copies already.')
+  }
+  /** "Compress": name.zip (or "name 2.zip") beside it, as Finder's Archive Utility makes it. */
+  async compress(path: string): Promise<string> {
+    const source = await this.scoped(path)
+    let target = join(dirname(source), `${basename(source)}.zip`)
+    for (let n = 2; n < 100; n++) { try { await lstat(target); target = join(dirname(source), `${basename(source)} ${n}.zip`) } catch { break } }
+    await run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', source, target], 300000)
+    return relative(this.root, target)
+  }
   async preview(path: string): Promise<ProjectPreview> {
     const target = await this.scoped(path)
     const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW)

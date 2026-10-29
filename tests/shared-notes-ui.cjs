@@ -28,15 +28,17 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await waitFor('account gate', `!!document.querySelector('.account-gate .team-auth h2')`)
   assert.equal(await js(`document.querySelector('.account-gate h2').textContent`), 'Sign in to sync')
   assert.equal(await js(`!!document.querySelector('.account-gate [aria-label="Close"]')`), false, 'the gate cannot be closed')
-  await js(`[...document.querySelectorAll('.account-gate .team-switch button')].find(b => b.textContent === 'Create an account').click()`); await delay(200)
-  await type('.account-gate input[autocomplete="username"]', 'gate@example.test')
-  await js(`(() => { const set = (sel, v) => { const el = document.querySelector(sel); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })) }
-    set('.account-gate label:first-of-type input', 'Gate Tester'); set('.account-gate input[type=password]', 'long gate test password')
-    const server = document.querySelector('.account-gate input[type=url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(server, ${JSON.stringify(url)}); server.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  // Sign in with browser: the app shows a code; whoever is signed in on the website allows it; the gate goes.
+  const web = await (await fetch(`${url}/api/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Web Person', email: 'web@example.test', password: 'long browser login password', client: 'desktop' }) })).json()
+  await js(`(() => { const server = document.querySelector('.account-gate input[type=url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(server, ${JSON.stringify(url)}); server.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await js(`document.querySelector('.account-gate .team-browser').click()`)
+  await waitFor('code shown', `/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(document.querySelector('.team-browser-wait strong')?.textContent || '')`)
+  const code = await js(`document.querySelector('.team-browser-wait strong').textContent`)
   fs.writeFileSync(path.join(out, 'terminai-account-gate.png'), (await win.webContents.capturePage()).toPNG())
-  await js(`document.querySelector('.account-gate .team-primary').click()`)
-  await waitFor('gate gone', `!document.querySelector('.account-gate')`)
-  assert.equal((await pool.query(`SELECT email FROM manager_users`)).rows[0].email, 'gate@example.test')
+  const allowed = await fetch(`${url}/api/auth/device/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${web.token}` }, body: JSON.stringify({ code }) })
+  assert.equal(allowed.status, 200)
+  await waitFor('gate gone', `!document.querySelector('.account-gate')`, 10000)
+  assert.equal((await js(`window.term.workspace.state()`)).identity.user.email, 'web@example.test')
   await js(`window.term.workspace.logout()`)
 
   // Signed out again (the gate shows only at launch): the Notes view says what it is and offers Sync.

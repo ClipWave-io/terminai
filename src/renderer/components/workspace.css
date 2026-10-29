@@ -93,3 +93,10 @@
 .account-gate{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--bg);-webkit-app-region:drag}
 .account-gate form,.account-gate .team-error,.account-gate details{-webkit-app-region:no-drag}
 .account-gate-foot{margin:0 auto 28px;max-width:420px;text-align:center;font-size:12px;color:var(--dim)}
+
+/* Sign in with browser (TeamSignIn): the button, then the code to compare while waiting. */
+.team-or{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim)}
+.team-or::before,.team-or::after{content:'';flex:1;border-top:1px solid var(--border)}
+.team-browser-wait{display:grid;gap:6px;justify-items:center;padding:14px;border:1px dashed var(--border);border-radius:12px;font-size:12px;color:var(--dim)}
+.team-browser-wait strong{font:650 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;color:var(--fg)}
+.team-browser-wait button{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer}

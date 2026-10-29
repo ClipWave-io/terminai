@@ -88,6 +88,15 @@ export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: Workspace
   const [url, setUrl] = useState(DEFAULT_WORKSPACE_URL)
   const [form, setForm] = useState({ name: '', email: '', password: '', invite: '' })
   const [busy, setBusy] = useState(false)
+  /** The code of a browser sign-in in progress: the website shows the same one. */
+  const [waiting, setWaiting] = useState('')
+  async function viaBrowser() {
+    try {
+      const { code } = await window.term.workspace.browserLoginStart(url)
+      setWaiting(code)
+      onDone(await window.term.workspace.browserLoginWait())
+    } catch (err) { if (!String(err).includes('Cancelled.')) onError(err) } finally { setWaiting('') }
+  }
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value })
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true)
@@ -102,6 +111,11 @@ export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: Workspace
     <form onSubmit={submit}>
       <span className="team-mark big">›_</span>
       <h2>{titles[mode][0]}</h2><p className="team-muted">{titles[mode][1]}</p>
+      {mode !== 'invite' && (waiting
+        ? <div className="team-browser-wait" role="status"><span>Allow it in your browser. It shows this code:</span><strong>{waiting}</strong>
+            <button type="button" onClick={() => void window.term.workspace.browserLoginCancel()}>Cancel</button></div>
+        : <><button type="button" className="team-primary team-browser" onClick={() => void viaBrowser()}>Sign in with browser</button>
+            <div className="team-or"><span>or with your email</span></div></>)}
       {mode === 'invite' && <label>Invitation link<input required autoFocus value={form.invite} onChange={set('invite')} placeholder="https://…/#invite=…" /></label>}
       {mode !== 'signin' && <label>Your name<input required value={form.name} onChange={set('name')} autoFocus={mode === 'signup'} /></label>}
       {mode !== 'invite' && <label>Email<input required type="email" autoComplete="username" value={form.email} onChange={set('email')} autoFocus={mode === 'signin'} /></label>}

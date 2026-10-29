@@ -164,3 +164,7 @@ nav button{justify-content:flex-start}
 .download:hover{opacity:.9}
 .auth-download{display:none;justify-content:center;margin-top:18px}
 @media (max-width:820px){.auth-download{display:flex}}
+
+/* Sign in with browser: the code the Mac app shows, to compare. */
+.device-code{font:650 34px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;text-align:center;padding:18px;border:1px dashed var(--border);border-radius:14px;margin:4px 0 2px}
+.device-done{display:grid;gap:14px}

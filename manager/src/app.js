@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomInt } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { transaction } from './db.js';
 import { catalog } from './catalog.js';
@@ -174,7 +174,37 @@ export function createApp(pool, config) {
         });
         return json(res,response.status,response.value,response.headers);
       }
+      // Sign in with the browser: the app shows a code and opens the site; a signed-in person there allows it; the app
+      // collects a desktop session with its poll token. Nothing secret is ever typed into the app.
+      const deviceCode = value => { requireThat(typeof value === 'string' && /^[A-Z2-9]{4}-?[A-Z2-9]{4}$/i.test(value.trim()), 400, 'Enter the code shown in the app.'); return value.trim().toUpperCase().replace('-', ''); };
+      if (req.method === 'POST' && path === '/api/auth/device/start') {
+        await limit(pool, `device:${ip}`, 20, 900);
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', code = Array.from({ length: 8 }, () => alphabet[randomInt(alphabet.length)]).join(''), pollToken = opaqueToken();
+        await pool.query("INSERT INTO manager_device_logins(id,code_hash,poll_hash,expires_at) VALUES($1,$2,$3,now()+interval '10 minutes')", [randomUUID(), digest(code), digest(pollToken)]);
+        const shown = `${code.slice(0, 4)}-${code.slice(4)}`;
+        return json(res, 200, { code: shown, pollToken, expiresIn: 600, verifyUrl: `${origin}/#device=${shown}` });
+      }
+      if (req.method === 'POST' && path === '/api/auth/device/poll') {
+        const input = await body(req);
+        requireThat(typeof input.pollToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(input.pollToken), 400, 'Invalid request.');
+        const response = await transaction(pool, async db => {
+          const { rows: [login] } = await db.query('SELECT * FROM manager_device_logins WHERE poll_hash=$1 FOR UPDATE', [digest(input.pollToken)]);
+          requireThat(login && !login.consumed_at && new Date(login.expires_at) > new Date(), 410, 'This sign-in expired. Start again.');
+          if (!login.user_id) return { status: 200, value: { pending: true } };
+          await db.query('UPDATE manager_device_logins SET consumed_at=now() WHERE id=$1', [login.id]);
+          const { rows: [user] } = await db.query('SELECT * FROM manager_users WHERE id=$1', [login.user_id]);
+          return signedInResponse(req, res, db, user, { client: 'desktop' });
+        });
+        return json(res, response.status, response.value, response.headers);
+      }
       const user = await auth(req);
+      if (req.method === 'POST' && path === '/api/auth/device/approve') {
+        const input = await body(req), code = deviceCode(input.code);
+        await limit(pool, `approve:${user.id}`, 20, 900);
+        const { rowCount } = await pool.query('UPDATE manager_device_logins SET user_id=$1 WHERE code_hash=$2 AND user_id IS NULL AND consumed_at IS NULL AND expires_at>now()', [user.id, digest(code)]);
+        requireThat(rowCount, 404, 'That code is not valid any more. Start again in the app.');
+        return json(res, 200, { ok: true });
+      }
       if (req.method === 'GET' && path === '/api/me') {
         const { rows } = await pool.query('SELECT c.*,m.role,m.classification FROM manager_companies c JOIN manager_memberships m ON m.company_id=c.id WHERE m.user_id=$1 ORDER BY c.name',[user.id]);
         return json(res,200,{ user:publicUser(user), companies:rows.map(publicCompany) });

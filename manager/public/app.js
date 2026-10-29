@@ -3,7 +3,9 @@ const roles = ['owner', 'admin', 'member', 'viewer'], classes = ['general', 'dev
 let me, companyId, page = 'overview', activeConversation, fieldId = 0, noticeTimer;
 const hash = new URLSearchParams(location.hash.slice(1));
 const inviteToken = hash.get('invite'), setupToken = hash.get('setup');
-if (inviteToken || setupToken) history.replaceState(null, '', '/');
+// The Mac app's "Sign in with browser" opens /#device=CODE: allowed here by whoever is signed in.
+let deviceCode = /^[A-Z2-9]{4}-[A-Z2-9]{4}$/i.test(hash.get('device') || '') ? hash.get('device').toUpperCase() : null;
+if (inviteToken || setupToken || deviceCode) history.replaceState(null, '', '/');
 
 // ---- small DOM helpers
 function el(tag, value, attributes = {}, ...children) {
@@ -91,7 +93,7 @@ function card(title, description, ...children) {
     ...children);
 }
 function base() { return `/api/companies/${companyId}`; }
-async function refresh() { me = await api('/api/me'); await workspace(); }
+async function refresh() { me = await api('/api/me'); if (deviceCode) return showDevice(); await workspace(); }
 
 // ---- sign in, first setup, invitation
 function authPage(title, subtitle, f) {
@@ -117,10 +119,26 @@ function authPage(title, subtitle, f) {
   f.querySelector('input')?.focus();
 }
 let authMode = 'signin';
+function showDevice() {
+  const code = deviceCode;
+  const f = form(async () => {
+    await api('/api/auth/device/approve', 'POST', { code });
+    deviceCode = null;
+    const done = el('div', null, { class: 'device-done' }, el('p', 'Your Mac is signed in. You can go back to TerminAI.'));
+    done.append(button('Open my workspace', () => workspace(), 'secondary'));
+    authPage('TerminAI is signed in', `As ${me.user.email}.`, done);
+  });
+  f.append(el('div', code, { class: 'device-code', 'aria-label': 'Code' }));
+  f.append(el('small', 'Allow only if TerminAI on your Mac shows this same code, and you opened this page from it.'));
+  submit(f, 'Allow', 'block');
+  f.append(button('Cancel', () => { deviceCode = null; workspace(); }, 'secondary block'));
+  authPage('Sign in TerminAI on your Mac?', `As ${me.user.name} (${me.user.email}).`, f);
+}
 async function start() {
   const setup = await api('/api/setup');
   try { me = await api('/api/me'); } catch { me = null; }
   if (inviteToken) return showInvitation();
+  if (me && deviceCode) return showDevice();
   if (me) return workspace();
   // Only when a server operator turned public sign-up off: the first owner proves they run the server.
   if (setup.setupRequired && !setup.signupOpen) {

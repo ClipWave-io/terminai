@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile, workspaceHasAccount } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
@@ -264,6 +264,9 @@ function registerIpc(): void {
   appIpc.handle('workspace:open-manager', () => shell.openExternal(DEFAULT_WORKSPACE_URL))
   appIpc.handle('workspace:state', () => workspaceState())
   appIpc.handle('workspace:has-account', () => workspaceHasAccount())
+  appIpc.handle('workspace:browser-login-start', (_event, url) => workspaceBrowserLoginStart(url))
+  appIpc.handle('workspace:browser-login-wait', () => workspaceBrowserLoginWait())
+  appIpc.handle('workspace:browser-login-cancel', () => workspaceBrowserLoginCancel())
   appIpc.handle('workspace:login', (_event, input) => workspaceLogin(input))
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
@@ -295,6 +298,46 @@ function registerIpc(): void {
   appIpc.handle('project:save', (_event, path: string, content: string, version: string) => projectFiles.save(path, content, version))
   appIpc.handle('project:preview', (_event, path: string) => projectFiles.preview(path))
   // Only from the pane's own button: an app outside TerminAI when the user asks for one.
+  // Finder's right-click menu for an entry of the Files pane (or the folder itself when `background`). Actions that
+  // need a name typed (rename, new file, new folder) come back to the pane; the rest happen here.
+  appIpc.handle('project:menu', async (event, path: string, directory: boolean, background: boolean) => {
+    const full = await projectFiles.resolved(path), name = basename(full), owner = BrowserWindow.fromWebContents(event.sender)
+    const folder = directory ? path : dirname(path) === '.' ? '' : dirname(path)
+    return new Promise<{ action: string; path?: string } | null>(resolve => {
+      let chosen: { action: string; path?: string } | null = null
+      const act = (work: () => unknown, after: (value: any) => { action: string; path?: string } | null = () => ({ action: 'refresh' })) => async () => {
+        try { chosen = after(await work()) } catch (error) { chosen = { action: 'error', path: error instanceof Error ? error.message : String(error) } }
+      }
+      const done = (action: string, target = path) => () => { chosen = { action, path: target } }
+      const items: Electron.MenuItemConstructorOptions[] = background ? [
+        { label: 'New Folder', click: done('new-folder', path) }, { label: 'New File', click: done('new-file', path) },
+        { type: 'separator' }, { label: 'Show in Finder', click: () => shell.showItemInFolder(full) },
+        { label: 'Copy Path', click: () => clipboard.writeText(full) },
+      ] : [
+        { label: 'Open', click: done('open') },
+        { label: 'Open With Default App', click: act(async () => { const error = await shell.openPath(full); if (error) throw new Error(error) }, () => null) },
+        { type: 'separator' },
+        { label: 'Move to Trash', click: act(() => shell.trashItem(full)) },
+        { type: 'separator' },
+        { label: 'Get Info', click: () => execFile('/usr/bin/osascript', ['-e', 'on run argv', '-e', 'tell application "Finder" to activate', '-e', 'tell application "Finder" to open information window of (POSIX file (item 1 of argv) as alias)', '-e', 'end run', full]) },
+        { label: 'Rename…', click: done('rename') },
+        { label: `Compress “${name}”`, click: act(() => projectFiles.compress(path)) },
+        { label: 'Duplicate', click: act(() => projectFiles.duplicate(path)) },
+        { label: 'Quick Look', enabled: !directory, click: () => owner?.previewFile(full) },
+        { type: 'separator' },
+        { label: `Copy “${name}”`, click: () => execFile('/usr/bin/osascript', ['-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'end run', full]) },  // pastes as the file in Finder, Mail…
+        { label: 'Copy Path', click: () => clipboard.writeText(full) },
+        { role: 'shareMenu', sharingItem: { filePaths: [full] } },
+        { type: 'separator' },
+        { label: 'Show in Finder', click: () => shell.showItemInFolder(full) },
+        { label: 'New Folder', click: done('new-folder', folder) }, { label: 'New File', click: done('new-file', folder) },
+      ]
+      // A click runs before the menu reports closing; the async ones finish right after, so wait for them a moment.
+      Menu.buildFromTemplate(items).popup({ window: owner ?? undefined, callback: () => setTimeout(() => resolve(chosen), 50) })
+    })
+  })
+  appIpc.handle('project:rename', (_event, path: string, to: string) => projectFiles.renameEntry(path, to))
+  appIpc.handle('project:create', (_event, folder: string, name: string, directory: boolean) => projectFiles.create(folder, name, directory))
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {

@@ -1,4 +1,4 @@
-import { app, safeStorage } from 'electron'
+import { app, safeStorage, shell } from 'electron'
 import { readFile, writeFile, mkdir, rename, unlink, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
@@ -53,6 +53,9 @@ export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceSt
     : input.inviteToken
     ? await request(url, '/api/auth/accept-invite', 'POST', { token: input.inviteToken, name: input.name, password: input.password, client: 'desktop' })
     : await request(url, '/api/auth/login', 'POST', { email: input.email, password: input.password, client: 'desktop' })
+  return keep(url, result)
+}
+async function keep(url: string, result: any): Promise<WorkspaceState> {
   if (typeof result.token !== 'string' || result.token.length < 20) throw new Error('The manager did not return a desktop session.')
   const next = { url, token: result.token }
   await mkdir(app.getPath('userData'), { recursive: true })
@@ -63,6 +66,35 @@ export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceSt
   return workspaceState()
 }
 /** Whether this Mac has an account session, read locally so a server outage never locks anyone out. Test builds skip the gate. */
+/**
+ * Sign in with the browser: the website, where people usually are signed in already, allows this Mac after
+ * showing the same code. Start opens it and returns the code; wait resolves once allowed (or fails, or is cancelled).
+ */
+let pending: { url: string; pollToken: string; until: number; cancelled: boolean } | null = null
+export async function workspaceBrowserLoginStart(input: unknown): Promise<{ code: string }> {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Unlock your macOS keychain before signing in.')
+  const url = managerOrigin(input)
+  const started = await request(url, '/api/auth/device/start', 'POST', {})
+  if (typeof started.pollToken !== 'string' || typeof started.code !== 'string' || typeof started.verifyUrl !== 'string' || new URL(started.verifyUrl).origin !== url)
+    throw new Error('The server did not start a browser sign-in.')
+  if (pending) pending.cancelled = true
+  pending = { url, pollToken: started.pollToken, until: Date.now() + Math.min(Number(started.expiresIn) || 600, 900) * 1000, cancelled: false }
+  if (!process.env.TERMINAI_TEST_BUILD) await shell.openExternal(started.verifyUrl)
+  return { code: started.code }
+}
+export async function workspaceBrowserLoginWait(): Promise<WorkspaceState> {
+  const attempt = pending
+  if (!attempt) throw new Error('Start the browser sign-in first.')
+  while (!attempt.cancelled && Date.now() < attempt.until) {
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    if (attempt.cancelled) break
+    const result = await request(attempt.url, '/api/auth/device/poll', 'POST', { pollToken: attempt.pollToken })
+    if (!result.pending) { if (pending === attempt) pending = null; return keep(attempt.url, result) }
+  }
+  if (pending === attempt) pending = null
+  throw new Error(attempt.cancelled ? 'Cancelled.' : 'The sign-in expired. Try again.')
+}
+export function workspaceBrowserLoginCancel(): void { if (pending) pending.cancelled = true; pending = null }
 export async function workspaceHasAccount(): Promise<boolean> {
   if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_ACCOUNT_GATE) return true
   return (await load()) !== null
