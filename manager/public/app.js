@@ -172,6 +172,11 @@ async function start() {
   submit(f, 'Sign in', 'block');
   if (setup.signupOpen) f.append(toggle('New to TerminAI?', 'Create an account', 'signup'));
   f.append(el('small', 'Invited by someone? Open the link they sent you.'));
+  if (deviceCode) {
+    // The phone opened this page but has no session here: the person is usually signed in on their Mac instead.
+    f.prepend(el('div', null, { class: 'device-hint' }, el('strong', `No password? Your code is ${deviceCode}.`),
+      el('small', 'On your Mac, open this website where you are signed in, go to Account › Enter a code, and type it there. This phone then signs in by itself.')));
+  }
   authPage('Welcome back', 'Sign in to sync your notes and sessions.', f);
 }
 function showInvitation() {
