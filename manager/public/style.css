@@ -168,3 +168,4 @@ nav button{justify-content:flex-start}
 /* Sign in with browser: the code the Mac app shows, to compare. */
 .device-code{font:650 34px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;text-align:center;padding:18px;border:1px dashed var(--border);border-radius:14px;margin:4px 0 2px}
 .device-done{display:grid;gap:14px}
+.device-input{font:600 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;text-align:center}

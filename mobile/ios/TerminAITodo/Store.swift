@@ -25,6 +25,8 @@ struct Note: Decodable, Identifiable, Equatable {
 }
 private struct MeResponse: Decodable { let user: Me; let companies: [Team] }
 private struct SignedIn: Decodable { let token: String? }
+struct DeviceStart: Decodable { let code: String; let pollToken: String; let verifyUrl: String }
+private struct DevicePoll: Decodable { let pending: Bool?; let token: String? }
 private struct NotesResponse: Decodable { let notes: [Note] }
 private struct NoteResponse: Decodable { let note: Note }
 private struct MembersResponse: Decodable { let members: [Member] }
@@ -112,6 +114,30 @@ final class Store: ObservableObject {
             try await loadAll()
         }
     }
+    /// Sign in with the browser: the app shows a code, the person allows it on the website wherever they are
+    /// signed in (this phone's Safari, or the Mac), and the app collects its session. No password is typed here.
+    @Published var device: DeviceStart?
+    func startBrowserSignIn() async -> URL? {
+        var link: URL?
+        await attempt {
+            let started: DeviceStart = try await call("/api/auth/device/start", "POST", [:])
+            device = started; link = URL(string: started.verifyUrl)
+        }
+        return link
+    }
+    func waitForBrowserSignIn() async {
+        while let started = device, token.isEmpty {
+            do {
+                let result: DevicePoll = try await call("/api/auth/device/poll", "POST", ["pollToken": started.pollToken])
+                if let t = result.token {
+                    token = t; Keychain.set("team-token", t); UserDefaults.standard.set(server, forKey: "server"); device = nil
+                    await refresh(); return
+                }
+            } catch { self.error = error.localizedDescription; device = nil; return }
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
+    func cancelBrowserSignIn() { device = nil }
     func signOut() async {
         if !token.isEmpty { _ = try? await call("/api/auth/logout", "POST", [:], as: [String: Bool].self) }
         signOutLocally()

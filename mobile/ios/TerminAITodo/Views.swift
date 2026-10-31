@@ -50,6 +50,8 @@ struct ErrorBanner: View {
 
 struct Welcome: View {
     @EnvironmentObject var store: Store
+    @Environment(\.openURL) private var openURL
+    @State private var otherServer = false
     enum Mode: String, CaseIterable { case signIn = "Sign in", start = "Create account", join = "Join" }
     @State private var mode = Mode.signIn
     @State private var name = ""
@@ -75,6 +77,28 @@ struct Welcome: View {
                     Picker("", selection: $mode) { ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) } }
                         .pickerStyle(.segmented).listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                 }
+                if mode == .signIn {
+                    Section {
+                        if let device = store.device {
+                            VStack(spacing: 8) {
+                                Text("Allow this code on the website").font(.subheadline).foregroundStyle(.secondary)
+                                Text(device.code).font(.system(.largeTitle, design: .monospaced).weight(.semibold)).textSelection(.enabled)
+                                ProgressView().padding(.top, 2)
+                            }.frame(maxWidth: .infinity).padding(.vertical, 6)
+                            if let url = URL(string: device.verifyUrl) { Button("Open the website again") { openURL(url) } }
+                            Button("Cancel", role: .cancel) { store.cancelBrowserSignIn() }
+                        } else {
+                            Button {
+                                Task { if let url = await store.startBrowserSignIn() { openURL(url) } }
+                            } label: { HStack { Spacer(); Label("Sign in with browser", systemImage: "safari").bold(); Spacer() } }
+                            .disabled(store.loading)
+                        }
+                    } footer: {
+                        Text(store.device == nil ? "No password needed: you allow it on the website. Or sign in with your email and password below."
+                             : "Safari opened the website: sign in there and tap Allow. Signed in on your Mac instead? Open Account › Enter a code on the website there and type this code.")
+                    }
+                    .task(id: store.device?.pollToken) { await store.waitForBrowserSignIn() }
+                }
                 Section {
                     if mode == .join { TextField("Invitation link", text: $invite).textInputAutocapitalization(.never).autocorrectionDisabled() }
                     if mode != .signIn { TextField("Your name", text: $name).textContentType(.name) }
@@ -96,8 +120,12 @@ struct Welcome: View {
                     .disabled(!ready || store.loading)
                     ErrorBanner()
                 }
-                Section("Server") {
-                    TextField("Server address", text: $store.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).font(.footnote)
+                // Only for someone running their own TerminAI server; everyone else keeps the default.
+                Section {
+                    DisclosureGroup("Use your own server", isExpanded: $otherServer) {
+                        TextField("Server address", text: $store.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).font(.footnote)
+                        if store.server != defaultServer { Button("Use TerminAI’s server") { store.server = defaultServer } }
+                    }.font(.footnote).foregroundStyle(.secondary)
                 }
             }
         }
