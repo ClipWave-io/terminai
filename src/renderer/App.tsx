@@ -127,9 +127,15 @@ export function App(): JSX.Element {
   const [showToolbar, setShowToolbar] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   useEffect(() => { void window.term.window.fullscreen().then(setFullscreen); return window.term.window.onFullscreen(setFullscreen) }, [])
-  const [showSettings, setShowSettings] = useState(false)
-  const [showTeam, setShowTeam] = useState(false)
-  const [showTodos, setShowTodos] = useState(false)
+  // Settings, Sync (Team), To-do and All sessions are one at a time: opening one closes whichever was open.
+  type Sheet = 'settings' | 'team' | 'todos' | 'grid'
+  const [sheet, setSheet] = useState<Sheet | null>(null)
+  const sheetSetter = (name: Sheet) => (value: boolean | ((open: boolean) => boolean)) =>
+    setSheet(current => { const open = typeof value === 'function' ? value(current === name) : value; return open ? name : current === name ? null : current })
+  const showSettings = sheet === 'settings', setShowSettings = sheetSetter('settings')
+  const showTeam = sheet === 'team', setShowTeam = sheetSetter('team')
+  const showTodos = sheet === 'todos', setShowTodos = sheetSetter('todos')
+  const showGrid = sheet === 'grid', setShowGrid = sheetSetter('grid')
   // Shared tasks the other person changed and this one has not looked at yet: a dot on the To-do button.
   const [todosUnseen, setTodosUnseen] = useState(0)
   // Every change to the shared tasks, both people's: the bell counts the other one's since the Activity panel last showed them.
@@ -152,7 +158,6 @@ export function App(): JSX.Element {
   const closedTabs = useRef<SavedTab[]>([])
   const [filter, setFilter] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
-  const [showGrid, setShowGrid] = useState(false)
   // Tabs from a run that never quit cleanly, waiting for the user's say-so.
   const [recovery, setRecovery] = useState<SavedTab[] | null>(null)
   // Tab whose close is waiting on the user: an agent is still running in it.
@@ -791,6 +796,7 @@ export function App(): JSX.Element {
             ><PaneIcon kind={pane} /></button>)}
           </div>
           {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
+          <button className="btn icon no-drag" aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
           <span className="topbar-spacer" />
           {showTodos && <div id="todo-topbar-slot" className="todo-topbar-slot no-drag" />}
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
@@ -821,11 +827,6 @@ export function App(): JSX.Element {
             {prefs.railHidden ? '⇤' : '⇥'}
           </button>}
           <button className="btn icon no-drag" title="Customize toolbar" aria-label="Customize toolbar" aria-expanded={showToolbar} onClick={() => setShowToolbar(value => !value)}>⋯</button>
-          {prefs.railHidden && (
-            <button className="btn icon" onClick={() => setShowSettings(true)} title="Settings  ⌘,">
-              ⚙
-            </button>
-          )}
         </div>
 
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
@@ -938,7 +939,7 @@ export function App(): JSX.Element {
         )
       })()}
 
-      {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} />}
+      {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
       {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
       {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}

@@ -8,6 +8,8 @@ import type { WorkspaceIdentity, WorkspaceLogin, WorkspaceState } from '../share
 type Session = { url: string; token: string }
 let current: Session | null = null
 let loaded = false
+// Which workspace holds the To-do (workspaceTasks below); forgotten whenever the account changes.
+let tasksWorkspace: { user: string; id: string } | null = null
 const file = () => join(app.getPath('userData'), 'workspace-session.enc')
 export function managerOrigin(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Enter your workspace manager URL.')
@@ -58,6 +60,7 @@ export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceSt
 async function keep(url: string, result: any): Promise<WorkspaceState> {
   if (typeof result.token !== 'string' || result.token.length < 20) throw new Error('The manager did not return a desktop session.')
   const next = { url, token: result.token }
+  tasksWorkspace = null
   await mkdir(app.getPath('userData'), { recursive: true })
   const temporary = file() + '.tmp'
   await writeFile(temporary, safeStorage.encryptString(JSON.stringify(next)), { mode: 0o600 })
@@ -102,11 +105,17 @@ export async function workspaceHasAccount(): Promise<boolean> {
 export async function workspaceLogout(): Promise<void> {
   const session = await load()
   try { if (session) await request(session.url, '/api/auth/logout', 'POST', {}, session.token) }
-  finally { current = null; loaded = true; await unlink(file()).catch(() => {}) }
+  finally { current = null; loaded = true; tasksWorkspace = null; await unlink(file()).catch(() => {}) }
 }
 export async function workspaceRequest(path: string, method = 'GET', body?: unknown): Promise<any> {
   // This is deliberately a narrow API bridge, not an authenticated fetch proxy.
+  const rename = (path === '/api/me' && method === 'PATCH') || (path === '/api/auth/device/approve' && method === 'POST'), invite = /^\/api\/companies\/[a-zA-Z0-9-]+\/invites$/.test(path) && method === 'POST'
   const file = /^\/api\/companies\/[a-zA-Z0-9-]+\/notes\/[a-zA-Z0-9-]+\/files\/[a-zA-Z0-9-]+$/.test(path)
+  if (rename || invite) {
+    const session = await load()
+    if (!session) throw new Error('Sign in to your company workspace first.')
+    return request(session.url, path, method, body, session.token)
+  }
   if (file ? method !== 'DELETE' : (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations|notes)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
     || !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)
     || (method === 'DELETE' && !/\/notes\/[a-zA-Z0-9-]+$/.test(path)))) throw new Error('Unsupported workspace action.')
@@ -151,4 +160,34 @@ export async function workspaceFetchFile(note: string, fileId: string, name: str
   await writeFile(target + '.part', Buffer.from(await response.arrayBuffer()), { mode: 0o600 })
   await rename(target + '.part', target)
   return target
+}
+
+// The To-do's shared page on the server (see todos.ts mirror). Main process only: never reachable from the renderer.
+// The workspace is the one this person's To-do column is registered in; the first time, the first one they are in.
+export const workspaceTasks = {
+  async load(user: string): Promise<{ workspace: string; tasks: any[]; deleted: any[] } | null> {
+    const session = await load()
+    if (!session) return null
+    const call = (path: string, method = 'GET', body?: unknown) => request(session.url, path, method, body, session.token)
+    if (tasksWorkspace?.user !== user) {
+      const me = await call('/api/me')
+      const ids: string[] = (me.companies ?? []).map((c: { id: string }) => c.id)
+      let pick = ''
+      for (const id of ids) if ((await call(`/api/companies/${id}/tasks`)).me === user) { pick = id; break }
+      if (!pick) pick = ids[0] ?? ''
+      if (!pick) return null
+      await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user })
+      tasksWorkspace = { user, id: pick }
+    }
+    const value = await call(`/api/companies/${tasksWorkspace.id}/tasks`)
+    return { workspace: tasksWorkspace.id, tasks: value.tasks ?? [], deleted: value.deleted ?? [] }
+  },
+  async put(workspace: string, task: unknown): Promise<void> {
+    const session = await load(); if (!session) return
+    await request(session.url, `/api/companies/${workspace}/tasks/${encodeURIComponent((task as { id: string }).id)}`, 'PUT', { task }, session.token)
+  },
+  async remove(workspace: string, id: string): Promise<void> {
+    const session = await load(); if (!session) return
+    await request(session.url, `/api/companies/${workspace}/tasks/${encodeURIComponent(id)}`, 'DELETE', undefined, session.token)
+  },
 }

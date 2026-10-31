@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { DEFAULT_WORKSPACE_URL, inviteTokenOf } from '../../shared/workspace'
-import type { McpSetupResult, WorkspaceNote, WorkspaceState } from '../../shared/workspace'
+import type { McpSetupResult, WorkspaceState } from '../../shared/workspace'
 import { snapshot } from '../snapshots'
 import { tabLabel } from '../../shared/types'
 import './workspace.css'
@@ -11,10 +11,11 @@ type Conversation = { id: string; title: string; visibility: string; ownerId?: s
 type Message = { id: string; content: string; kind: string; authorName?: string; author_name?: string; createdAt?: string }
 type Member = { id: string; name: string; email: string; role: string }
 type Tab = { id: string; title: string; customTitle?: string }
-type Section = 'notes' | 'conversations' | 'tools'
+type Section = 'people' | 'conversations' | 'tools'
 const items = <T,>(value: any): T[] => Array.isArray(value) ? value : value?.items ?? value?.conversations ?? value?.messages ?? value?.catalog ?? []
 const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
 const P = {
+  people: 'M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM22 19v-1a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8',
   notes: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2 2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2zM9 12l2 2 4-4',
   conversations: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
   tools: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z',
@@ -23,11 +24,11 @@ const P = {
 }
 const Icon = ({ d, size = 15 }: { d: string; size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 
-export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: Tab; tabs?: Tab[]; onClose: () => void }): JSX.Element {
+export function WorkspaceSheet({ activeTab, tabs = [], onClose, onTodos }: { activeTab?: Tab; tabs?: Tab[]; onClose: () => void; onTodos: () => void }): JSX.Element {
   const [state, setState] = useState<WorkspaceState>({ url: '', signedIn: false })
   const [loading, setLoading] = useState(true)
   const [company, setCompany] = useState('')
-  const [section, setSection] = useState<Section>('notes')
+  const [section, setSection] = useState<Section>('people')
   const [error, setError] = useState('')
   const [tools, setTools] = useState<McpSetupResult[]>([])
   const [members, setMembers] = useState<Member[]>([])
@@ -58,7 +59,11 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: 
             {(state.identity?.companies.length ?? 0) > 1
               ? <select aria-label="Workspace" value={company} onChange={e => setCompany(e.target.value)}>{state.identity?.companies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
               : <div className="team-company">{membership?.name}<small>{membership?.role}</small></div>}
-            <nav>{(['notes', 'conversations', 'tools'] as Section[]).map(key => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => setSection(key)}><Icon d={P[key]} />{key[0].toUpperCase() + key.slice(1)}</button>)}</nav>
+            <nav>
+              {/* The tasks and the shared notes are one place, the To-do: this opens it (and closes this panel). */}
+              <button onClick={onTodos}><Icon d={P.notes} />To-do &amp; notes</button>
+              {(['people', 'conversations', 'tools'] as Section[]).map(key => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => setSection(key)}><Icon d={P[key]} />{key === 'people' ? 'Members' : key[0].toUpperCase() + key.slice(1)}</button>)}
+            </nav>
             <div className="team-me">
               <span className="team-avatar">{initials(state.identity?.user.name)}</span>
               <div><strong>{state.identity?.user.name}</strong><small>{state.identity?.user.email}</small></div>
@@ -70,7 +75,9 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose }: { activeTab?: 
           </aside>
           <main className="team-main">
             <button className="team-close" aria-label="Close sync" onClick={onClose}><Icon d={P.close} /></button>
-            {company && section === 'notes' && <TeamNotes key={company} base={base} me={state.identity!.user.id} members={members} role={membership?.role ?? 'viewer'} teamName={membership?.name ?? ''} onError={fail} />}
+            {company && section === 'people' && <TeamPeople key={company} base={base} state={state} members={members} admin={['owner', 'admin'].includes(membership?.role ?? '')}
+              onRenamed={name => setState(v => v.identity ? { ...v, identity: { ...v.identity, user: { ...v.identity.user, name } } } : v)}
+              onInvited={() => void window.term.workspace.request(`${base}/members`).then(v => setMembers(v.members ?? [])).catch(fail)} onError={fail} />}
             {company && section === 'conversations' && <TeamConversations key={company} base={base} me={state.identity!.user.id} membership={membership} activeTab={activeTab} tabs={tabs} onError={fail} />}
             {section === 'tools' && <div className="team-page">
               <header><h2>Tools</h2><p>The tools set up for you on this Mac. Change them on the web.</p></header>
@@ -119,7 +126,7 @@ export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: Workspace
       {mode === 'invite' && <label>Invitation link<input required autoFocus value={form.invite} onChange={set('invite')} placeholder="https://…/#invite=…" /></label>}
       {mode !== 'signin' && <label>Your name<input required value={form.name} onChange={set('name')} autoFocus={mode === 'signup'} /></label>}
       {mode !== 'invite' && <label>Email<input required type="email" autoComplete="username" value={form.email} onChange={set('email')} autoFocus={mode === 'signin'} /></label>}
-      <label>Password<input required type="password" minLength={mode === 'signin' ? 1 : 12} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={mode === 'signin' ? '' : '12 characters or more'} value={form.password} onChange={set('password')} /></label>
+      {mode !== 'invite' && <label>Password<input required type="password" minLength={mode === 'signin' ? 1 : 12} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={mode === 'signin' ? '' : '12 characters or more'} value={form.password} onChange={set('password')} /></label>}
       <button className="team-primary" disabled={busy}>{busy ? 'Connecting…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Join'}</button>
       <div className="team-switch">
         {mode !== 'signin' && <button type="button" onClick={() => setMode('signin')}>I have an account</button>}
@@ -131,54 +138,38 @@ export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: Workspace
   </div>
 }
 
-const NOTE_MIME = 'application/x-terminai-note'
-function TeamNotes({ base, me, members, role, teamName, onError }: { base: string; me: string; members: Member[]; role: string; teamName: string; onError: (e: unknown) => void }): JSX.Element {
-  const [notes, setNotes] = useState<WorkspaceNote[]>([])
-  const [view, setView] = useState<'private' | 'company'>('private')
-  const [showDone, setShowDone] = useState(false)
-  const canTeam = role !== 'viewer'
-  const load = () => window.term.workspace.request(`${base}/notes`).then(v => setNotes((v.notes ?? []).filter((n: WorkspaceNote) => n.kind !== 'doc'))).catch(onError)
-  useEffect(() => { void load(); const t = setInterval(() => void load(), 10000); return () => clearInterval(t) }, [base])
-  const save = async (id: string, patch: Partial<WorkspaceNote>) => { try { await window.term.workspace.request(`${base}/notes/${id}`, 'PATCH', patch); await load() } catch (e) { onError(e) } }
-  const add = async (title: string, assigneeId?: string | null) => { try { await window.term.workspace.request(`${base}/notes`, 'POST', { title, visibility: view, ...(assigneeId ? { assigneeId } : {}) }); await load() } catch (e) { onError(e) } }
-  const visible = notes.filter(n => n.visibility === view && (showDone || n.status === 'open'))
-  const done = notes.filter(n => n.visibility === view && n.status === 'done').length
-  const drop = (items: WorkspaceNote[], assigneeId: string | null) => (e: React.DragEvent) => {
-    const id = e.dataTransfer.getData(NOTE_MIME); if (!id) return
-    e.preventDefault(); (e.currentTarget as HTMLElement).classList.remove('over')
-    const target = (e.target as HTMLElement).closest<HTMLElement>('.team-note'), rest = items.filter(n => n.id !== id)
-    let at = rest.length
-    if (target && target.dataset.id !== id) { const r = target.getBoundingClientRect(); at = rest.findIndex(n => n.id === target.dataset.id) + (e.clientY > r.top + r.height / 2 ? 1 : 0) }
-    const before = rest[at - 1]?.position, after = rest[at]?.position
-    const position = before === undefined && after === undefined ? 1 : before === undefined ? after! - 1 : after === undefined ? before + 1 : (before + after) / 2
-    void save(id, { position, ...(view === 'company' ? { assigneeId } : {}) })
+/** Who is in the workspace, your own name, and an invitation link to send someone (no password needed to join). */
+function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError }: { base: string; state: WorkspaceState; members: Member[]; admin: boolean; onRenamed: (name: string) => void; onInvited: () => void; onError: (e: unknown) => void }): JSX.Element {
+  const me = state.identity!.user
+  const [name, setName] = useState(me.name)
+  const [email, setEmail] = useState('')
+  const [link, setLink] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [code, setCode] = useState('')
+  const [allowed, setAllowed] = useState('')
+  const allow = async () => { try { await window.term.workspace.request('/api/auth/device/approve', 'POST', { code: code.trim() }); setAllowed(code.trim().toUpperCase()); setCode('') } catch (e) { onError(e) } }
+  const rename = async () => { if (!name.trim() || name.trim() === me.name) return; try { await window.term.workspace.request('/api/me', 'PATCH', { name: name.trim() }); onRenamed(name.trim()) } catch (e) { onError(e) } }
+  const invite = async () => {
+    try { const v = await window.term.workspace.request(`${base}/invites`, 'POST', { email: email.trim(), role: 'admin' }); setLink(v.inviteUrl); setCopied(false); onInvited() } catch (e) { onError(e) }
   }
-  const zone = (items: WorkspaceNote[], assigneeId: string | null) => ({
-    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes(NOTE_MIME)) { e.preventDefault(); e.currentTarget.classList.add('over') } },
-    onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) e.currentTarget.classList.remove('over') },
-    onDrop: drop(items, assigneeId),
-  })
-  const card = (n: WorkspaceNote) => <NoteCard key={n.id} note={n} me={me} admin={['owner', 'admin'].includes(role)} canTeam={canTeam} save={save}
-    remove={async () => { try { await window.term.workspace.request(`${base}/notes/${n.id}`, 'DELETE'); await load() } catch (e) { onError(e) } }} />
-  return <div className="team-page wide">
-    <header><div><h2>Notes</h2><p>{view === 'private' ? 'Only you can see these, on this Mac, the web and your iPhone.' : `Shared with everyone in ${teamName}.`}</p></div>
-      <div className="team-head-actions">
-        <div className="team-seg">{members.length > 1 && ([['private', 'My notes'], ['company', 'Shared board']] as const).map(([k, l]) => <button key={k} aria-pressed={view === k} onClick={() => setView(k)}>{l}</button>)}</div>
-        <button className="team-ghost" onClick={() => setShowDone(!showDone)}>{showDone ? 'Hide done' : `Show done${done ? ` (${done})` : ''}`}</button>
-      </div></header>
-    {view === 'private' ? <div className="team-notes-solo">
-      <Adder placeholder="Add a note…" onAdd={t => add(t)} autoFocus />
-      <div className="team-notes" {...zone(visible, null)}>{visible.length ? visible.map(card) : <p className="team-empty small">Nothing here yet. Type above and press Return.</p>}</div>
-    </div> : <div className="team-board">
-      {[...members.map(m => ({ id: m.id as string | null, label: m.id === me ? `${m.name} (you)` : m.name, avatar: initials(m.name) })), { id: null, label: 'Unassigned', avatar: '' }].map(col => {
-        const items = visible.filter(n => (n.assigneeId || null) === col.id)
-        return <section className="team-column" key={col.id ?? 'none'}>
-          <header>{col.avatar && <span className="team-avatar sm">{col.avatar}</span>}<h3>{col.label}</h3><small>{items.filter(n => n.status === 'open').length}</small></header>
-          {canTeam && <Adder placeholder={col.id === me ? 'Add for yourself…' : col.id ? `Add for ${col.label.split(' ')[0]}…` : 'Add…'} onAdd={t => add(t, col.id)} />}
-          <div className="team-notes" {...zone(items, col.id)}>{items.map(card)}</div>
-        </section>
-      })}
-    </div>}
+  return <div className="team-page">
+    <header><div><h2>Members</h2><p>Everyone here shares the To-do, the notes and the conversations you share.</p></div></header>
+    <div className="team-list">{members.map(m => <div className="team-row" key={m.id}><div><strong>{m.name}{m.id === me.id ? ' (you)' : ''}</strong><small>{m.email}</small></div><span className="team-badge">{m.role}</span></div>)}</div>
+    <form className="team-form" onSubmit={e => { e.preventDefault(); void rename() }}>
+      <label>Your name<input value={name} maxLength={120} onChange={e => setName(e.target.value)} onBlur={() => void rename()} /></label>
+    </form>
+    <form className="team-form" onSubmit={e => { e.preventDefault(); void allow() }}>
+      <label>Sign in a phone or another Mac<input value={code} placeholder="Code it shows, e.g. ABCD-EFGH" autoComplete="off" onChange={e => { setCode(e.target.value); setAllowed('') }} /></label>
+      <button className="btn" type="submit" disabled={code.trim().replace('-', '').length !== 8}>Allow</button>
+      {allowed && <small>{allowed} is allowed: that device signs in as you in a moment.</small>}
+    </form>
+    {admin && <form className="team-form" onSubmit={e => { e.preventDefault(); void invite() }}>
+      <label>Invite someone<input type="email" required placeholder="their email" value={email} onChange={e => setEmail(e.target.value)} /></label>
+      <button className="btn primary" type="submit">Create invitation link</button>
+      {link && <div className="team-invite"><code>{link}</code>
+        <button type="button" className="btn" onClick={() => { void navigator.clipboard.writeText(link); setCopied(true) }}>{copied ? 'Copied' : 'Copy'}</button>
+        <small>Send it to them. Opening it on the web, or pasting it in TerminAI › Sync › I have an invitation, signs them in. No password needed. It works for 48 hours.</small></div>}
+    </form>}
   </div>
 }
 
@@ -187,28 +178,6 @@ function Adder({ placeholder, onAdd, autoFocus }: { placeholder: string; onAdd: 
   return <form className="team-adder" onSubmit={e => { e.preventDefault(); const t = text.trim(); if (!t) return; setText(''); void onAdd(t) }}>
     <input aria-label={placeholder} placeholder={placeholder} value={text} maxLength={500} autoFocus={autoFocus} onChange={e => setText(e.target.value)} />
   </form>
-}
-
-function NoteCard({ note, me, admin, canTeam, save, remove }: { note: WorkspaceNote; me: string; admin: boolean; canTeam: boolean; save: (id: string, p: Partial<WorkspaceNote>) => Promise<void>; remove: () => Promise<void> }): JSX.Element {
-  const [title, setTitle] = useState(note.title), [body, setBody] = useState(note.body)
-  useEffect(() => { setTitle(note.title); setBody(note.body) }, [note.title, note.body])
-  const area = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => { const a = area.current; if (a) { a.style.height = 'auto'; a.style.height = a.scrollHeight + 'px' } }, [body])
-  const readOnly = note.visibility === 'company' && !canTeam
-  return <article className={`team-note ${note.status}`} data-id={note.id}>
-    <span className="team-grip" draggable={!readOnly} title="Drag to move" onDragStart={e => { e.dataTransfer.setData(NOTE_MIME, note.id); e.dataTransfer.effectAllowed = 'move' }}>⋮⋮</span>
-    <input type="checkbox" aria-label="Done" checked={note.status === 'done'} disabled={readOnly} onChange={e => void save(note.id, { status: e.target.checked ? 'done' : 'open' })} />
-    <div className="team-note-main">
-      <input className="team-note-title" aria-label="Title" value={title} readOnly={readOnly} maxLength={500} onChange={e => setTitle(e.target.value)} onBlur={() => { if (title.trim() && title !== note.title) void save(note.id, { title }) }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
-      <textarea ref={area} className="team-note-body" rows={1} aria-label="Details" placeholder="Details…" value={body} readOnly={readOnly} onChange={e => setBody(e.target.value)} onBlur={() => { if (body !== note.body) void save(note.id, { body }) }} />
-      {note.visibility === 'company' && note.updatedByName && <small>{note.updatedBy === me ? 'You' : note.updatedByName} · {new Date(note.updatedAt).toLocaleDateString()}</small>}
-    </div>
-    <div className="team-note-tools">
-      {note.visibility === 'private' && canTeam && <button onClick={() => void save(note.id, { visibility: 'company' })}>Move to shared board</button>}
-      {note.visibility === 'company' && note.ownerId === me && <button onClick={() => void save(note.id, { visibility: 'private' })}>Make private</button>}
-      {(note.ownerId === me || admin) && <button aria-label="Delete" title="Delete" onClick={() => { if (confirm(`Delete “${note.title}”?`)) void remove() }}><Icon d={P.trash} size={13} /></button>}
-    </div>
-  </article>
 }
 
 function TeamConversations({ base, me, membership, activeTab, tabs, onError }: { base: string; me: string; membership?: { role: string; allowCompanySharing: boolean; defaultVisibility: string }; activeTab?: Tab; tabs: Tab[]; onError: (e: unknown) => void }): JSX.Element {

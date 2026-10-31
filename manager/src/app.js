@@ -151,6 +151,7 @@ export function createApp(pool, config) {
           return json(res,response.status,response.value,response.headers);
         }
         requireThat(typeof input.token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(input.token), 400, 'Invalid invitation.');
+        const signedIn = await auth(req).catch(() => null);
         // Hash work occurs before locks; accepting existing accounts must verify their current password.
         const response = await transaction(pool, async db => {
           const { rows: [invite] } = await db.query('SELECT * FROM manager_invites WHERE token_hash=$1', [digest(input.token)]);
@@ -161,10 +162,11 @@ export function createApp(pool, config) {
           requireThat(!locked.accepted_at && !locked.revoked_at && new Date(locked.expires_at)>new Date(), 410, 'Invitation expired or already used.');
           await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[locked.email]);
           let { rows: [user] } = await db.query('SELECT * FROM manager_users WHERE email=$1 FOR UPDATE',[locked.email]);
-          if (user) requireThat(await verifyPassword(input.password,user.password_hash),401,'Enter the existing account password.');
+          if (user) requireThat(signedIn?.id===user.id || await verifyPassword(input.password,user.password_hash),401,'Enter the existing account password.');
           else {
             user = { id: randomUUID(),email:locked.email,name:text(input.name,'Name') };
-            const passwordHash = await hashPassword(input.password);
+            // A password is optional: the invitation link signs the person in, and other devices sign in with a code allowed from here.
+            const passwordHash = input.password ? await hashPassword(input.password) : '';
             await db.query('INSERT INTO manager_users(id,email,name,password_hash) VALUES($1,$2,$3,$4)',[user.id,user.email,user.name,passwordHash]);
           }
           await db.query('INSERT INTO manager_memberships(company_id,user_id,role,classification) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[locked.company_id,user.id,locked.role,locked.classification]);
@@ -209,6 +211,11 @@ export function createApp(pool, config) {
         const { rows } = await pool.query('SELECT c.*,m.role,m.classification FROM manager_companies c JOIN manager_memberships m ON m.company_id=c.id WHERE m.user_id=$1 ORDER BY c.name',[user.id]);
         return json(res,200,{ user:publicUser(user), companies:rows.map(publicCompany) });
       }
+      if (req.method === 'PATCH' && path === '/api/me') {
+        const input = await body(req), name = text(input.name,'Name');
+        await pool.query('UPDATE manager_users SET name=$1 WHERE id=$2',[name,user.id]);
+        return json(res,200,{ user:publicUser({...user,name}) });
+      }
       if (req.method === 'POST' && path === '/api/auth/logout') {
         await pool.query('UPDATE manager_sessions SET revoked_at=now() WHERE id=$1',[user.session_id]);
         return json(res,200,{ok:true},{'Set-Cookie':cookie('',0)});
@@ -227,7 +234,7 @@ export function createApp(pool, config) {
         const passwordHash = await hashPassword(input.password);
         await transaction(pool,async db=>{
           const {rows:[current]}=await db.query('SELECT password_hash FROM manager_users WHERE id=$1 FOR UPDATE',[user.id]);
-          requireThat(await verifyPassword(input.currentPassword,current.password_hash),401,'Current password is incorrect.');
+          requireThat(current.password_hash==='' || await verifyPassword(input.currentPassword,current.password_hash),401,'Current password is incorrect.');
           await db.query('UPDATE manager_users SET password_hash=$1 WHERE id=$2',[passwordHash,user.id]);
           await db.query('UPDATE manager_sessions SET revoked_at=now() WHERE user_id=$1',[user.id]);
         });
@@ -444,6 +451,36 @@ export function createApp(pool, config) {
             visibility,user.id,note.id]);
           const {rows:files}=await db.query('SELECT id,name,mime,size,created_at FROM manager_note_files WHERE note_id=$1 ORDER BY created_at',[note.id]);
           return {note:publicNote({...row,updated_by_name:user.name,files:files.map(publicFile)})};
+        }
+        // The To-do's shared page (see manager_tasks). Whoever is in the workspace reads it; viewers cannot change it.
+        if(tail==='/tasks'&&req.method==='GET') {
+          const {rows:people}=await db.query('SELECT p.key,u.id,u.name FROM manager_task_people p JOIN manager_users u ON u.id=p.user_id WHERE p.company_id=$1',[companyId]);
+          const {rows}=await db.query('SELECT id,data,updated_at,deleted_at,changed_by FROM manager_tasks WHERE company_id=$1 ORDER BY updated_at LIMIT 5000',[companyId]);
+          return { tasks:rows.filter(r=>!r.deleted_at).map(r=>r.data), deleted:rows.filter(r=>r.deleted_at).map(r=>({id:r.id,deletedAt:r.deleted_at,by:people.find(p=>p.id===r.changed_by)?.key??null})),
+            people:Object.fromEntries(people.map(p=>[p.key,{id:p.id,name:p.name}])), me:people.find(p=>p.id===user.id)?.key??null };
+        }
+        if(tail==='/tasks/people'&&req.method==='PUT') {
+          const key=enumValue(input.key,['ilai','livio'],'column');
+          await db.query('DELETE FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
+          await db.query('INSERT INTO manager_task_people(company_id,key,user_id) VALUES($1,$2,$3) ON CONFLICT (company_id,key) DO UPDATE SET user_id=$3',[companyId,key,user.id]);
+          return {ok:true};
+        }
+        const taskMatch=tail.match(/^\/tasks\/([A-Za-z0-9_-]{1,80})$/);
+        if(taskMatch&&['PUT','DELETE'].includes(req.method)) {
+          requireThat(member.role!=='viewer',403,'Viewers cannot change the To-do.');
+          const id=taskMatch[1];
+          if(req.method==='DELETE'){await db.query('UPDATE manager_tasks SET deleted_at=now(),updated_at=now(),changed_by=$3 WHERE company_id=$1 AND id=$2',[companyId,id,user.id]);return {ok:true};}
+          const task=input.task;
+          requireThat(task&&typeof task==='object'&&!Array.isArray(task)&&task.id===id,400,'Invalid task.');
+          requireThat(typeof task.title==='string'&&task.title.trim()&&task.title.length<=500,400,'A task needs a title.');
+          requireThat(['open','doing','done'].includes(task.status),400,'Invalid status.');
+          requireThat([null,'ilai','livio','both'].includes(task.assignee??null),400,'Invalid column.');
+          requireThat(JSON.stringify(task).length<=60000,413,'That task is too long.');
+          // A Mac copying its repo keeps the time the task really changed; an edit made here (phone, web) is now.
+          const data={...task,assignee:task.assignee??null,updatedAt:typeof task.updatedAt==='string'&&!Number.isNaN(Date.parse(task.updatedAt))?task.updatedAt:new Date().toISOString()};
+          await db.query(`INSERT INTO manager_tasks(company_id,id,data,changed_by) VALUES($1,$2,$3,$4)
+            ON CONFLICT (company_id,id) DO UPDATE SET data=$3,updated_at=now(),deleted_at=NULL,changed_by=$4`,[companyId,id,data,user.id]);
+          return {task:data};
         }
         if(tail==='/audit'&&req.method==='GET'){admin();const {rows}=await db.query('SELECT id,actor_id,action,target_id,created_at FROM manager_audit WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100',[companyId]);return {events:rows};}
         throw new HttpError(404,'Not found.');

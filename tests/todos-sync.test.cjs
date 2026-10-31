@@ -460,3 +460,37 @@ test('terminai todo add puts a task where it is told, never in a default page; l
   assert.deepEqual(map.private.map(p=>[p.page,p.about,p.tasks.map(x=>x.title)]),[['Private',null,['Buy milk']],['Unlocked Tour','Barcelona tour agency: guides, bookings, the site',['Write to the guides']],['Unlocked Archive','Old bookings',[]]]);
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
 });
+
+test('the server copy: Mac tasks go up, phone edits and deletes come down as commits, Mac deletes reach the server',async()=>{
+ const t=setup();try{
+  // A fake server as the manager keeps it: tasks, tombstones; the phone writes straight into it.
+  const srv={tasks:new Map(),deleted:new Map()};
+  const server={
+   load:async()=>({workspace:'w1',tasks:[...srv.tasks.values()],deleted:[...srv.deleted.entries()].map(([id,d])=>({id,...d}))}),
+   put:async(_w,task)=>{srv.tasks.set(task.id,JSON.parse(JSON.stringify(task)));srv.deleted.delete(task.id)},
+   remove:async(_w,id)=>{srv.tasks.delete(id);srv.deleted.set(id,{deletedAt:new Date().toISOString(),by:null})},
+  };
+  const dir=path.join(t.root,'mac');fs.mkdirSync(dir);
+  const app=createTodos(dir,{remote:'file://'+t.bare,user:()=>'ilai',changed:()=>{},server});
+  let list=await app.save('shared',{title:'Ship v1',assignee:'both'});const id=list.shared[0].id;
+  assert.equal(srv.tasks.get(id).title,'Ship v1','an edit on the Mac reaches the server');
+  // Matteo ticks it on his phone, a minute later.
+  srv.tasks.set(id,{...srv.tasks.get(id),status:'done',updatedAt:new Date(Date.now()+60000).toISOString(),updatedBy:'livio',updatedVia:'iphone'});
+  list=await app.sync();
+  assert.equal(list.shared[0].status,'done');assert.equal(t.show(id).status,'done','pushed to the repo for the other Mac');
+  assert.equal(t.show(id).updatedVia,undefined);
+  assert.match(git(t.bare,'log','-1','--format=%s%n%b','main'),/^livio: done Ship v1\nVia: iPhone app/);
+  // A task added on the phone.
+  srv.tasks.set('phone1',{id:'phone1',title:'From the phone',notes:'',status:'open',assignee:'ilai',product:'',createdAt:new Date().toISOString(),createdBy:'livio',updatedAt:new Date().toISOString(),updatedBy:'livio'});
+  list=await app.sync();assert.ok(list.shared.some(x=>x.id==='phone1'));
+  // Deleted on the phone: gone from the repo.
+  await server.remove('w1','phone1');srv.deleted.set('phone1',{deletedAt:new Date(Date.now()+120000).toISOString(),by:'livio'});
+  list=await app.sync();assert.ok(!list.shared.some(x=>x.id==='phone1'));
+  assert.match(git(t.bare,'log','-1','--format=%s','main'),/^livio: delete From the phone/);
+  // Deleted on a Mac: gone from the server too.
+  await app.remove('shared',id);
+  assert.equal(srv.tasks.has(id),false);assert.ok(srv.deleted.has(id));
+  // Nothing changed: a sync makes no commit.
+  const head=git(t.bare,'rev-parse','main');await app.sync();assert.equal(git(t.bare,'rev-parse','main'),head);
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});

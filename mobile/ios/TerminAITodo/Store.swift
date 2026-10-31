@@ -20,9 +20,43 @@ struct Note: Decodable, Identifiable, Equatable {
     var updatedBy: String?
     var updatedByName: String?
     var updatedAt: String
-    var kind: String?           // card (a task) | doc (a shared note, made on the Mac)
+    var kind: String?           // card (an old board card) | doc (a shared note, like Apple Notes)
+    var files: [NoteFile]?
     var isDone: Bool { status == "done" }
 }
+/// A task of the To-do's shared page, as the Mac app writes it (its repo file); the server keeps a copy.
+struct TaskItem: Codable, Identifiable, Equatable {
+    var id: String
+    var title: String
+    var notes: String
+    var images: [String]?
+    var status: String          // open | doing | done
+    var assignee: String?       // ilai | livio | both (Together) | nil (Unassigned)
+    var product: String
+    var order: Double?
+    var createdAt: String
+    var createdBy: String
+    var updatedAt: String?
+    var updatedBy: String
+    var updatedVia: String?
+    var isDone: Bool { status == "done" }
+    /// The Mac's order: a moved task has `order`, otherwise it sorts by when it was made.
+    var sortKey: Double { order ?? (ISO8601DateFormatter.lenient(createdAt)?.timeIntervalSince1970 ?? 0) * 1000 }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id); try c.encode(title, forKey: .title); try c.encode(notes, forKey: .notes)
+        try c.encodeIfPresent(images, forKey: .images); try c.encode(status, forKey: .status)
+        try c.encode(assignee, forKey: .assignee)   // null means Unassigned, so it is always sent
+        try c.encode(product, forKey: .product); try c.encodeIfPresent(order, forKey: .order)
+        try c.encode(createdAt, forKey: .createdAt); try c.encode(createdBy, forKey: .createdBy)
+        try c.encodeIfPresent(updatedAt, forKey: .updatedAt); try c.encode(updatedBy, forKey: .updatedBy); try c.encodeIfPresent(updatedVia, forKey: .updatedVia)
+    }
+}
+struct Person: Decodable { let id: String; let name: String }
+struct NoteFile: Decodable, Identifiable, Hashable { let id: String; let name: String; let size: Int }
+private struct TasksResponse: Decodable { let tasks: [TaskItem]; let people: [String: Person]; let me: String? }
+private struct TaskResponse: Decodable { let task: TaskItem }
+private struct InviteResponse: Decodable { let inviteUrl: String }
 private struct MeResponse: Decodable { let user: Me; let companies: [Team] }
 private struct SignedIn: Decodable { let token: String? }
 struct DeviceStart: Decodable { let code: String; let pollToken: String; let verifyUrl: String }
@@ -31,6 +65,15 @@ private struct NotesResponse: Decodable { let notes: [Note] }
 private struct NoteResponse: Decodable { let note: Note }
 private struct MembersResponse: Decodable { let members: [Member] }
 private struct APIError: Decodable { let error: String }
+
+extension ISO8601DateFormatter {
+    /// The Mac writes 2026-10-20T16:21:03.120+02:00, the server 2026-10-20T14:21:03.120Z: both parse.
+    static func lenient(_ text: String) -> Date? {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: text) { return d }
+        f.formatOptions = [.withInternetDateTime]; return f.date(from: text)
+    }
+}
 
 enum Keychain {
     static func get(_ key: String) -> String? {
@@ -65,7 +108,10 @@ final class Store: ObservableObject {
     @Published var teams: [Team] = []
     @Published var teamId = UserDefaults.standard.string(forKey: "team") ?? ""
     @Published var members: [Member] = []
-    @Published var notes: [Note] = []
+    @Published var notes: [Note] = []            // the shared notes (docs)
+    @Published var tasks: [TaskItem] = []
+    @Published var people: [String: Person] = [:]
+    @Published var myColumn: String?             // ilai | livio: which To-do column is this account
     @Published var error = ""
     @Published var loading = false
 
@@ -103,7 +149,7 @@ final class Store: ObservableObject {
         await authenticate("/api/auth/signup", ["name": name, "email": email, "password": password])
     }
     func join(invite: String, name: String, password: String) async {
-        await authenticate("/api/auth/accept-invite", ["token": inviteToken(invite), "name": name, "password": password])
+        await authenticate("/api/auth/accept-invite", ["token": inviteToken(invite), "name": name, "password": password.isEmpty ? nil : password])
     }
     private func authenticate(_ path: String, _ body: [String: Any?]) async {
         await attempt {
@@ -142,7 +188,7 @@ final class Store: ObservableObject {
         if !token.isEmpty { _ = try? await call("/api/auth/logout", "POST", [:], as: [String: Bool].self) }
         signOutLocally()
     }
-    private func signOutLocally() { token = ""; Keychain.set("team-token", nil); me = nil; teams = []; notes = []; members = [] }
+    private func signOutLocally() { token = ""; Keychain.set("team-token", nil); me = nil; teams = []; notes = []; members = []; tasks = []; people = [:]; myColumn = nil }
 
     // MARK: data
     func refresh() async { guard !token.isEmpty else { return }; await attempt { try await loadAll() } }
@@ -151,25 +197,64 @@ final class Store: ObservableObject {
         me = r.user; teams = r.companies
         if !teams.contains(where: { $0.id == teamId }) { teamId = teams.first?.id ?? "" }
         UserDefaults.standard.set(teamId, forKey: "team")
-        guard !teamId.isEmpty else { notes = []; members = []; return }
+        guard !teamId.isEmpty else { notes = []; members = []; tasks = []; return }
+        // The To-do lives in the workspace where this account has its column; a fresh account looks at the first one.
+        if (try? await call("/api/companies/\(teamId)/tasks", as: TasksResponse.self))?.me == nil {
+            for team in teams where team.id != teamId {
+                if let r = try? await call("/api/companies/\(team.id)/tasks", as: TasksResponse.self), r.me != nil { teamId = team.id; UserDefaults.standard.set(teamId, forKey: "team"); break }
+            }
+        }
         async let n: NotesResponse = call("/api/companies/\(teamId)/notes")
         async let m: MembersResponse = call("/api/companies/\(teamId)/members")
-        notes = try await n.notes.filter { ($0.kind ?? "card") == "card" }; members = try await m.members
+        async let t: TasksResponse = call("/api/companies/\(teamId)/tasks")
+        notes = try await n.notes.filter { $0.kind == "doc" && $0.visibility == "company" }.sorted { $0.updatedAt > $1.updatedAt }
+        members = try await m.members
+        let board = try await t; tasks = board.tasks; people = board.people; myColumn = board.me
     }
     func createTeam(_ name: String) async { await attempt { let _: [String: String] = try await call("/api/companies", "POST", ["name": name]); try await loadAll() } }
     func switchTeam(_ id: String) async { teamId = id; await refresh() }
 
-    func add(_ title: String, visibility: String, assignee: String?) async {
-        await attempt {
-            let r: NoteResponse = try await call("/api/companies/\(teamId)/notes", "POST", ["title": title, "visibility": visibility, "assigneeId": assignee])
-            notes.append(r.note)
+    // MARK: the To-do's shared page
+    func name(column: String?) -> String {
+        switch column {
+        case "both": return "Together"
+        case nil: return "Unassigned"
+        case let key?: return people[key]?.name.split(separator: " ").first.map(String.init) ?? (key == "ilai" ? "Ilai" : "Matteo")
         }
     }
-    func update(_ note: Note, _ patch: [String: Any?]) async {
-        if let i = notes.firstIndex(where: { $0.id == note.id }) {   // show it at once; the server answer replaces it
-            if let s = patch["status"] as? String { notes[i].status = s }
-            if let t = patch["title"] as? String { notes[i].title = t }
+    func claim(_ column: String) async {
+        await attempt { let _: [String: Bool] = try await call("/api/companies/\(teamId)/tasks/people", "PUT", ["key": column]); try await loadAll() }
+    }
+    private func save(_ task: TaskItem) async {
+        var next = task; next.updatedAt = nil; next.updatedBy = myColumn ?? task.updatedBy; next.updatedVia = "iphone"
+        if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i] = next } else { tasks.append(next) }   // at once; the answer replaces it
+        await attempt {
+            let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(next))
+            let r: TaskResponse = try await call("/api/companies/\(teamId)/tasks/\(task.id)", "PUT", ["task": body])
+            if let i = tasks.firstIndex(where: { $0.id == task.id }) { tasks[i] = r.task }
         }
+    }
+    func addTask(_ title: String, to column: String?) async {
+        let now = ISO8601DateFormatter().string(from: Date()), me = myColumn ?? "ilai"
+        await save(TaskItem(id: UUID().uuidString.lowercased(), title: title, notes: "", images: nil, status: "open", assignee: column, product: "", order: nil,
+                            createdAt: now, createdBy: me, updatedAt: nil, updatedBy: me, updatedVia: nil))
+    }
+    func edit(_ task: TaskItem, _ change: (inout TaskItem) -> Void) async { var next = task; change(&next); if next != task { await save(next) } }
+    func deleteTask(_ task: TaskItem) async {
+        tasks.removeAll { $0.id == task.id }
+        await attempt { let _: [String: Bool] = try await call("/api/companies/\(teamId)/tasks/\(task.id)", "DELETE") }
+    }
+
+    // MARK: shared notes (docs)
+    func addDoc() async -> String? {
+        var made: String?
+        await attempt {
+            let r: NoteResponse = try await call("/api/companies/\(teamId)/notes", "POST", ["kind": "doc", "visibility": "company", "title": "New note", "body": ""])
+            notes.insert(r.note, at: 0); made = r.note.id
+        }
+        return made
+    }
+    func update(_ note: Note, _ patch: [String: Any?]) async {
         await attempt {
             let r: NoteResponse = try await call("/api/companies/\(teamId)/notes/\(note.id)", "PATCH", patch)
             if let i = notes.firstIndex(where: { $0.id == note.id }) { notes[i] = r.note }
@@ -181,21 +266,30 @@ final class Store: ObservableObject {
             notes.removeAll { $0.id == note.id }
         }
     }
-    /// Moves a note within a list the way the website does: halfway between its new neighbours.
-    func move(_ list: [Note], from: IndexSet, to: Int) async {
-        guard let index = from.first else { return }
-        var rest = list; let note = rest.remove(at: index)
-        let at = to > index ? to - 1 : to
-        let before: Double? = at > 0 ? rest[at - 1].position : nil
-        let after: Double? = at < rest.count ? rest[at].position : nil
-        let position: Double
-        switch (before, after) {
-        case let (b?, a?): position = (b + a) / 2
-        case let (b?, nil): position = b + 1
-        case let (nil, a?): position = a - 1
-        default: position = 1
-        }
-        if let i = notes.firstIndex(where: { $0.id == note.id }) { notes[i].position = position }
-        await update(note, ["position": position])
+    /// A file of a shared note, saved where Quick Look can show it.
+    func download(_ file: NoteFile, of note: Note) async -> URL? {
+        guard let url = URL(string: server + "/api/companies/\(teamId)/notes/\(note.id)/files/\(file.id)") else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 60); request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200 else { error = "Could not open \(file.name)."; return nil }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(file.id, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let out = dir.appendingPathComponent(file.name.replacingOccurrences(of: "/", with: "-"))
+        do { try data.write(to: out); return out } catch { self.error = error.localizedDescription; return nil }
+    }
+
+    // MARK: people
+    func invite(_ email: String) async -> String? {
+        var link: String?
+        await attempt { let r: InviteResponse = try await call("/api/companies/\(teamId)/invites", "POST", ["email": email, "role": "admin"]); link = r.inviteUrl }
+        return link
+    }
+    func rename(_ name: String) async {
+        await attempt { let _: [String: Me] = try await call("/api/me", "PATCH", ["name": name]); try await loadAll() }
+    }
+    /// Allows a code shown by another device (a Mac, another phone) to sign in as this account.
+    func approve(code: String) async -> Bool {
+        var ok = false
+        await attempt { let _: [String: Bool] = try await call("/api/auth/device/approve", "POST", ["code": code]); ok = true }
+        return ok
     }
 }

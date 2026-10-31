@@ -101,6 +101,33 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request('/api/me',{token:collected.token})).body.user.email,'cy@example.test');
   assert.equal((await request('/api/auth/device/poll',{method:'POST',data:{pollToken:started.pollToken}})).status,410,'collected once');
 
+  // Joining without a password: the invitation link signs in; a first password can be set later without a current one.
+  const inv=(await request(`/api/companies/${alpha.id}/invites`,{token:a.body.token,method:'POST',data:{email:'mo@example.test',role:'member'}})).body;
+  const mo=await request('/api/auth/accept-invite',{method:'POST',data:{token:inv.token,name:'Mo',client:'desktop'}});
+  assert.equal(mo.status,200);assert.match(mo.body.token,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await request('/api/auth/login',{method:'POST',data:{email:'mo@example.test',password:''}})).status,401,'no password, no password sign-in');
+  assert.equal((await request('/api/me',{token:mo.body.token,method:'PATCH',data:{name:'Mo Rossi'}})).body.user.name,'Mo Rossi');
+  assert.equal((await request('/api/auth/password',{token:mo.body.token,method:'POST',data:{password:'a brand new password'}})).status,200);
+  assert.equal((await request('/api/auth/login',{method:'POST',data:{email:'mo@example.test',password:'a brand new password',client:'desktop'}})).status,200);
+
+  // The To-do's shared page: Macs copy their tasks in keeping the time they changed; the phone's edits are stamped now.
+  const tasks=`/api/companies/${alpha.id}/tasks`;
+  assert.equal((await request(tasks,{token:b.body.token})).status,404);
+  assert.equal((await request(`${tasks}/people`,{token:a.body.token,method:'PUT',data:{key:'ilai'}})).status,200);
+  const task={id:'t1',title:'Ship it',notes:'',status:'open',assignee:'both',product:'',createdAt:'2026-10-20T10:00:00.000+02:00',createdBy:'ilai',updatedAt:'2026-10-20T10:00:00.000+02:00',updatedBy:'ilai'};
+  assert.equal((await request(`${tasks}/t1`,{token:a.body.token,method:'PUT',data:{task}})).body.task.updatedAt,task.updatedAt);
+  assert.equal((await request(`${tasks}/t1`,{token:a.body.token,method:'PUT',data:{task:{...task,status:'maybe'}}})).status,400);
+  assert.equal((await request(`${tasks}/t2`,{token:a.body.token,method:'PUT',data:{task}})).status,400,'id must match');
+  let all=(await request(tasks,{token:a.body.token})).body;
+  assert.equal(all.tasks.length,1);assert.equal(all.me,'ilai');assert.equal(all.people.ilai.name,'Ada');
+  const phone=(await request(`${tasks}/t1`,{token:a.body.token,method:'PUT',data:{task:{...task,status:'done',updatedAt:undefined,updatedVia:'iphone'}}})).body.task;
+  assert.ok(Date.parse(phone.updatedAt)>Date.parse(task.updatedAt));
+  assert.equal((await request(`${tasks}/t1`,{token:a.body.token,method:'DELETE'})).status,200);
+  all=(await request(tasks,{token:a.body.token})).body;
+  assert.equal(all.tasks.length,0);assert.equal(all.deleted[0].id,'t1');
+  assert.equal((await request(`${tasks}/t1`,{token:a.body.token,method:'PUT',data:{task}})).status,200,'a Mac can bring it back');
+  assert.equal((await request(tasks,{token:a.body.token})).body.tasks.length,1);
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

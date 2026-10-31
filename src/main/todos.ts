@@ -39,7 +39,15 @@ function git(cwd: string, ...args: string[]): Promise<string> {
   }))
 }
 
-export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void; notify?: (change: TasksChange) => void; listsChanged?: () => void }) {
+/** The shared page's copy on the TerminAI server, read and edited by the iPhone app and the website. */
+export interface TasksServer {
+  /** null when this Mac is not signed in to Sync */
+  load(user: TasksUser): Promise<{ workspace: string; tasks: Task[]; deleted: { id: string; deletedAt: string; by?: string | null }[] } | null>
+  put(workspace: string, task: Task): Promise<void>
+  remove(workspace: string, id: string): Promise<void>
+}
+
+export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void; notify?: (change: TasksChange) => void; listsChanged?: () => void; server?: TasksServer }) {
   // Before private tasks were per user they were one file per Mac (todos-personal.json).
   const legacyFile = join(dir, 'todos-personal.json')
   const personalFile = (user: TasksUser) => join(dir, `todos-personal-${user}.json`)
@@ -347,6 +355,8 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       await git(clone, 'commit', '-q', '-m', done.message)
       committed = true
       await push()
+      const user = opts.user()
+      if (user) await mirror(user).catch(() => {})
     }).catch(err => { if (!committed) throw err })
   }
 
@@ -402,6 +412,60 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     return list()
   }
 
+  // ---- the server copy ------------------------------------------------------
+  /**
+   * The repo stays where both Macs keep the shared page; this copies it to the server and back, so the
+   * iPhone app and the website see the same tasks. Per task the newer updatedAt wins. A task that was on both
+   * sides at the last copy and is now missing from one was deleted there (`base`, kept per Mac). Edits from
+   * the phone or the web come into the repo as commits of their own, signed by whoever made them.
+   */
+  const baseFile = join(dir, 'todos-server-base.json')
+  async function mirror(user: TasksUser): Promise<Task[]> {
+    if (!opts.server) return []
+    const remote = await opts.server.load(user).catch(() => null)
+    if (!remote) return []
+    let base: { workspace?: string; ids?: Record<string, string> } = {}
+    try { base = JSON.parse(readFileSync(baseFile, 'utf8')) } catch {}
+    const known = base.workspace === remote.workspace ? base.ids ?? {} : {}
+    const mine = new Map(readShared().map(task => [task.id, task])), theirs = new Map(remote.tasks.map(task => [task.id, task]))
+    const gone = new Map(remote.deleted.map(row => [row.id, row]))
+    const write: Task[] = [], drop: Task[] = [], put: Task[] = [], remove: string[] = []
+    for (const id of new Set([...mine.keys(), ...theirs.keys()])) {
+      const here = mine.get(id), there = theirs.get(id)
+      if (here && there) {
+        const a = Date.parse(here.updatedAt) || 0, b = Date.parse(there.updatedAt) || 0
+        if (a > b) put.push(here); else if (b > a) write.push(there)
+      } else if (here) {
+        const tomb = gone.get(id)
+        if (tomb && Date.parse(tomb.deletedAt) >= (Date.parse(here.updatedAt) || 0)) drop.push(here); else put.push(here)
+      } else if (there && validId(id)) {
+        if (id in known) remove.push(id); else write.push(there)
+      }
+    }
+    for (const task of put) await opts.server.put(remote.workspace, task)
+    for (const id of remove) await opts.server.remove(remote.workspace, id)
+    const via = (task: Task) => (task as { updatedVia?: string }).updatedVia === 'web' ? 'the website' : 'iPhone app'
+    for (const task of write) {
+      const old = mine.get(task.id), next = clean({ ...task, updatedVia: undefined })
+      mkdirSync(tasksDir, { recursive: true })
+      writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(next, null, 2) + '\n', 'utf8')
+      await git(clone, 'add', '--', `tasks/${task.id}.json`)
+      if ((await git(clone, 'status', '--porcelain', '--', `tasks/${task.id}.json`)).trim())
+        await git(clone, 'commit', '-q', '-m', `${ASSIGNEES.includes(task.updatedBy) ? task.updatedBy : user}: ${verb(old, next)} ${next.title}\n\nVia: ${via(task)}`)
+    }
+    for (const task of drop) {
+      const by = gone.get(task.id)?.by
+      await git(clone, 'rm', '-q', '-r', '--ignore-unmatch', '--', `tasks/${task.id}.json`, `images/${task.id}`)
+      await git(clone, 'commit', '-q', '-m', `${by && ASSIGNEES.includes(by) ? by : user}: delete ${task.title}\n\nVia: iPhone app`)
+    }
+    if (write.length || drop.length) await push()
+    const ids = Object.fromEntries(readShared().map(task => [task.id, task.updatedAt]))
+    const tmp = `${baseFile}.tmp`
+    writeFileSync(tmp, JSON.stringify({ workspace: remote.workspace, ids }) + '\n', 'utf8')
+    renameSync(tmp, baseFile)
+    return write.filter(task => task.updatedBy !== user)
+  }
+
   return {
     personalFile,
     tasksDir,
@@ -419,6 +483,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         await pullRebase()
         if ((await git(clone, 'rev-list', '--count', '@{u}..HEAD')).trim() !== '0') await push()
         // What came in from the other Mac: changes not waiting to be seen before, and tasks gone.
+        await mirror(user).catch(err => { console.warn('[todos] server copy failed:', err instanceof Error ? err.message : err) })
         const after = readShared(), now = new Set(after.map(task => task.id)), fresh = new Set(unseen(user, after))
         const changed = after.filter(task => fresh.has(task.id) && !waiting.has(task.id))
         const removed = before.filter(task => !now.has(task.id)).map(task => task.title)

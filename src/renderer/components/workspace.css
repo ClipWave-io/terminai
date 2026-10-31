@@ -100,3 +100,10 @@
 .team-browser-wait{display:grid;gap:6px;justify-items:center;padding:14px;border:1px dashed var(--border);border-radius:12px;font-size:12px;color:var(--dim)}
 .team-browser-wait strong{font:650 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;color:var(--fg)}
 .team-browser-wait button{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer}
+.team-form{display:grid;gap:8px;margin-top:18px;max-width:520px}
+.team-form label{display:grid;gap:6px;font-size:12px;color:var(--muted,#9aa3b2)}
+.team-form input{padding:8px 10px;border-radius:8px;border:1px solid var(--border,#2a3140);background:transparent;color:inherit;font:inherit;font-size:13px}
+.team-form .btn{justify-self:start}
+.team-invite{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.team-invite code{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 8px;border-radius:6px;border:1px dashed var(--border,#2a3140)}
+.team-invite small{grid-column:1/-1;color:var(--muted,#9aa3b2)}

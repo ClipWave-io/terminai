@@ -96,6 +96,19 @@ export async function migrate(pool) {
         user_id uuid REFERENCES manager_users ON DELETE CASCADE, created_at timestamptz NOT NULL DEFAULT now(),
         expires_at timestamptz NOT NULL, consumed_at timestamptz
       );
+      -- The TerminAI To-do's shared page, mirrored by each partner's Mac from its git repo and read and edited by the
+      -- iPhone app and the website. data is the Mac's Task JSON as is; a deleted task stays as a tombstone so a Mac
+      -- that still has it learns it is gone.
+      CREATE TABLE IF NOT EXISTS manager_tasks (
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, id text NOT NULL,
+        data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz,
+        changed_by uuid REFERENCES manager_users ON DELETE SET NULL, PRIMARY KEY (company_id,id)
+      );
+      -- Which account is which column of the To-do (the Mac app calls them ilai and livio).
+      CREATE TABLE IF NOT EXISTS manager_task_people (
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, key text NOT NULL,
+        user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, PRIMARY KEY (company_id,key)
+      );
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

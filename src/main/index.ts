@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
@@ -399,6 +399,7 @@ function registerIpc(): void {
     user: () => store.load().tasksUser,
     changed: todosChanged,
     listsChanged: writeGuides,
+    server: workspaceTasks,
     // The other Mac's edits, pulled by a sync: one notice per sync, a click opens the To-do sheet.
     notify: ({ by, changed, removed, mentioned }) => {
       const name = by === 'ilai' ? 'Ilai' : 'Matteo', count = changed.length + removed.length
@@ -478,7 +479,7 @@ function registerIpc(): void {
   })
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()
-  setInterval(() => void todos.sync(), 3 * 60_000)
+  setInterval(() => void todos.sync(), 60_000)   // a minute: edits from the phone come in through here
 
   // ---- Claude accounts ---------------------------------------------------
   const accounts = createAccounts(app.getPath('userData'), {

@@ -181,9 +181,10 @@ async function start() {
 }
 function showInvitation() {
   const f = form(async data => { await api('/api/auth/accept-invite', 'POST', { ...data, token: inviteToken }); location.replace('/'); });
-  field(f, 'Your name', 'name'); field(f, 'Password', 'password', 'password');
+  field(f, 'Your name', 'name');
+  const password = field(f, 'Password (optional)', 'password', 'password'); password.required = false;
   submit(f, 'Join', 'block');
-  f.append(el('small', 'Already have an account? Enter its password. Otherwise choose a new one, 12 characters or more.'));
+  f.append(el('small', 'No password needed: this link signs you in. Your iPhone and other Macs then sign in with a code you allow here. Already have an account with a password? Enter it.'));
   authPage('You’re invited', 'Join a shared workspace on TerminAI.', f);
 }
 
@@ -520,13 +521,15 @@ async function account(main) {
       button(s.current ? 'Sign out' : 'Revoke', async () => { await api(`/api/auth/sessions/${s.id}`, 'DELETE'); if (s.current) location.reload(); else await workspace(); }, 'danger')));
   const f = form(async data => { await api('/api/auth/password', 'POST', data); location.reload(); });
   const two = el('div', null, { class: 'fields' });
-  const cur = field(two, 'Current password', 'currentPassword', 'password'); cur.removeAttribute('minlength');
+  const cur = field(two, 'Current password', 'currentPassword', 'password'); cur.removeAttribute('minlength'); cur.required = false; cur.placeholder = 'Leave empty if you never set one';
   field(two, 'New password', 'password', 'password'); f.append(two);
   submit(f, 'Change password', 'secondary');
   f.append(el('small', 'This signs you out everywhere, TerminAI included.'));
   const link = el('div', null, { class: 'row' }, el('div', null, { class: 'grow' }, el('strong', 'Sign in your iPhone or another Mac'),
     el('small', 'Tap “Sign in with browser” in the app, then type the code it shows here.')), button('Enter a code', () => { deviceCode = ''; showDevice(); }));
-  main.append(el('div', null, { class: 'stack' }, el('h2', 'Signed-in devices'), list, card(null, null, link), card('Password', null, f)));
+  const naming = form(async data => { await api('/api/me', 'PATCH', data); location.reload(); });
+  field(naming, 'Your name', 'name', 'text', me.user.name); submit(naming, 'Save name', 'secondary');
+  main.append(el('div', null, { class: 'stack' }, card('Name', 'What the others see on tasks and notes.', naming), el('h2', 'Signed-in devices'), list, card(null, null, link), card('Password', null, f)));
 }
 
 run(start)();
