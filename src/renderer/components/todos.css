@@ -14,11 +14,24 @@
   font-size: 13px; line-height: 1.38;
 }
 .todo-head, .todo-note { box-sizing: border-box; width: 100%; max-width: 1440px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
-.todo-head { flex: none; position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-top: 12px; padding-bottom: 8px; background: var(--pane); font-size: 12px; line-height: 1.3; }
+.todo-head { flex: none; position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding-top: 12px; padding-bottom: 10px; background: var(--pane); font-size: 12.5px; line-height: 1.3; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); margin-bottom: 10px; }
+.todo-head .todo-seg button { padding: 5px 16px; }
+.todo-filters, .todo-status { display: flex; align-items: center; gap: 8px; }
+.todo-head-gap { flex: 1; }
+/* Sync state as one quiet button: a dot and a word; red when it failed, click to try again. */
+.todo-sync-state { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; font: inherit; color: var(--dim); background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.todo-sync-state:hover:not(:disabled) { color: var(--fg); border-color: var(--border); }
+.todo-sync-state:disabled { cursor: default; }
+.todo-dot { width: 7px; height: 7px; border-radius: 50%; background: #3fb950; }
+.todo-sync-state:disabled .todo-dot { background: var(--dim); animation: todo-pulse 1s ease-in-out infinite alternate; }
+.todo-sync-state.failed { color: var(--danger); }
+.todo-sync-state.failed .todo-dot { background: var(--danger); }
+@keyframes todo-pulse { to { opacity: .3; } }
+.todo-pill { height: 26px; padding: 0 11px; font: inherit; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border: 0; border-radius: 13px; cursor: pointer; white-space: nowrap; }
+.todo-pill:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.todo-head-bell, .todo-head-close { position: relative; width: 30px; height: 30px; display: inline-grid; place-items: center; }
+.todo-head-bell[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border-radius: 8px; }
 .todo-sync { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--dim); }
-/* Middle of the app's top bar while the to-do is open. */
-.todo-topbar-slot { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); -webkit-app-region: no-drag; font-size: 12.5px; white-space: nowrap; }
-.todo-topbar-slot .todo-sync { margin: 0; }
 .todo-drop { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 12px; font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 50%, transparent); cursor: pointer; }
 .todo-drop:hover { border-color: var(--dim); }
 .todo-chevron { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: .6; }
@@ -35,7 +48,7 @@
 /* Each column scrolls on its own, its @name staying on top. */
 .todo-main > .todo-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 14px; margin-top: 2px; }
 /* Private notes: one box, the width of a note. */
-.todo-main > .todo-cols.single { grid-template-columns: minmax(0, 760px); justify-content: center; }
+.todo-main > .todo-cols.single { grid-template-columns: minmax(0, 1fr); }
 /* Each column is a card, so the three lists do not float on the page. */
 .todo-col { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 20px; background: var(--pane); border: 1.5px solid color-mix(in srgb, var(--border) 70%, var(--dim)); border-radius: 12px; box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow) 45%, transparent), 0 6px 18px color-mix(in srgb, var(--shadow) 18%, transparent); }
 .todo-at { position: sticky; top: 0; z-index: 1; margin: 0 -12px; padding: 10px 12px 6px; font-size: inherit; font-weight: 700; color: var(--todo-ink); letter-spacing: .04em; background: var(--pane); border-bottom: 1px solid var(--border); }
@@ -158,7 +171,7 @@ button.todo-circle:hover { border-color: var(--dim); }
 
 /* Narrow: the columns stack (mine, Together, the other one's) and the whole note scrolls as one. */
 /* A narrow top bar keeps the two menus and drops the sync words. */
-@media (max-width: 1000px) { .todo-topbar-slot .todo-sync > span, .todo-topbar-slot .todo-link { display: none; } }
+@media (max-width: 1000px) { .todo-sync-state { font-size: 0; gap: 0; } .todo-hidden-cols { display: none; } }
 @media (max-width: 1100px) {
   .todo-sheet { display: block; overflow: auto; }
   .todo-note { display: block; padding-bottom: 96px; }

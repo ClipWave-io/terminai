@@ -152,24 +152,38 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
   const invite = async () => {
     try { const v = await window.term.workspace.request(`${base}/invites`, 'POST', { email: email.trim(), role: 'admin' }); setLink(v.inviteUrl); setCopied(false); onInvited() } catch (e) { onError(e) }
   }
-  return <div className="team-page">
+  return <div className="team-page members">
     <header><div><h2>Members</h2><p>Everyone here shares the To-do, the notes and the conversations you share.</p></div></header>
-    <div className="team-list">{members.map(m => <div className="team-row" key={m.id}><div><strong>{m.name}{m.id === me.id ? ' (you)' : ''}</strong><small>{m.email}</small></div><span className="team-badge">{m.role}</span></div>)}</div>
-    <form className="team-form" onSubmit={e => { e.preventDefault(); void rename() }}>
-      <label>Your name<input value={name} maxLength={120} onChange={e => setName(e.target.value)} onBlur={() => void rename()} /></label>
-    </form>
-    <form className="team-form" onSubmit={e => { e.preventDefault(); void allow() }}>
-      <label>Sign in a phone or another Mac<input value={code} placeholder="Code it shows, e.g. ABCD-EFGH" autoComplete="off" onChange={e => { setCode(e.target.value); setAllowed('') }} /></label>
-      <button className="btn" type="submit" disabled={code.trim().replace('-', '').length !== 8}>Allow</button>
-      {allowed && <small>{allowed} is allowed: that device signs in as you in a moment.</small>}
-    </form>
-    {admin && <form className="team-form" onSubmit={e => { e.preventDefault(); void invite() }}>
-      <label>Invite someone<input type="email" required placeholder="their email" value={email} onChange={e => setEmail(e.target.value)} /></label>
-      <button className="btn primary" type="submit">Create invitation link</button>
-      {link && <div className="team-invite"><code>{link}</code>
-        <button type="button" className="btn" onClick={() => { void navigator.clipboard.writeText(link); setCopied(true) }}>{copied ? 'Copied' : 'Copy'}</button>
-        <small>Send it to them. Opening it on the web, or pasting it in TerminAI › Sync › I have an invitation, signs them in. No password needed. It works for 48 hours.</small></div>}
-    </form>}
+    <section className="m-card">
+      {members.map(m => <div className="m-person" key={m.id}>
+        <span className="team-avatar">{initials(m.name)}</span>
+        <div><strong>{m.name}{m.id === me.id && <em> · you</em>}</strong><small>{m.email}</small></div>
+        <span className="m-role">{m.role}</span>
+      </div>)}
+      {members.length < 2 && <p className="m-hint">Only you so far. Invite Matteo below: you then share the To-do and notes, on the Mac, the web and the iPhone.</p>}
+    </section>
+    <div className="m-grid">
+      {admin && <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void invite() }}>
+        <h3>Invite someone</h3>
+        <p>They get a link that signs them in. No password needed.</p>
+        <div className="m-inline"><input type="email" required placeholder="name@email.com" value={email} onChange={e => setEmail(e.target.value)} /><button className="btn primary" type="submit">Create link</button></div>
+        {link && <div className="m-link"><code>{link}</code>
+          <button type="button" className="btn" onClick={() => { void navigator.clipboard.writeText(link); setCopied(true) }}>{copied ? 'Copied ✓' : 'Copy'}</button>
+          <small>Send it to them. It works for 48 hours.</small></div>}
+      </form>}
+      <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void allow() }}>
+        <h3>Sign in your iPhone</h3>
+        <p>In the iPhone app tap “Sign in with a code”, then type the code it shows here.</p>
+        <div className="m-inline"><input className="m-code" value={code} placeholder="ABCD-EFGH" maxLength={9} autoComplete="off" onChange={e => { setCode(e.target.value.toUpperCase()); setAllowed('') }} />
+          <button className="btn primary" type="submit" disabled={code.trim().replace('-', '').length !== 8}>Allow</button></div>
+        {allowed && <small className="m-ok">✓ {allowed} allowed: the phone signs in by itself.</small>}
+      </form>
+      <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void rename() }}>
+        <h3>Your name</h3>
+        <p>What the others see on tasks and notes.</p>
+        <div className="m-inline"><input value={name} maxLength={120} onChange={e => setName(e.target.value)} /><button className="btn" type="submit" disabled={!name.trim() || name.trim() === me.name}>Save</button></div>
+      </form>
+    </div>
   </div>
 }
 

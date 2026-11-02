@@ -141,9 +141,6 @@ export function TodoSheet({ user, onUser, onClose, onSync, tabs, onTab, prefs, o
   const [askList, setAskList] = useState<TaskListPage | null>(null)
   /** The shared task whose history is open. */
   const [history, setHistory] = useState<Task | null>(null)
-  // App.tsx mounts the top bar slot in the same commit, so it is looked up once the sheet is in the DOM.
-  const [slot, setSlot] = useState<HTMLElement | null | undefined>(undefined)
-  useLayoutEffect(() => setSlot(document.getElementById('todo-topbar-slot')), [])
   const seq = useRef(0)
   const sheet = useRef<HTMLElement>(null)
   // What the main process last returned: the undo history reads it between renders.
@@ -541,35 +538,43 @@ export function TodoSheet({ user, onUser, onClose, onSync, tabs, onTab, prefs, o
       // A plain click anywhere (editing a row, an empty spot) drops the selection; ⌘- and ⇧-clicks on rows never get here,
       // and "•••" on a selected row opens the menu for all of them.
       onMouseDown={event => { if (event.button === 0 && sel.length && !(event.target instanceof Element && event.target.closest('.todo-menu, .sheet-backdrop, .todo-toast, .todo-actions'))) setSel([]) }}>
-      {(() => {
-        // The controls sit in the middle of the app's top bar while the to-do is open (App.tsx keeps
-        // the slot); inline above the columns only if the slot is missing.
-        const controls = <div className="todo-sync">
-          {user && <>
-            <span className="todo-seg" role="tablist" aria-label="Tasks or notes">
-              <button role="tab" aria-selected={view !== 'notes'} className={view !== 'notes' ? 'on' : ''} onClick={() => setView(lastTasks.current)}>Tasks</button>
-              <button role="tab" aria-selected={view === 'notes'} className={view === 'notes' ? 'on' : ''} onClick={() => setView('notes')}>Notes</button>
-            </span>
-          </>}
-          {user && view !== 'notes' && <>
-            <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
-              onClick={event => pick(event, showItems(), 'show')}>
-              {view === 'private' && <Lock />}{view === 'private' ? current.name : 'Shared'}<Chevron /></button>
-            <button className={`todo-drop todo-products${picked.length ? ' on' : ''}`} aria-label={picked.length ? `Showing ${picked.map(p => p || 'No product').join(', ')}` : 'All products'} title="Show only some products: saved on this Mac"
-              onClick={event => pick(event, productItems(), 'products')}>
-              {picked.length ? picked.length === 1 ? picked[0] || 'No product' : `${picked[0] || 'No product'} +${picked.length - 1}` : 'All products'}<Chevron /></button>
-            {view === 'shared' && hidden.length > 0 && <button className="todo-link todo-hidden-cols" title={`Hidden: ${hidden.map(c => c.label).join(', ')}`}
-              onClick={() => onPrefs({ todoHiddenColumns: [] })}>{hidden.length} hidden · Show all</button>}
-            <button className="todo-drop" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
-              onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>
-            <span className={sync?.error ? 'failed' : ''} title={sync?.error ?? undefined} aria-live="polite">{syncText}</span>
-            <button className="todo-link" disabled={!sync?.enabled || sync.syncing} onClick={() => void act(() => window.term.todos.sync())}>Sync now</button>
-            {view === 'shared' && unseen.length > 0 && <button className="todo-link todo-unseen" title="Each changed task carries its mark; this clears them all"
-              onClick={() => void act(() => window.term.todos.markSeen(unseen))}>{unseen.length} changed by {NAME[other]} · Mark all seen</button>}
-          </>}
-        </div>
-        return slot ? createPortal(controls, slot) : slot === null && <header className="todo-head">{controls}</header>
-      })()}
+      {/* Everything of the To-do lives in its own header: Tasks | Notes always first, so it never moves. */}
+      <header className="todo-head">
+        {user && <span className="todo-seg" role="tablist" aria-label="Tasks or notes">
+          <button role="tab" aria-selected={view !== 'notes'} className={view !== 'notes' ? 'on' : ''} onClick={() => setView(lastTasks.current)}>Tasks</button>
+          <button role="tab" aria-selected={view === 'notes'} className={view === 'notes' ? 'on' : ''} onClick={() => setView('notes')}>Notes</button>
+        </span>}
+        {user && view !== 'notes' && <div className="todo-filters">
+          <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
+            onClick={event => pick(event, showItems(), 'show')}>
+            {view === 'private' && <Lock />}{view === 'private' ? current.name : 'Shared'}<Chevron /></button>
+          <button className={`todo-drop todo-products${picked.length ? ' on' : ''}`} aria-label={picked.length ? `Showing ${picked.map(p => p || 'No product').join(', ')}` : 'All products'} title="Show only some products: saved on this Mac"
+            onClick={event => pick(event, productItems(), 'products')}>
+            {picked.length ? picked.length === 1 ? picked[0] || 'No product' : `${picked[0] || 'No product'} +${picked.length - 1}` : 'All products'}<Chevron /></button>
+          {view === 'shared' && hidden.length > 0 && <button className="todo-link todo-hidden-cols" title={`Hidden: ${hidden.map(c => c.label).join(', ')}`}
+            onClick={() => onPrefs({ todoHiddenColumns: [] })}>{hidden.length} hidden · Show all</button>}
+        </div>}
+        <span className="todo-head-gap" />
+        {user && view !== 'notes' && <div className="todo-status">
+          {view === 'shared' && unseen.length > 0 && <button className="todo-pill" title="Each changed task carries its mark; this clears them all"
+            onClick={() => void act(() => window.term.todos.markSeen(unseen))}>{unseen.length} changed by {NAME[other]} · Mark seen</button>}
+          <button className={`todo-sync-state${sync?.error ? ' failed' : ''}`} title={sync?.error ? `${sync.error}\nClick to try again.` : 'Sync now'} aria-live="polite"
+            disabled={!sync?.enabled || sync.syncing} onClick={() => void act(() => window.term.todos.sync())}>
+            <span className="todo-dot" aria-hidden="true" />{syncText}</button>
+          <button className="todo-drop" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
+            onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>
+        </div>}
+        {user && (() => {
+          const fresh = activity.filter(a => a.by !== user && (!prefs.activitySeen || a.at > prefs.activitySeen)).length
+          return <button className="todo-icon todo-head-bell" aria-pressed={prefs.activityOpen} aria-label={fresh ? `Activity, ${fresh} new` : 'Activity'} title="Activity: every edit, yours and theirs"
+            onClick={() => { if (view === 'notes') setView(lastTasks.current); onPrefs({ todoActivity: !prefs.activityOpen }) }}>
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M4 11.5V7.2a4 4 0 0 1 8 0v4.3l1.2 1.2H2.8L4 11.5Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+            {fresh > 0 && <span className="todo-bell-count" aria-hidden="true">{fresh > 99 ? '99+' : fresh}</span>}
+          </button>
+        })()}
+        <button className="todo-icon todo-head-close" aria-label="Close To-do" title="Close  Esc" onClick={onClose}>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></button>
+      </header>
       {!user ? <div className="todo-note todo-pick">
         <h1>To-do</h1>
         <p>Who are you on this Mac?</p>
@@ -577,7 +582,8 @@ export function TodoSheet({ user, onUser, onClose, onSync, tabs, onTab, prefs, o
         <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; private ones stay here.</p>
       </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} /></article> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
-        {sync?.error && <p className="todo-error" role="alert">Shared sync: {sync.error}</p>}
+        {sync?.error && <p className="todo-error" role="alert">{/Failed to connect|Could not resolve|timed out|unable to access/.test(sync.error)
+          ? 'Can’t reach GitHub right now, so Matteo’s Mac gets your changes later. Your phone and the website still sync.' : `Shared sync: ${sync.error}`}</p>}
         <div className="todo-main">
         <div className={`todo-cols${view === 'private' || shownColumns.length === 1 ? ' single' : ''}`} style={view === 'shared' && shownColumns.length === 2 ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
           {shownColumns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>

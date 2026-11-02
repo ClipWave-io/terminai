@@ -33,7 +33,7 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   assert.deepEqual(shown, ['Matteo’s AI tagged you in “Fix login”'])
   await until(() => js(`!!document.querySelector('.todo-notice.mention')`), 'the in-window notice')
   assert.match(await js(`document.querySelector('.todo-notice').textContent`), /^TaggedMatteo’s AI tagged you in “Fix login”$/)
-  await until(() => js(`document.querySelector('.todo-bell-count')?.textContent === '1'`), 'the bell counts Matteo’s change')
+  await until(() => js(`!!document.querySelector('.todo-button-dot')`), 'the To-do button shows the change (the bell is inside the sheet)')
 
   // The notice opens the sheet with the Activity panel: everyone's changes, his AI marked, the tag highlighted.
   await js(`document.querySelector('.todo-notice').click()`)

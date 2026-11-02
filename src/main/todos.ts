@@ -458,7 +458,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       await git(clone, 'rm', '-q', '-r', '--ignore-unmatch', '--', `tasks/${task.id}.json`, `images/${task.id}`)
       await git(clone, 'commit', '-q', '-m', `${by && ASSIGNEES.includes(by) ? by : user}: delete ${task.title}\n\nVia: iPhone app`)
     }
-    if (write.length || drop.length) await push()
+    if (write.length || drop.length) await push().catch(() => {})
     const ids = Object.fromEntries(readShared().map(task => [task.id, task.updatedAt]))
     const tmp = `${baseFile}.tmp`
     writeFileSync(tmp, JSON.stringify({ workspace: remote.workspace, ids }) + '\n', 'utf8')
@@ -480,10 +480,15 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       return job(async () => {
         if (await ready()) return
         const before = readShared(), waiting = new Set(unseen(user, before))
-        await pullRebase()
-        if ((await git(clone, 'rev-list', '--count', '@{u}..HEAD')).trim() !== '0') await push()
-        // What came in from the other Mac: changes not waiting to be seen before, and tasks gone.
+        // GitHub out of reach still leaves the phone and the web in sync: the server copy runs either way.
+        let failed: unknown = null
+        try {
+          await pullRebase()
+          if ((await git(clone, 'rev-list', '--count', '@{u}..HEAD')).trim() !== '0') await push()
+        } catch (err) { failed = err }
         await mirror(user).catch(err => { console.warn('[todos] server copy failed:', err instanceof Error ? err.message : err) })
+        if (failed) throw failed
+        // What came in from the other Mac: changes not waiting to be seen before, and tasks gone.
         const after = readShared(), now = new Set(after.map(task => task.id)), fresh = new Set(unseen(user, after))
         const changed = after.filter(task => fresh.has(task.id) && !waiting.has(task.id))
         const removed = before.filter(task => !now.has(task.id)).map(task => task.title)

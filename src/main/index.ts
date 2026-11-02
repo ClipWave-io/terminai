@@ -49,6 +49,12 @@ let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
 // The menus and About panel say TerminAI; the data folder keeps the old package name, so nothing moves.
+// Started from a TerminAI tab (a restart, `open -a`), the app would inherit that tab's settings: its proxy is the
+// old relay, gone with the old app, and every git and network call would fail. Those belong to tabs, not to the app.
+for (const name of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy', 'NODE_EXTRA_CA_CERTS']) {
+  if (/127\.0\.0\.1|localhost|clipwave-term/.test(process.env[name] ?? '')) delete process.env[name]
+}
+for (const name of Object.keys(process.env)) if (/^TERMINAI_(TAB_ID|WORKSPACE_ID|CONTROL|CLI|TASKS_DIR|TODO_DIR|ACCOUNTS)$/.test(name)) delete process.env[name]
 const dataFolder = app.getPath('userData')
 app.setName('TerminAI')
 app.setPath('userData', dataFolder)
