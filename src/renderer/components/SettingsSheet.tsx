@@ -134,6 +134,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
     <div className="sheet-backdrop" onMouseDown={onClose}>
       <div className="sheet" onMouseDown={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
+        <AppVersion />
 
         <div className="row">
           <label>
@@ -392,4 +393,14 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
       </div>
     </div>
   )
+}
+
+/** The version this Mac runs, and the same check as TerminAI › Check for Updates… in the menu bar. */
+function AppVersion(): JSX.Element {
+  const [version, setVersion] = useState('')
+  useEffect(() => { void window.term.window.version().then(setVersion) }, [])
+  return <div className="row">
+    <label>Version<span className="hint">Updates install by themselves: TerminAI asks to restart when one is ready.</span></label>
+    <span>{version} <button className="btn" onClick={() => void window.term.window.checkForUpdates()}>Check for updates</button></span>
+  </div>
 }

@@ -347,6 +347,8 @@ function registerIpc(): void {
   appIpc.handle('project:rename', (_event, path: string, to: string) => projectFiles.renameEntry(path, to))
   appIpc.handle('project:create', (_event, folder: string, name: string, directory: boolean) => projectFiles.create(folder, name, directory))
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
+  appIpc.handle('app:version', () => app.getVersion())
+  appIpc.handle('app:check-updates', () => checkForUpdatesNow(win))
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {
     if (!win) return

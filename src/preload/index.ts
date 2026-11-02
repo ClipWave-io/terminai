@@ -15,7 +15,9 @@ const api = {
   window: {
     fullscreen: (): Promise<boolean> => ipcRenderer.invoke('window:fullscreen'),
     onFullscreen: (cb: (value: boolean) => void): (() => void) => { const handler = (_event: Electron.IpcRendererEvent, value: boolean) => cb(value); ipcRenderer.on('window:fullscreen', handler); return () => { ipcRenderer.removeListener('window:fullscreen', handler) } },
-    toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize') },
+    toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
+    version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    checkForUpdates: (): Promise<void> => ipcRenderer.invoke('app:check-updates') },
   workspace: {
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),
     state: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:state'),
