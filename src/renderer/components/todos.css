@@ -320,3 +320,4 @@ button.todo-circle:hover { border-color: var(--dim); }
 .snotes-empty { margin: auto; max-width: 420px; text-align: center; color: var(--dim); display: grid; gap: 10px; justify-items: center; padding: 30px; }
 .snotes-empty h2 { margin: 0; color: var(--todo-ink); }
 @media (max-width: 720px) { .snotes { grid-template-columns: 1fr; grid-template-rows: minmax(140px, 35%) 1fr; } }
+.todo-drop-sub{color:var(--dim);padding-left:8px;margin-left:2px;border-left:1px solid var(--border)}.todo-drop-sub.on{color:var(--todo-product)}

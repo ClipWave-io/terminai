@@ -524,7 +524,9 @@ export function TodoSheet({ user, onUser, onClose, onSync, tabs, onTab, prefs, o
   // Rebuilt on every render while open, so a ticked column or product shows its check at once.
   const showItems = (): MenuItem[] => [{ heading: 'Show' }, { label: 'Shared', checked: view === 'shared', run: () => setView('shared') }, { heading: 'Private, only on this Mac' },
                 ...pages.map(p => ({ label: p.name, checked: view === 'private' && p.id === current.id, run: () => { setView('private'); goPage(pages.indexOf(p)) } })), { label: 'New list', run: () => void newList() },
-                { heading: 'Shared columns' }, ...columns.map(col => ({ label: col.label, checked: !prefs.hiddenColumns.includes(col.key), keep: true, run: () => { setView('shared'); setColumn(col.key, prefs.hiddenColumns.includes(col.key)) } }))]
+                { heading: 'Shared columns' }, ...columns.map(col => ({ label: col.label, checked: !prefs.hiddenColumns.includes(col.key), keep: true, run: () => { setView('shared'); setColumn(col.key, prefs.hiddenColumns.includes(col.key)) } })),
+                // The products in the same menu: one button for everything the page shows.
+                ...productItems().map(item => item && 'heading' in item ? { heading: 'Products' } : item)]
   const productItems = (): MenuItem[] => [{ heading: 'Show products' }, { label: 'All products', checked: !picked.length, run: () => onPrefs({ todoProducts: [] }) },
     ...products.map(product => ({ label: product, checked: picked.includes(product), keep: true, run: () => toggleProduct(product) })),
     { label: 'No product', checked: picked.includes(''), keep: true, run: () => toggleProduct('') }]
@@ -547,10 +549,8 @@ export function TodoSheet({ user, onUser, onClose, onSync, tabs, onTab, prefs, o
         {user && view !== 'notes' && <div className="todo-filters">
           <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
             onClick={event => pick(event, showItems(), 'show')}>
-            {view === 'private' && <Lock />}{view === 'private' ? current.name : 'Shared'}<Chevron /></button>
-          <button className={`todo-drop todo-products${picked.length ? ' on' : ''}`} aria-label={picked.length ? `Showing ${picked.map(p => p || 'No product').join(', ')}` : 'All products'} title="Show only some products: saved on this Mac"
-            onClick={event => pick(event, productItems(), 'products')}>
-            {picked.length ? picked.length === 1 ? picked[0] || 'No product' : `${picked[0] || 'No product'} +${picked.length - 1}` : 'All products'}<Chevron /></button>
+            {view === 'private' && <Lock />}{view === 'private' ? current.name : 'Shared'}
+            <span className={`todo-drop-sub${picked.length ? ' on' : ''}`}>{picked.length ? picked.length === 1 ? picked[0] || 'No product' : `${picked[0] || 'No product'} +${picked.length - 1}` : 'All products'}</span><Chevron /></button>
           {view === 'shared' && hidden.length > 0 && <button className="todo-link todo-hidden-cols" title={`Hidden: ${hidden.map(c => c.label).join(', ')}`}
             onClick={() => onPrefs({ todoHiddenColumns: [] })}>{hidden.length} hidden · Show all</button>}
         </div>}

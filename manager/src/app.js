@@ -86,12 +86,6 @@ export function createApp(pool, config) {
       if (req.method === 'GET' && staticFiles[path]) {
         const [file, type] = staticFiles[path]; res.setHeader('Content-Type', `${type}; charset=utf-8`); return res.end(await readFile(new URL(`../public/${file}`, import.meta.url)));
       }
-      requireThat(path.startsWith('/api/'), 404, 'Not found.');
-      // No CORS: browser UI is same-origin; desktop uses main-process HTTP with a bearer.
-      if (req.headers.origin && unsafe(req.method)) requireThat(req.headers.origin === origin, 403, 'Invalid request origin.');
-      const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim());
-      const ip = config.trustProxyHops > 0 ? forwarded.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
-      await limit(pool, `api:${ip}`, 300, 60);
       // The newest signed Mac app, straight from GitHub's latest release: the website's Download button.
       if (req.method === 'GET' && path === '/download/mac') {
         const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases/latest', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);
@@ -99,6 +93,12 @@ export function createApp(pool, config) {
         res.writeHead(302, { Location: dmg?.browser_download_url ?? 'https://github.com/ClipWave-io/terminai/releases/latest', 'Cache-Control': 'no-store' });
         return res.end();
       }
+      requireThat(path.startsWith('/api/'), 404, 'Not found.');
+      // No CORS: browser UI is same-origin; desktop uses main-process HTTP with a bearer.
+      if (req.headers.origin && unsafe(req.method)) requireThat(req.headers.origin === origin, 403, 'Invalid request origin.');
+      const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim());
+      const ip = config.trustProxyHops > 0 ? forwarded.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
+      await limit(pool, `api:${ip}`, 300, 60);
       if (req.method === 'GET' && path === '/api/setup') {
         const { rows: [row] } = await pool.query('SELECT EXISTS(SELECT 1 FROM manager_users) AS initialized');
         return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken), signupOpen: config.signupOpen !== false });
