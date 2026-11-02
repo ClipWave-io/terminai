@@ -55,6 +55,8 @@ app.setPath('userData', dataFolder)
 let activeTabId: string | null = null
 // Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen|add|about`.
 let todos: ReturnType<typeof createTodos>
+// A failure in a background timer is logged, never shown as an error box every few seconds.
+process.on('uncaughtException', err => console.error('[main] uncaught:', err))
 /** The agents' global instructions: the real files only for the installed app, tests name theirs with CLAUDE_CONFIG_DIR and CODEX_HOME. */
 function guideFiles(): string[] {
   const installed = app.getPath('userData') === join(app.getPath('appData'), 'clipwave-term')

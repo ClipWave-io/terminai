@@ -203,6 +203,8 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       up.on('error', reject)
       // Esc in Claude Code drops the request: stop the upstream one too.
       res.on('close', () => { if (!res.writableFinished) up.destroy() })
+      const gone = () => { if (!res.writableFinished) { up.destroy(); req.socket.destroy() } }
+      req.socket.once('end', gone); res.once('close', () => req.socket.off('end', gone))
       up.end(body)
     })
   }
@@ -255,6 +257,11 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       })
     })
   })
+  // A connection quiet for 15 minutes is closed. Claude Code drops connections it no longer needs without
+  // always closing them cleanly; kept forever they ran the app out of file handles (spawn EBADF).
+  const IDLE = 15 * 60_000
+  const expire = (sock: net.Socket) => { sock.setTimeout(IDLE, () => sock.destroy()); sock.once('end', () => { if (!sock.destroyed && sock.writableEnded) sock.destroy() }) }
+  relay.on('connection', expire)
   // Loopback only. New tabs are routed here only while this file exists (and names the CA), so a
   // relay that failed to start leaves them on a direct connection.
   relay.listen(0, '127.0.0.1', () => {
@@ -340,6 +347,8 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
         if (head.length) sock.unshift(head)
         const t = Object.assign(new tls.TLSSocket(sock, { isServer: true, cert: cert.cert, key: cert.key, ALPNProtocols: ['http/1.1'] }), { tabKey: key })
         t.on('error', () => t.destroy())
+        t.setTimeout(IDLE, () => t.destroy())
+        t.on('close', () => sock.destroy())
         opened.emit('connection', t)
         return
       }
@@ -348,7 +357,9 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
         if (head.length) up.write(head)
         up.pipe(sock); sock.pipe(up)
       })
+      up.setTimeout(IDLE, () => { up.destroy(); sock.destroy() })
       up.on('error', () => { if (!sock.destroyed) sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n') })
+      up.on('close', () => sock.destroy())
       sock.on('close', () => up.destroy())
     })
   })

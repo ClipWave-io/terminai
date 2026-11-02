@@ -614,6 +614,10 @@ function resolveAgentSession(s) {
   codexThreadForPid(a.pid, (id) => id ? done(id) : codexThreadFromDb(s, done));
 }
 function scanAgents() {
+  // execFile throws (EBADF, EMFILE) instead of calling back when the process is short of file handles: skip this round.
+  try { scanAgentsNow(); } catch (err) { console.warn("[pty] session scan skipped:", err?.code || err); }
+}
+function scanAgentsNow() {
   node_child_process.execFile("ps", ["-e", "-ww", "-o", "pid=,ppid=,args="], { maxBuffer: 16 << 20 }, (err, stdout) => {
     if (err) return;
     const children = /* @__PURE__ */ new Map();
@@ -663,8 +667,7 @@ function agentOf(id) {
   return a ? { kind: a.kind, sessionId: a.sessionId, args: a.args, alive: a.alive } : { kind: "", sessionId: "", args: [], alive: false };
 }
 function sweep() {
-  scanAgents();
-  refreshCwds();
+  try { scanAgents(); refreshCwds(); } catch (err) { console.warn("[pty] sweep skipped:", err?.code || err); }
 }
 function startSessionSweep() {
   if (sessionSweep) return;
