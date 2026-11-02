@@ -3,7 +3,21 @@
 A terminal that is easier on the eyes, and talks back. Built around long-running Claude Code
 sessions: several of them, side by side, each one worth coming back to.
 
-macOS on Apple Silicon only, and unsigned — see *Running it* below.
+macOS on Apple Silicon (M1 or newer).
+
+## Install (2 minutes)
+
+1. **Download:** [TerminAI for Mac](https://terminai-manager-production.up.railway.app/download/mac) (always the newest version, signed and checked by Apple).
+2. Open the downloaded `TerminAI-….dmg` and drag **TerminAI** into **Applications**.
+3. Open TerminAI from Applications. It asks you to sign in:
+   - **New here?** Choose *Create account*: name, email, password. Free.
+   - **Invited by someone?** Open the invitation link they sent you: it signs you in, no password needed.
+   - **Already signed in on another device?** Choose *Sign in with browser* and allow the code there.
+4. Each tab is a terminal. Type `claude` (Claude Code) or `codex` in it; install them first if you
+   have not: [Claude Code](https://docs.claude.com/en/docs/claude-code) · [Codex](https://github.com/openai/codex).
+
+Updates install by themselves: when one is ready TerminAI asks to restart. Settings shows the version and has *Check for updates*.
+
 
 - **Tabs are rows down the left**, not a strip across the top.
 - **Sessions come back the way you left them.** Each tab gets its own Claude Code session id, so

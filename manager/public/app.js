@@ -56,8 +56,9 @@ function run(fn) {
   };
 }
 function download() {
-  return el('a', null, { class: 'download', href: 'https://github.com/ClipWave-io/terminai/releases/latest', target: '_blank', rel: 'noopener' },
-    el('b', 'Download for Mac'), el('span', 'Apple Silicon · signed · updates itself'));
+  return el('div', null, { class: 'download-box' },
+    el('a', null, { class: 'download', href: '/download/mac' }, el('b', 'Download for Mac'), el('span', 'Apple Silicon · signed · updates itself')),
+    el('a', 'Code and instructions on GitHub', { class: 'download-gh', href: 'https://github.com/ClipWave-io/terminai#readme', target: '_blank', rel: 'noopener' }));
 }
 function button(label, fn, kind = '') {
   const b = el('button', label, { type: 'button' }); if (kind) b.className = kind;

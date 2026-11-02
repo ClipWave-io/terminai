@@ -92,6 +92,13 @@ export function createApp(pool, config) {
       const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim());
       const ip = config.trustProxyHops > 0 ? forwarded.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
       await limit(pool, `api:${ip}`, 300, 60);
+      // The newest signed Mac app, straight from GitHub's latest release: the website's Download button.
+      if (req.method === 'GET' && path === '/download/mac') {
+        const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases/latest', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+        const release = r?.ok ? await r.json() : null, dmg = release?.assets?.find(a => /\.dmg$/.test(a.name));
+        res.writeHead(302, { Location: dmg?.browser_download_url ?? 'https://github.com/ClipWave-io/terminai/releases/latest', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       if (req.method === 'GET' && path === '/api/setup') {
         const { rows: [row] } = await pool.query('SELECT EXISTS(SELECT 1 FROM manager_users) AS initialized');
         return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken), signupOpen: config.signupOpen !== false });

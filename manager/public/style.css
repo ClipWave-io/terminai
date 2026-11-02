@@ -170,3 +170,4 @@ nav button{justify-content:flex-start}
 .device-done{display:grid;gap:14px}
 .device-input{font:600 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;text-align:center}
 .device-hint{display:grid;gap:4px;padding:12px 14px;border:1px dashed var(--border);border-radius:12px;margin-bottom:6px}
+.download-box{display:grid;gap:8px;justify-items:start}.download-gh{font-size:13px;color:inherit;opacity:.75}.download-gh:hover{opacity:1}
