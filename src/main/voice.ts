@@ -38,6 +38,8 @@ interface OpenTab {
 let pollTimer: ReturnType<typeof setInterval> | null = null
 /** path -> last-seen stat, so a poll tick can tell a rewrite from a no-op. */
 const seenStat = new Map<string, { mtimeMs: number; size: number }>()
+let onDone: ((tabId: string, text: string) => void) | undefined
+const doneTextByPath = new Map<string, string>()
 /** path -> last text spoken from it, to dedupe the hook rewriting unchanged content. */
 const lastTextByPath = new Map<string, string>()
 
@@ -243,6 +245,9 @@ async function poll(
 
     if (!prev) continue // first sighting: seed silently, don't replay old text
     if (prev.mtimeMs === s.mtimeMs && prev.size === s.size) continue
+    // A turn finished in this tab: the clickable notice, with the voice on or off.
+    const said = (await readFile(path, 'utf8').catch(() => '')).trim()
+    if (said && doneTextByPath.get(path) !== said) { doneTextByPath.set(path, said); onDone?.(tab.id, said) }
     if (!prefs.enabled) continue
 
     await speakFrom(wc, prefs, path, tab.id)
@@ -253,8 +258,10 @@ export function startWatching(
   wc: WebContents,
   getPrefs: () => VoicePrefs,
   getOpenTabs: () => OpenTab[],
+  done?: (tabId: string, text: string) => void,
 ): void {
   stopWatching()
+  onDone = done
   pollTimer = setInterval(() => void poll(wc, getPrefs, getOpenTabs), 700)
   trace(`watching ${SPOKEN_DIR} for open tabs' cwds`)
 }
@@ -264,4 +271,5 @@ export function stopWatching(): void {
   pollTimer = null
   seenStat.clear()
   lastTextByPath.clear()
+  doneTextByPath.clear()
 }

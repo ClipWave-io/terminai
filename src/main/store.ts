@@ -27,6 +27,8 @@ function hydrate(raw: unknown): Prefs {
     // Anything but an explicit true means the tour has not been dismissed, so
     // an upgrade from a prefs file that predates this field shows it once.
     seenWelcome: p.seenWelcome === true,
+    doneNotices: p.doneNotices !== false,
+    worklogSkip: Array.isArray(p.worklogSkip) ? p.worklogSkip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 50) : [],
     groupByFolder: p.groupByFolder !== false,
     tasksUser: p.tasksUser === 'livio' || p.tasksUser === 'ilai' ? p.tasksUser : '',
     todoHiddenColumns: Array.isArray(p.todoHiddenColumns) ? p.todoHiddenColumns.filter(c => ['livio', 'ilai', 'both'].includes(c)) : [],

@@ -128,6 +128,14 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request(`${tasks}/t1`,{token:a.body.token,method:'PUT',data:{task}})).status,200,'a Mac can bring it back');
   assert.equal((await request(tasks,{token:a.body.token})).body.tasks.length,1);
 
+  // The work log: written into one's own column, read by the workspace.
+  const day={day:'2026-11-04',workingMinutes:90,projects:[],conversations:[],writtenAt:new Date().toISOString()};
+  assert.equal((await request(`/api/companies/${alpha.id}/worklog/2026-11-04`,{token:a.body.token,method:'PUT',data:{data:day}})).status,200);
+  const logged=(await request(`/api/companies/${alpha.id}/worklog/2026-11-04`,{token:a.body.token})).body;
+  assert.equal(logged.people.ilai.workingMinutes,90);
+  assert.deepEqual((await request(`/api/companies/${alpha.id}/worklog`,{token:a.body.token})).body.days,[{day:'2026-11-04',people:['ilai']}]);
+  assert.equal((await request(`/api/companies/${alpha.id}/worklog/2026-11-04`,{token:b.body.token})).status,404);
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

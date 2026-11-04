@@ -340,6 +340,10 @@ export interface Prefs {
   voice: VoicePrefs
   /** false until the first-run welcome has been dismissed */
   seenWelcome: boolean
+  /** a notice when a tab's conversation finishes a turn; a click opens that tab */
+  doneNotices: boolean
+  /** folders whose conversations stay out of the shared work log */
+  worklogSkip: string[]
   /** sidebar sessions bucketed under a heading per folder */
   groupByFolder: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
@@ -381,6 +385,8 @@ export const DEFAULT_PREFS: Prefs = {
     volume: 1,
   },
   seenWelcome: false,
+  doneNotices: true,
+  worklogSkip: [],
   groupByFolder: true,
   tasksUser: '',
   todoHiddenColumns: [],
@@ -389,3 +395,7 @@ export const DEFAULT_PREFS: Prefs = {
   todoActivitySeen: '',
   tabs: [],
 }
+
+/** One person's day in the work log (src/main/worklog.ts), as the server keeps it. Minutes are working time. */
+export interface WorkConversation { tool: 'Claude' | 'Codex'; title: string; place: string; start: string; end: string; activeMinutes: number; done: { at: string; text: string }[] }
+export interface WorkDay { day: string; person: string; workingMinutes: number; projects: { place: string; minutes: number }[]; conversations: WorkConversation[]; writtenAt: string }

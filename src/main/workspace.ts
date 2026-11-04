@@ -164,23 +164,38 @@ export async function workspaceFetchFile(note: string, fileId: string, name: str
 
 // The To-do's shared page on the server (see todos.ts mirror). Main process only: never reachable from the renderer.
 // The workspace is the one this person's To-do column is registered in; the first time, the first one they are in.
+async function teamOf(user: string): Promise<{ id: string; call: (path: string, method?: string, body?: unknown) => Promise<any> } | null> {
+  const session = await load()
+  if (!session) return null
+  const call = (path: string, method = 'GET', body?: unknown) => request(session.url, path, method, body, session.token)
+  if (tasksWorkspace?.user !== user) {
+    const me = await call('/api/me')
+    const ids: string[] = (me.companies ?? []).map((c: { id: string }) => c.id)
+    let pick = ''
+    for (const id of ids) if ((await call(`/api/companies/${id}/tasks`)).me === user) { pick = id; break }
+    if (!pick) pick = ids[0] ?? ''
+    if (!pick) return null
+    await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user })
+    tasksWorkspace = { user, id: pick }
+  }
+  return { id: tasksWorkspace.id, call }
+}
+/** The work log of the To-do's workspace (worklog.ts): this person writes their day, everyone reads all. */
+export const workspaceWorklog = {
+  async put(user: string, day: string, data: unknown): Promise<void> {
+    const team = await teamOf(user); if (team) await team.call(`/api/companies/${team.id}/worklog/${day}`, 'PUT', { data })
+  },
+  async get(user: string, day: string): Promise<Record<string, any> | null> {
+    const team = await teamOf(user); return team ? (await team.call(`/api/companies/${team.id}/worklog/${day}`)).people ?? {} : null
+  },
+}
 export const workspaceTasks = {
   async load(user: string): Promise<{ workspace: string; tasks: any[]; deleted: any[] } | null> {
-    const session = await load()
-    if (!session) return null
-    const call = (path: string, method = 'GET', body?: unknown) => request(session.url, path, method, body, session.token)
-    if (tasksWorkspace?.user !== user) {
-      const me = await call('/api/me')
-      const ids: string[] = (me.companies ?? []).map((c: { id: string }) => c.id)
-      let pick = ''
-      for (const id of ids) if ((await call(`/api/companies/${id}/tasks`)).me === user) { pick = id; break }
-      if (!pick) pick = ids[0] ?? ''
-      if (!pick) return null
-      await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user })
-      tasksWorkspace = { user, id: pick }
-    }
-    const value = await call(`/api/companies/${tasksWorkspace.id}/tasks`)
-    return { workspace: tasksWorkspace.id, tasks: value.tasks ?? [], deleted: value.deleted ?? [] }
+    const team = await teamOf(user)
+    if (!team) return null
+    const call = team.call
+    const value = await call(`/api/companies/${team.id}/tasks`)
+    return { workspace: team.id, tasks: value.tasks ?? [], deleted: value.deleted ?? [] }
   },
   async put(workspace: string, task: unknown): Promise<void> {
     const session = await load(); if (!session) return

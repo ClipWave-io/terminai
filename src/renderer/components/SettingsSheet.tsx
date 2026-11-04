@@ -135,6 +135,10 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
       <div className="sheet" onMouseDown={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
         <AppVersion />
+        <div className="row">
+          <label>Notify when a chat is done<span className="hint">A notice with its summary; click it to open that tab.</span></label>
+          <input type="checkbox" checked={prefs.doneNotices} onChange={e => onChange({ doneNotices: e.target.checked })} />
+        </div>
 
         <div className="row">
           <label>

@@ -109,6 +109,11 @@ export async function migrate(pool) {
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, key text NOT NULL,
         user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, PRIMARY KEY (company_id,key)
       );
+      -- The work log: one person's day as their TerminAI wrote it (conversations, times, finished work).
+      CREATE TABLE IF NOT EXISTS manager_worklogs (
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, person text NOT NULL, day date NOT NULL,
+        data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (company_id,person,day)
+      );
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

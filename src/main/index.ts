@@ -7,14 +7,15 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
-import { agentGuide, todoMap, writeAgentGuide } from './agent-guide'
+import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-guide'
 import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
+import { workDay, handoff, today } from './worklog'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import * as store from './store'
@@ -74,6 +75,8 @@ function guideFiles(): string[] {
 function writeGuides(): void {
   const guide = agentGuide(todos ? todoMap(store.load().tasksUser, todos.pages()) : '')
   for (const file of guideFiles()) try { writeAgentGuide(file, guide) } catch (e) { console.error('[agent-guide]', e) }
+  const claude = guideFiles().find(f => f.endsWith('CLAUDE.md'))
+  if (claude) try { registerLogHook(join(dirname(claude), 'settings.json')) } catch (e) { console.error('[log-hook]', e) }
 }
 
 // Must run before app-ready, or the scheme is treated as opaque and <audio>
@@ -169,7 +172,24 @@ function createWindow(): void {
     win.webContents,
     () => store.load().voice,
     () => ptys.liveIds().map((id) => ({ id, cwd: ptys.cwdOf(id) })),
+    tabDone,
   )
+}
+
+/** A conversation finished a turn: a notice naming its tab with the one-line summary; a click opens that tab. */
+function tabDone(tabId: string, text: string): void {
+  if (!win || win.isDestroyed() || !Notification.isSupported() || !store.load().doneNotices) return
+  // Already in front of it: nothing to tell.
+  if (win.isFocused() && activeTabId === tabId) return
+  const tab = store.load().tabs.find(t => t.ptyId === tabId)
+  const name = tab?.customTitle || tab?.name || tab?.title || basename(ptys.cwdOf(tabId)) || 'Session'
+  const note = new Notification({ title: `Done · ${name}`, body: text.length > 220 ? `${text.slice(0, 217)}…` : text, silent: true })
+  note.on('click', () => {
+    if (!win || win.isDestroyed()) return
+    win.show(); win.focus()
+    win.webContents.send('tab:request', { reqId: `notice-${Date.now()}`, kind: 'focus', input: { id: tabId } })
+  })
+  note.show()
 }
 
 let crashedLastRun = false
@@ -194,6 +214,23 @@ app.whenReady().then(() => {
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
   void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
+    log: {
+      day: async (day) => {
+        const d = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : today(), user = store.load().tasksUser
+        const people = user ? await workspaceWorklog.get(user, d).catch(() => null) : null
+        return { day: d, people: { ...(people ?? {}), ...(user ? { [user]: workDay(d, user, store.load().worklogSkip) } : {}) } }
+      },
+      hook: (session) => {
+        const user = store.load().tasksUser
+        if (!user) return {}
+        const items = handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '')
+        if (!items.length) return {}
+        return { context: `TerminAI work log hand-off: finished work in this person's other conversations since the last hand-off, not yet matched to the To-do. `
+          + `Before answering, quietly run \`terminai todo map\`; mark done any open task of the user's (theirs, Together or private) this work finished; for real work with no task, `
+          + `add one with \`terminai todo add "<title>" --to ${user === 'livio' ? 'matteo' : 'ilai'} --note "Done <time>, logged by TerminAI"\` and mark it done. Group small turns into one task; `
+          + `skip turns that did no work (questions, status). Say in one line what you changed.\n${items.join('\n')}` }
+      },
+    },
     todo: { track: (action, query, session) => todos.track(action, query, session), add: (to, title, note) => todos.addTo(to, title, note), about: (list, text) => todos.describeList(list, text, true) } })
     .then((control) => app.once('before-quit', control.close))
     .catch((err) => console.error('[control] could not start:', err))
@@ -489,6 +526,21 @@ function registerIpc(): void {
   })
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()
+  // ---- work log: this person's day, sent to the workspace every 10 minutes (yesterday once, it may run past midnight)
+  const logDay = async (day: string) => {
+    const user = store.load().tasksUser
+    if (!user || process.env.TERMINAI_TEST_BUILD) return
+    await workspaceWorklog.put(user, day, workDay(day, user, store.load().worklogSkip)).catch(err => console.warn('[worklog]', err?.message ?? err))
+  }
+  setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
+  setInterval(() => void logDay(today()), 10 * 60_000)
+  appIpc.handle('worklog:get', async (_e, day: unknown) => {
+    if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Invalid day')
+    const user = store.load().tasksUser, mine = user ? workDay(day, user, store.load().worklogSkip) : null
+    // Your own day is read here, always current; the partner's comes from the workspace.
+    const people = user ? await workspaceWorklog.get(user, day).catch(() => null) : null
+    return { day, people: { ...(people ?? {}), ...(mine && user ? { [user]: mine } : {}) }, offline: people === null }
+  })
   setInterval(() => void todos.sync(), 60_000)   // a minute: edits from the phone come in through here
 
   // ---- Claude accounts ---------------------------------------------------

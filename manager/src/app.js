@@ -459,6 +459,25 @@ export function createApp(pool, config) {
           const {rows:files}=await db.query('SELECT id,name,mime,size,created_at FROM manager_note_files WHERE note_id=$1 ORDER BY created_at',[note.id]);
           return {note:publicNote({...row,updated_by_name:user.name,files:files.map(publicFile)})};
         }
+        // The work log (manager_worklogs): everyone in the workspace reads every day; each writes only their own column's.
+        const logDay=tail.match(/^\/worklog\/(\d{4}-\d{2}-\d{2})$/);
+        if(logDay&&req.method==='GET'){
+          const {rows}=await db.query('SELECT person,data FROM manager_worklogs WHERE company_id=$1 AND day=$2',[companyId,logDay[1]]);
+          return {day:logDay[1],people:Object.fromEntries(rows.map(r=>[r.person,r.data]))};
+        }
+        if(tail==='/worklog'&&req.method==='GET'){
+          const {rows}=await db.query("SELECT to_char(day,'YYYY-MM-DD') AS day,array_agg(person) AS people FROM manager_worklogs WHERE company_id=$1 GROUP BY day ORDER BY day DESC LIMIT 120",[companyId]);
+          return {days:rows};
+        }
+        if(logDay&&req.method==='PUT'){
+          const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
+          requireThat(col,409,'Choose your To-do column on this Mac first.');
+          requireThat(input.data&&typeof input.data==='object'&&!Array.isArray(input.data),400,'Invalid log.');
+          requireThat(JSON.stringify(input.data).length<=400000,413,'That log is too long.');
+          await db.query(`INSERT INTO manager_worklogs(company_id,person,day,data) VALUES($1,$2,$3,$4)
+            ON CONFLICT (company_id,person,day) DO UPDATE SET data=$4,updated_at=now()`,[companyId,col.key,logDay[1],{...input.data,person:col.key,day:logDay[1]}]);
+          return {ok:true};
+        }
         // The To-do's shared page (see manager_tasks). Whoever is in the workspace reads it; viewers cannot change it.
         if(tail==='/tasks'&&req.method==='GET') {
           const {rows:people}=await db.query('SELECT p.key,u.id,u.name FROM manager_task_people p JOIN manager_users u ON u.id=p.user_id WHERE p.company_id=$1',[companyId]);
