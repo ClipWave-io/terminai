@@ -183,6 +183,7 @@ async function start() {
 function showInvitation() {
   const f = form(async data => { await api('/api/auth/accept-invite', 'POST', { ...data, token: inviteToken }); location.replace('/'); });
   field(f, 'Your name', 'name');
+  field(f, 'Your email', 'email', 'email');
   const password = field(f, 'Password (optional)', 'password', 'password'); password.required = false;
   submit(f, 'Join', 'block');
   f.append(el('small', 'No password needed: this link signs you in. Your iPhone and other Macs then sign in with a code you allow here. Already have an account with a password? Enter it.'));

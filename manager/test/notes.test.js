@@ -158,6 +158,18 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   await request(`/api/companies/${alpha.id}/conversations/tab/key-a`,{token:a.body.token,method:'PUT',data:{title:'Fix login',visibility:'owner'}});
   assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{to:tabA.id,content:'still?'}})).status,404);
 
+  // An invitation link: anyone with it joins for 24 hours with their own name and email; never into an existing passwordless account.
+  const link=(await request(`/api/companies/${alpha.id}/invites/link`,{token:mo.body.token,method:'POST',data:{}})).body;
+  assert.equal(link.expiresInHours,24);assert.equal(link.role,'member');
+  assert.equal((await request(`/api/companies/${alpha.id}/invites/link`,{token:mo.body.token,method:'POST',data:{role:'admin'}})).status,403,'only the owner gives admin');
+  const p1=await request('/api/auth/accept-invite',{method:'POST',data:{token:link.token,name:'Pia',email:'pia@example.test',client:'desktop'}});
+  assert.equal(p1.status,200);
+  assert.equal((await request('/api/auth/accept-invite',{method:'POST',data:{token:link.token,name:'Quin',email:'quin@example.test',client:'desktop'}})).status,200,'the same link works again');
+  assert.equal((await request('/api/auth/accept-invite',{method:'POST',data:{token:link.token,name:'x',email:'pia@example.test',client:'desktop'}})).status,401,'not into an account that exists');
+  assert.ok((await request('/api/me',{token:p1.body.token})).body.companies.some(c=>c.id===alpha.id));
+  await pool.query("UPDATE manager_invite_links SET expires_at=now()-interval '1 minute'");
+  assert.equal((await request('/api/auth/accept-invite',{method:'POST',data:{token:link.token,name:'Late',email:'late@example.test',client:'desktop'}})).status,410);
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

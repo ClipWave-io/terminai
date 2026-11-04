@@ -128,6 +128,13 @@ export async function migrate(pool) {
         content text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), delivered_at timestamptz
       );
       CREATE INDEX IF NOT EXISTS manager_agent_messages_to ON manager_agent_messages(to_conversation,delivered_at);
+      -- An invitation link anyone may open until it expires (24 hours): each person who joins gives their own name and email.
+      CREATE TABLE IF NOT EXISTS manager_invite_links (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        token_hash text NOT NULL UNIQUE, role text NOT NULL CHECK (role IN ('admin','member','viewer')),
+        created_by uuid NOT NULL REFERENCES manager_users, expires_at timestamptz NOT NULL, revoked_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

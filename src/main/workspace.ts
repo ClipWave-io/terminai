@@ -53,7 +53,7 @@ export async function workspaceLogin(input: WorkspaceLogin): Promise<WorkspaceSt
   const result = input.signup
     ? await request(url, '/api/auth/signup', 'POST', { name: input.name, email: input.email, companyName: input.companyName || undefined, password: input.password, client: 'desktop' })
     : input.inviteToken
-    ? await request(url, '/api/auth/accept-invite', 'POST', { token: input.inviteToken, name: input.name, password: input.password, client: 'desktop' })
+    ? await request(url, '/api/auth/accept-invite', 'POST', { token: input.inviteToken, name: input.name, email: input.email, password: input.password || undefined, client: 'desktop' })
     : await request(url, '/api/auth/login', 'POST', { email: input.email, password: input.password, client: 'desktop' })
   return keep(url, result)
 }
@@ -109,7 +109,7 @@ export async function workspaceLogout(): Promise<void> {
 }
 export async function workspaceRequest(path: string, method = 'GET', body?: unknown): Promise<any> {
   // This is deliberately a narrow API bridge, not an authenticated fetch proxy.
-  const rename = (path === '/api/me' && method === 'PATCH') || (path === '/api/auth/device/approve' && method === 'POST'), invite = /^\/api\/companies\/[a-zA-Z0-9-]+\/invites$/.test(path) && method === 'POST'
+  const rename = (path === '/api/me' && method === 'PATCH') || (path === '/api/auth/device/approve' && method === 'POST'), invite = /^\/api\/companies\/[a-zA-Z0-9-]+\/invites(\/link)?$/.test(path) && method === 'POST'
   const file = /^\/api\/companies\/[a-zA-Z0-9-]+\/notes\/[a-zA-Z0-9-]+\/files\/[a-zA-Z0-9-]+$/.test(path)
   if (rename || invite) {
     const session = await load()

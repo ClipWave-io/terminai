@@ -80,6 +80,12 @@ export function createApp(pool, config) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+    // terminai.xyz (and www.) is the address people are given: pages there go to the app's own origin, path and #link kept.
+    const host = String(req.headers.host || '').toLowerCase().split(':')[0];
+    if (/^(www\.)?terminai\.xyz$/.test(host) && new URL(origin).hostname !== host) {
+      res.writeHead(req.method === 'GET' || req.method === 'HEAD' ? 302 : 404, req.method === 'GET' || req.method === 'HEAD' ? { Location: origin + req.url } : {});
+      return res.end();
+    }
     try {
       const url = new URL(req.url, origin), path = url.pathname;
       if (req.method === 'GET' && path === '/health') { await pool.query('SELECT 1'); return json(res, 200, { ok: true }); }
@@ -163,7 +169,28 @@ export function createApp(pool, config) {
         // Hash work occurs before locks; accepting existing accounts must verify their current password.
         const response = await transaction(pool, async db => {
           const { rows: [invite] } = await db.query('SELECT * FROM manager_invites WHERE token_hash=$1', [digest(input.token)]);
-          requireThat(invite, 404, 'Invitation unavailable.');
+          if (!invite) {
+            // A link: whoever opens it joins with their own name and email, until it expires.
+            const { rows: [link] } = await db.query('SELECT * FROM manager_invite_links WHERE token_hash=$1 FOR SHARE', [digest(input.token)]);
+            requireThat(link && !link.revoked_at && new Date(link.expires_at) > new Date(), 410, 'This invitation link has expired. Ask for a new one.');
+            let user = signedIn;
+            if (!user) {
+              const accountEmail = email(input.email);
+              await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [accountEmail]);
+              const { rows: [existing] } = await db.query('SELECT * FROM manager_users WHERE email=$1 FOR UPDATE', [accountEmail]);
+              if (existing) {
+                // Never a way into someone's account: an existing one proves itself with its password (or by being signed in).
+                requireThat(existing.password_hash && await verifyPassword(input.password, existing.password_hash), 401, 'That email already has an account: sign in first, then open the link again.');
+                user = existing;
+              } else {
+                user = { id: randomUUID(), email: accountEmail, name: text(input.name, 'Name') };
+                await db.query('INSERT INTO manager_users(id,email,name,password_hash) VALUES($1,$2,$3,$4)', [user.id, user.email, user.name, input.password ? await hashPassword(input.password) : '']);
+              }
+            }
+            await db.query("INSERT INTO manager_memberships(company_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [link.company_id, user.id, link.role]);
+            await audit(db, link.company_id, user.id, 'invite_link.used', link.id);
+            return signedInResponse(req, res, db, user, input);
+          }
           // Same lock order as company mutations, preventing accept/revoke deadlocks.
           await db.query('SELECT id FROM manager_companies WHERE id=$1 FOR UPDATE',[invite.company_id]);
           const { rows: [locked] } = await db.query('SELECT * FROM manager_invites WHERE id=$1 FOR UPDATE',[invite.id]);
@@ -341,7 +368,7 @@ export function createApp(pool, config) {
           await audit(db,companyId,user.id,req.method==='DELETE'?'member.removed':'member.updated',targetId);return {ok:true};
         }
         if(tail==='/invites'&&req.method==='POST') {
-          admin();const accountEmail=email(input.email),role=enumValue(input.role??'member',['admin','member','viewer'],'role'),classification=enumValue(input.classification??'general',CLASSIFICATIONS,'classification');
+          requireThat(member.role!=='viewer',403,'Viewers cannot invite people.');const accountEmail=email(input.email),role=enumValue(input.role??'member',['admin','member','viewer'],'role'),classification=enumValue(input.classification??'general',CLASSIFICATIONS,'classification');
           if(role==='admin') owner();
           const {rowCount:privilegedInvites}=await db.query("SELECT id FROM manager_invites WHERE company_id=$1 AND email=$2 AND role='admin' AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>now()",[companyId,accountEmail]);
           if(privilegedInvites)owner();
@@ -350,6 +377,14 @@ export function createApp(pool, config) {
           await db.query('UPDATE manager_invites SET revoked_at=now() WHERE company_id=$1 AND email=$2 AND accepted_at IS NULL AND revoked_at IS NULL',[companyId,accountEmail]);
           await db.query("INSERT INTO manager_invites(id,company_id,email,role,classification,token_hash,created_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '48 hours')",[id,companyId,accountEmail,role,classification,digest(token),user.id]);
           await audit(db,companyId,user.id,'invite.created',id);return {id,token,inviteUrl:`${origin}/#invite=${token}`,expiresInHours:48};
+        }
+        if(tail==='/invites/link'&&req.method==='POST') {
+          requireThat(member.role!=='viewer',403,'Viewers cannot invite people.');
+          const role=enumValue(input.role??'member',['admin','member','viewer'],'role');if(role==='admin')owner();
+          const hours=Math.min(168,Math.max(1,Number.isInteger(input.hours)?input.hours:24)),token=opaqueToken(),id=randomUUID();
+          await db.query(`INSERT INTO manager_invite_links(id,company_id,token_hash,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,now()+make_interval(hours=>$6))`,[id,companyId,digest(token),role,user.id,hours]);
+          await audit(db,companyId,user.id,'invite_link.created',id);
+          return {id,token,inviteUrl:`${origin}/#invite=${token}`,expiresInHours:hours,role};
         }
         if(tail==='/invites'&&req.method==='GET') {
           admin();const {rows}=await db.query('SELECT id,email,role,classification,expires_at,accepted_at,revoked_at FROM manager_invites WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100',[companyId]);return {invites:rows};

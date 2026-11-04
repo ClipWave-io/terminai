@@ -40,7 +40,7 @@ test('real PostgreSQL: tenant isolation, session revocation, invitations, catalo
   assert.equal((await request('/api/auth/accept-invite',{method:'POST',data:{token:member.inviteToken,name:'Replay',password}})).status,410);
   assert.equal((await request(`${companyBase}/members/${ownerId}`,{token:owner,method:'DELETE'})).status,409);
   assert.equal((await request(`${companyBase}/members/${ownerId}`,{token:admin.token,method:'PATCH',data:{role:'member'}})).status,403);
-  assert.equal((await request(`${companyBase}/invites`,{token:member.token,method:'POST',data:{email:'bad@example.test'}})).status,403);
+  assert.equal((await request(`${companyBase}/invites`,{token:viewer.token,method:'POST',data:{email:'bad@example.test'}})).status,403,'viewers cannot invite');assert.equal((await request(`${companyBase}/invites`,{token:member.token,method:'POST',data:{email:'ok@example.test'}})).status,200,'members can');
   const pendingAdmin=await request(`${companyBase}/invites`,{token:owner,method:'POST',data:{email:'future-admin@example.test',role:'admin'}});
   assert.equal(pendingAdmin.status,200);
   assert.equal((await request(`${companyBase}/invites`,{token:admin.token,method:'POST',data:{email:'future-admin@example.test',role:'member'}})).status,403);

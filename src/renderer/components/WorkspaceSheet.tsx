@@ -109,7 +109,7 @@ export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: Workspace
     event.preventDefault(); setBusy(true)
     try {
       onDone(await window.term.workspace.login({ url, password: form.password,
-        ...(mode === 'signin' ? { email: form.email } : mode === 'signup' ? { signup: true, name: form.name, email: form.email } : { name: form.name, inviteToken: inviteTokenOf(form.invite) }) }))
+        ...(mode === 'signin' ? { email: form.email } : mode === 'signup' ? { signup: true, name: form.name, email: form.email } : { name: form.name, email: form.email, inviteToken: inviteTokenOf(form.invite) }) }))
     } catch (err) { onError(err) } finally { setBusy(false) }
   }
   const titles = { signin: ['Sign in to sync', 'Your notes and conversations, the same on this Mac, the web and your iPhone.'], signup: ['Create an account', 'Free. Use it by yourself; invite people only if you want to.'], invite: ['Join with an invitation', 'Paste the link someone sent you.'] }
@@ -125,7 +125,7 @@ export function TeamSignIn({ onDone, onError, onClose }: { onDone: (s: Workspace
             <div className="team-or"><span>or with your email</span></div></>)}
       {mode === 'invite' && <label>Invitation link<input required autoFocus value={form.invite} onChange={set('invite')} placeholder="https://…/#invite=…" /></label>}
       {mode !== 'signin' && <label>Your name<input required value={form.name} onChange={set('name')} autoFocus={mode === 'signup'} /></label>}
-      {mode !== 'invite' && <label>Email<input required type="email" autoComplete="username" value={form.email} onChange={set('email')} autoFocus={mode === 'signin'} /></label>}
+      {<label>Email<input required type="email" autoComplete="username" value={form.email} onChange={set('email')} autoFocus={mode === 'signin'} /></label>}
       {mode !== 'invite' && <label>Password<input required type="password" minLength={mode === 'signin' ? 1 : 12} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={mode === 'signin' ? '' : '12 characters or more'} value={form.password} onChange={set('password')} /></label>}
       <button className="team-primary" disabled={busy}>{busy ? 'Connecting…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Join'}</button>
       <div className="team-switch">
@@ -149,8 +149,13 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
   const [allowed, setAllowed] = useState('')
   const allow = async () => { try { await window.term.workspace.request('/api/auth/device/approve', 'POST', { code: code.trim() }); setAllowed(code.trim().toUpperCase()); setCode('') } catch (e) { onError(e) } }
   const rename = async () => { if (!name.trim() || name.trim() === me.name) return; try { await window.term.workspace.request('/api/me', 'PATCH', { name: name.trim() }); onRenamed(name.trim()) } catch (e) { onError(e) } }
+  const linkInvite = async () => {
+    // The owner's links make admins (like the owner's partner); anyone else's, members.
+    const make = (role: string) => window.term.workspace.request(`${base}/invites/link`, 'POST', { role })
+    try { const v = await make(admin ? 'admin' : 'member').catch(() => make('member')); setLink(v.inviteUrl); setCopied(false) } catch (e) { onError(e) }
+  }
   const invite = async () => {
-    try { const v = await window.term.workspace.request(`${base}/invites`, 'POST', { email: email.trim(), role: 'admin' }); setLink(v.inviteUrl); setCopied(false); onInvited() } catch (e) { onError(e) }
+    try { const v = await window.term.workspace.request(`${base}/invites`, 'POST', { email: email.trim(), role: admin ? 'admin' : 'member' }); setLink(v.inviteUrl); setCopied(false); onInvited() } catch (e) { onError(e) }
   }
   return <div className="team-page members">
     <header><div><h2>Members</h2><p>Everyone here shares the To-do, the notes and the conversations you share.</p></div></header>
@@ -163,13 +168,14 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
       {members.length < 2 && <p className="m-hint">Only you so far. Invite Matteo below: you then share the To-do and notes, on the Mac, the web and the iPhone.</p>}
     </section>
     <div className="m-grid">
-      {admin && <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void invite() }}>
+      {<form className="m-card m-form" onSubmit={e => { e.preventDefault(); void invite() }}>
         <h3>Invite someone</h3>
-        <p>They get a link that signs them in. No password needed.</p>
-        <div className="m-inline"><input type="email" required placeholder="name@email.com" value={email} onChange={e => setEmail(e.target.value)} /><button className="btn primary" type="submit">Create link</button></div>
+        <p>A link anyone can open for 24 hours to join, or one just for an email. No password needed.</p>
+        <button type="button" className="btn primary" onClick={() => void linkInvite()}>Create invite link (24 h)</button>
+        <div className="m-inline"><input type="email" required placeholder="name@email.com" value={email} onChange={e => setEmail(e.target.value)} /><button className="btn" type="submit">Link for this email</button></div>
         {link && <div className="m-link"><code>{link}</code>
           <button type="button" className="btn" onClick={() => { void navigator.clipboard.writeText(link); setCopied(true) }}>{copied ? 'Copied ✓' : 'Copy'}</button>
-          <small>Send it to them. It works for 48 hours.</small></div>}
+          <small>Send it to them. Anyone with a 24-hour link can join, so share it only with the people you mean.</small></div>}
       </form>}
       <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void allow() }}>
         <h3>Sign in your iPhone</h3>
