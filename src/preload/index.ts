@@ -18,6 +18,7 @@ const api = {
     toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     checkForUpdates: (): Promise<void> => ipcRenderer.invoke('app:check-updates') },
+  team: { tabs: (): Promise<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean }[] }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared) },
   worklog: { get: (day: string): Promise<{ day: string; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),

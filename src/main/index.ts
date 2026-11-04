@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
@@ -16,6 +16,7 @@ import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-g
 import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
+import { createBridge } from './teambridge'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import * as store from './store'
@@ -62,6 +63,7 @@ app.setPath('userData', dataFolder)
 let activeTabId: string | null = null
 // Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen|add|about`.
 let todos: ReturnType<typeof createTodos>
+let bridge: ReturnType<typeof createBridge> | null = null
 // A failure in a background timer is logged, never shown as an error box every few seconds.
 process.on('uncaughtException', err => console.error('[main] uncaught:', err))
 /** The agents' global instructions: the real files only for the installed app, tests name theirs with CLAUDE_CONFIG_DIR and CODEX_HOME. */
@@ -214,6 +216,7 @@ app.whenReady().then(() => {
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
   void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
+    team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     log: {
       day: async (day) => {
         const d = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : today(), user = store.load().tasksUser
@@ -526,6 +529,28 @@ function registerIpc(): void {
   })
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
   void todos.sync()
+  // ---- the bridge: tabs as shared conversations, agents messaging each other's sessions
+  const tabName = (id: string) => { const tab = store.load().tabs.find(t => t.ptyId === id); return tab?.customTitle || tab?.name || tab?.title || basename(ptys.cwdOf(id)) || 'Session' }
+  bridge = createBridge({
+    team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
+    tabName,
+    notify: (title, body, tabId) => {
+      if (!Notification.isSupported()) return
+      const note = new Notification({ title, body, silent: true })
+      note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('tab:request', { reqId: `notice-${Date.now()}`, kind: 'focus', input: { id: tabId } }) })
+      note.show()
+    },
+  })
+  bridge.start()
+  appIpc.handle('team:tabs', () => { const p = store.load(); return { byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: p.tabSharing[key] ?? p.shareConversations } }) } })
+  appIpc.handle('team:share', (_e, key: unknown, shared: unknown) => {
+    if (typeof shared !== 'boolean') throw new Error('Invalid')
+    const p = store.load()
+    if (key === null) store.save({ ...p, shareConversations: shared })
+    else if (typeof key === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(key)) store.save({ ...p, tabSharing: { ...p.tabSharing, [key]: shared } })
+    else throw new Error('Invalid')
+    void bridge?.tick()
+  })
   // ---- work log: this person's day, sent to the workspace every 10 minutes (yesterday once, it may run past midnight)
   const logDay = async (day: string) => {
     const user = store.load().tasksUser

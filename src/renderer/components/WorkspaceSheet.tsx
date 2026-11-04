@@ -255,7 +255,7 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
   const shown = conversations.filter(c => filter === 'all' || (filter === 'shared' ? c.visibility === 'company' : owner(c)))
   const active = conversations.find(c => c.id === selected)
   return <div className="team-page wide">
-    <header><div><h2>Conversations</h2><p>Your conversation threads, private unless you share them. Share a session to post its screen live while this panel is open; nothing is ever run on anyone’s Mac.</p></div>
+    <header><div><h2>Conversations</h2><p>Every Claude Code and Codex tab is shared with your workspace by default: its turns, folder and status, so your partner and their agents can read it and send it questions. Make a tab private below.</p></div>
       {!viewer && <div className="team-head-actions">
         <select className="team-share-pick" aria-label="Share a session" value={sharePick} onChange={e => { setSharePick(e.target.value); void startShare(e.target.value) }}>
           <option value="">Share a session…</option>
@@ -264,6 +264,7 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
         </select>
         <button className="team-primary small" onClick={() => setNaming(true)}>New thread</button>
       </div>}</header>
+    <SessionSharing />
     <div className="team-convo">
       <div className="team-convo-list">
         <div className="team-seg full">{(['all', 'shared', 'mine'] as const).map(k => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{k === 'all' ? `All ${conversations.length}` : k === 'shared' ? 'Shared' : 'Mine'}</button>)}</div>
@@ -299,4 +300,19 @@ export function AccountGate({ onDone }: { onDone: () => void }): JSX.Element {
     <TeamSignIn onDone={onDone} onError={fail} />
     <p className="account-gate-foot">An account is free. It keeps your notes and conversations in sync across your Mac, the web and your iPhone.</p>
   </div>
+}
+
+/** Which of this Mac's tabs are shared, and the default for new ones (teambridge.ts). */
+function SessionSharing(): JSX.Element {
+  const [state, setState] = useState<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean }[] } | null>(null)
+  const load = () => void window.term.team.tabs().then(setState)
+  useEffect(() => { load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t) }, [])
+  const set = (key: string | null, shared: boolean) => void window.term.team.share(key, shared).then(load)
+  if (!state) return <></>
+  return <section className="share-box">
+    <label className="share-default"><input type="checkbox" checked={state.byDefault} onChange={e => set(null, e.target.checked)} />
+      <span><strong>Share new sessions by default</strong><small>Off: a tab stays private until you share it here.</small></span></label>
+    {state.tabs.length > 0 && <div className="share-tabs">{state.tabs.map(t => <button key={t.key} className={`share-tab${t.shared ? ' on' : ''}`} title={t.shared ? 'Shared: click to make private' : 'Private: click to share'} onClick={() => set(t.key, !t.shared)}>
+      <i aria-hidden="true" />{t.name}<em>{t.shared ? 'Shared' : 'Private'}</em></button>)}</div>}
+  </section>
 }

@@ -7,7 +7,8 @@ import { ROLES, CLASSIFICATIONS, HttpError, requireThat, opaqueToken, digest, sa
 const unsafe = method => !['GET', 'HEAD', 'OPTIONS'].includes(method);
 const publicUser = user => ({ id: user.id, email: user.email, name: user.name });
 const publicCompany = row => ({ id: row.id, name: row.name, role: row.role, classification: row.classification, defaultVisibility: row.default_visibility, allowCompanySharing: row.allow_company_sharing });
-const publicConversation = row => ({ id: row.id, companyId: row.company_id, ownerId: row.owner_id, title: row.title, visibility: row.visibility, allowedRoles: row.allowed_roles, createdAt: row.created_at, updatedAt: row.updated_at });
+const publicConversation = row => ({ id: row.id, companyId: row.company_id, ownerId: row.owner_id, ownerName: row.owner_name, title: row.title, visibility: row.visibility, allowedRoles: row.allowed_roles, createdAt: row.created_at, updatedAt: row.updated_at,
+  ...(row.source_key ? { tab: true, place: row.place, status: row.tab_status, live: !!row.seen_at && Date.now() - new Date(row.seen_at).getTime() < 120000 } : {}) });
 const publicNote = row => ({ id: row.id, kind: row.kind || 'card', files: row.files || [], ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
 const publicMessage = row => ({ id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorName: row.author_name, kind: row.kind, content: row.content, clientMessageId: row.client_message_id, createdAt: row.created_at });
 function roles(value) {
@@ -379,7 +380,7 @@ export function createApp(pool, config) {
         }
         if(tail==='/conversations'&&req.method==='GET') {
           const before=url.searchParams.get('before');if(before)requireThat(Number.isFinite(Date.parse(before)),400,'Invalid before cursor.');
-          const {rows}=await db.query(`SELECT * FROM manager_conversations WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
+          const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
           return {conversations:rows.map(publicConversation)};
         }
         if(tail==='/conversations'&&req.method==='POST') {
@@ -388,6 +389,49 @@ export function createApp(pool, config) {
           requireThat(visibility!=='company'||company.allow_company_sharing,403,'Company sharing is disabled.');
           const {rows:[row]}=await db.query('INSERT INTO manager_conversations(id,company_id,owner_id,title,visibility,allowed_roles) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[id,companyId,user.id,title,visibility,input.allowedRoles?roles(input.allowedRoles):ROLES]);
           return {conversation:publicConversation(row)};
+        }
+        // A TerminAI tab as a conversation: made the first time, then its title, folder, status and heartbeat.
+        const tabConv=tail.match(/^\/conversations\/tab\/([A-Za-z0-9_-]{1,120})$/);
+        if(tabConv&&req.method==='PUT') {
+          requireThat(member.role!=='viewer',403,'Viewers cannot share conversations.');
+          const title=text(input.title,'Title'),place=typeof input.place==='string'?input.place.slice(0,300):null,status=typeof input.status==='string'?input.status.slice(0,20):null;
+          const want=input.visibility===undefined?null:enumValue(input.visibility,['owner','company'],'visibility');
+          requireThat(want!=='company'||company.allow_company_sharing,403,'Company sharing is disabled.');
+          const {rows:[row]}=await db.query(`INSERT INTO manager_conversations(id,company_id,owner_id,title,visibility,source_key,place,tab_status,seen_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+            ON CONFLICT (owner_id,source_key) WHERE source_key IS NOT NULL DO UPDATE SET title=$4,place=$7,tab_status=$8,seen_at=now(),visibility=coalesce($9,manager_conversations.visibility)
+            RETURNING *`,[randomUUID(),companyId,user.id,title,want??'company',tabConv[1],place,status,want]);
+          requireThat(row.company_id===companyId,409,'That tab is shared in another workspace.');
+          return {conversation:publicConversation({...row,owner_name:user.name})};
+        }
+        // Agent messages: from a tab (or none) to a tab-conversation someone can read; its owner's Mac takes them.
+        if(tail==='/agent'&&req.method==='POST') {
+          requireThat(member.role!=='viewer',403,'Viewers cannot message sessions.');
+          const to=uuid(input.to),content=text(input.content,'Message',20000),from=input.from?uuid(input.from):null,replyTo=input.replyTo?uuid(input.replyTo):null;
+          const {rows:[target]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2 AND source_key IS NOT NULL',[to,companyId]);
+          requireThat(target&&canReadConversation(target,member,user.id),404,'That session is not shared with you.');
+          if(from){const {rowCount}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND owner_id=$2',[from,user.id]);requireThat(rowCount,400,'Not your session.');}
+          if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2',[replyTo,user.id]);requireThat(rowCount,404,'No such message to answer.');}
+          await limit(pool,`agent:${user.id}`,120,3600);
+          const id=randomUUID();
+          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,companyId,user.id,from,to,replyTo,content]);
+          return {id,to,live:!!target.seen_at&&Date.now()-new Date(target.seen_at).getTime()<120000};
+        }
+        if(tail==='/agent/inbox'&&req.method==='GET') {
+          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,u.name AS from_name,f.title AS from_title,m.from_conversation
+            FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation
+            WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
+          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_name,fromTitle:r.from_title,from:r.from_conversation}))};
+        }
+        const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies)$/);
+        if(agentMsg) {
+          const id=uuid(agentMsg[1]);
+          const {rows:[m]}=await db.query('SELECT m.*,t.owner_id AS to_owner FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation WHERE m.id=$1 AND m.company_id=$2',[id,companyId]);
+          requireThat(m&&(m.from_user===user.id||m.to_owner===user.id),404,'Message not found.');
+          if(agentMsg[2]==='delivered'&&req.method==='POST'){requireThat(m.to_owner===user.id,403,'Not yours.');await db.query('UPDATE manager_agent_messages SET delivered_at=now() WHERE id=$1',[id]);return {ok:true};}
+          if(agentMsg[2]==='replies'&&req.method==='GET'){
+            const {rows}=await db.query('SELECT r.id,r.content,r.created_at,u.name AS from_name FROM manager_agent_messages r JOIN manager_users u ON u.id=r.from_user WHERE r.reply_to=$1 ORDER BY r.created_at',[id]);
+            return {delivered:!!m.delivered_at,replies:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,fromName:r.from_name}))};
+          }
         }
         const conv=tail.match(/^\/conversations\/([^/]+)(\/messages)?$/);
         if(conv) {

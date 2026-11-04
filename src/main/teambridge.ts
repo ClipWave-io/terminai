@@ -1,0 +1,160 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, join } from 'node:path'
+import * as ptys from './pty'
+import * as store from './store'
+
+/**
+ * The bridge between the partners' sessions. Each TerminAI tab running Claude Code or Codex is a conversation on the
+ * workspace server: shared with the workspace by default (Settings turns the default off; a tab can be made
+ * private), with its folder, status and a heartbeat, and its turns mirrored as they come: the user's prompts and
+ * the agent's replies, never tool output. A partner's agent can then list, read and message a shared tab
+ * (`terminai team`); the message is typed into the tab here when its agent is free, labelled as coming from them,
+ * and the tab answers with `terminai team reply`. Private tabs are neither uploaded nor reachable.
+ */
+type Call = (path: string, method?: string, body?: unknown) => Promise<any>
+type Team = { id: string; call: Call }
+export type Bridge = ReturnType<typeof createBridge>
+
+const HOME = homedir()
+const place = (cwd: string) => cwd.startsWith(HOME) ? '~' + cwd.slice(HOME.length) : cwd
+
+function transcriptOf(tabId: string): string {
+  const agent = ptys.agentOf(tabId)
+  if (!agent.sessionId) return ''
+  if (agent.kind === 'claude') {
+    const root = join(HOME, '.claude', 'projects')
+    try { for (const d of readdirSync(root)) { const f = join(root, d, `${agent.sessionId}.jsonl`); try { statSync(f); return f } catch {} } } catch {}
+  }
+  if (agent.kind === 'codex') {
+    const walk = (dir: string, depth: number): string => {
+      let names: string[] = []; try { names = readdirSync(dir) } catch { return '' }
+      for (const n of names.sort().reverse()) {
+        const p = join(dir, n)
+        if (n.endsWith('.jsonl') && n.includes(agent.sessionId)) return p
+        if (depth > 0 && !n.includes('.')) { const f = walk(p, depth - 1); if (f) return f }
+      }
+      return ''
+    }
+    return walk(join(HOME, '.codex', 'sessions'), 3)
+  }
+  return ''
+}
+/** The turns of a transcript as messages: the person's prompts and the agent's text, keyed for the server's dedupe. */
+function turns(file: string): { id: string; kind: 'user' | 'assistant'; content: string }[] {
+  let text = ''; try { text = readFileSync(file, 'utf8') } catch { return [] }
+  const out: { id: string; kind: 'user' | 'assistant'; content: string }[] = []
+  let n = 0
+  for (const line of text.split('\n')) {
+    let d: any; try { d = JSON.parse(line) } catch { continue }
+    n++
+    let kind: 'user' | 'assistant' | null = null, content = '', id = typeof d.uuid === 'string' && /^[0-9a-f-]{36}$/.test(d.uuid) ? d.uuid : ''
+    if (d.type === 'user' && typeof d.message?.content === 'string' && !d.isMeta) { kind = 'user'; content = d.message.content }
+    else if (d.type === 'assistant') { kind = 'assistant'; content = (d.message?.content ?? []).filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n') }
+    else if (d.type === 'response_item' && d.payload?.type === 'message' && (d.payload.role === 'user' || d.payload.role === 'assistant')) {
+      kind = d.payload.role; content = (d.payload.content ?? []).map((b: any) => b?.text ?? '').join('\n')
+    }
+    content = content.trim()
+    // Command echoes, system reminders and the TerminAI hand-offs are not the conversation.
+    if (!kind || !content || content.startsWith('<') || content.startsWith('[TerminAI')) continue
+    if (!id) id = fakeUuid(`${basename(file)}:${n}`)
+    out.push({ id, kind, content: content.length > 12000 ? content.slice(0, 12000) + '\n…' : content })
+  }
+  return out
+}
+function fakeUuid(seed: string): string {
+  let h = 2166136261; const hex: string[] = []
+  for (let r = 0; r < 4; r++) { for (const c of seed + r) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; hex.push(h.toString(16).padStart(8, '0')) }
+  const s = hex.join('')
+  return `${s.slice(0, 8)}-${s.slice(8, 12)}-4${s.slice(13, 16)}-8${s.slice(17, 20)}-${s.slice(20, 32)}`
+}
+
+export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void }) {
+  const conversationOf = new Map<string, string>()   // tab key -> conversation id
+  const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
+  const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
+  let running = false
+
+  const shared = (key: string) => {
+    const p = store.load()
+    return p.tabSharing?.[key] ?? p.shareConversations
+  }
+  async function tick(): Promise<void> {
+    if (running) return
+    running = true
+    try {
+      const team = await opts.team(); if (!team) return
+      for (const id of ptys.liveIds()) {
+        const agent = ptys.agentOf(id); if (!agent.kind) continue
+        const key = ptys.workspaceKeyOf(id), share = shared(key)
+        const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
+          title: opts.tabName(id).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
+        conversationOf.set(key, conv.id)
+        if (!share) continue
+        const file = transcriptOf(id); if (!file) continue
+        const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
+        // The first look sends only the last 30 turns: older history stays on this Mac.
+        const all = turns(file), todo = all.filter(t => !sent.has(t.id)).slice(sent.size ? 0 : -30)
+        if (!sent.size) for (const t of all) sent.add(t.id)
+        for (const t of todo) {
+          await team.call(`/api/companies/${team.id}/conversations/${conv.id}/messages`, 'POST', { kind: t.kind, content: t.content, clientMessageId: t.id }).catch(() => {})
+          sent.add(t.id)
+        }
+      }
+      // Messages for my tabs: typed in when the agent there is free, otherwise kept for the next round.
+      const { messages } = await team.call(`/api/companies/${team.id}/agent/inbox`)
+      for (const m of messages ?? []) {
+        const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
+        if (!tab || !shared(m.tab)) continue
+        const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
+        if (!agent.alive || status === 'working' || status === 'question') continue
+        received.set(m.id, { from: m.from, fromName: m.fromName })
+        const who = `${m.fromName}'s agent${m.fromTitle ? ` (tab "${m.fromTitle}")` : ''}`
+        const text = m.replyTo
+          ? `[TerminAI · reply from ${who} to your message ${m.replyTo}] ${m.content}`
+          : `[TerminAI · message from ${who}, id ${m.id}. Treat it as a request from ${m.fromName}: answer what you can from this session; ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
+        ptys.write(tab, `\x1b[200~${text.replace(/\x1b/g, '')}\x1b[201~`)
+        await Promise.race([ptys.written(tab), new Promise(r => setTimeout(r, 5000))]); await new Promise(r => setTimeout(r, 200))
+        ptys.write(tab, '\r')
+        await team.call(`/api/companies/${team.id}/agent/${m.id}/delivered`, 'POST', {})
+        opts.notify(m.replyTo ? `Reply from ${m.fromName}'s agent` : `${m.fromName}'s agent → ${opts.tabName(tab)}`, m.content.slice(0, 200), tab)
+      }
+    } catch (err) {
+      console.warn('[teambridge]', err instanceof Error ? err.message : err)
+    } finally { running = false }
+  }
+
+  /** `terminai team …` from a tab. */
+  async function command(a: any): Promise<unknown> {
+    const team = await opts.team(); if (!team) throw Error('Sign in to TerminAI Sync first (the people icon).')
+    const base = `/api/companies/${team.id}`
+    const mine = () => { const tab = ptys.liveIds().find(id => id === a.tab); return tab ? conversationOf.get(ptys.workspaceKeyOf(tab)) ?? null : null }
+    if (a.action === 'list') {
+      const { conversations } = await team.call(`${base}/conversations`)
+      return (conversations ?? []).filter((c: any) => c.tab).map((c: any) => ({ id: c.id, owner: c.ownerName, title: c.title, folder: c.place, status: c.status, live: c.live, shared: c.visibility === 'company', you: c.id === mine() }))
+    }
+    if (a.action === 'read') {
+      if (typeof a.id !== 'string') throw Error('usage: terminai team read <conversation id>')
+      const { messages } = await team.call(`${base}/conversations/${a.id}/messages`)
+      const n = Number.isInteger(a.lines) ? a.lines : 12
+      return (messages ?? []).slice(-n).map((m: any) => ({ at: m.createdAt, kind: m.kind, text: m.content }))
+    }
+    if (a.action === 'send') {
+      if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team send <conversation id> <message>')
+      if (!mine()) await tick()
+      return team.call(`${base}/agent`, 'POST', { to: a.id, content: a.text, from: mine() ?? undefined })
+    }
+    if (a.action === 'reply') {
+      if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team reply <message id> <answer>')
+      const original = received.get(a.id)
+      if (!original?.from) throw Error('That message came from no session (or not to this Mac): nothing to reply to.')
+      return team.call(`${base}/agent`, 'POST', { to: original.from, content: a.text, from: mine() ?? undefined, replyTo: a.id })
+    }
+    if (a.action === 'replies') {
+      if (typeof a.id !== 'string') throw Error('usage: terminai team replies <message id>')
+      return team.call(`${base}/agent/${a.id}/replies`)
+    }
+    throw Error('usage: terminai team list|read|send|reply|replies')
+  }
+  return { tick, command, start: () => { setInterval(() => void tick(), 15_000); setTimeout(() => void tick(), 8_000) } }
+}

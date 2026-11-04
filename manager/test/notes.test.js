@@ -108,7 +108,7 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request('/api/auth/login',{method:'POST',data:{email:'mo@example.test',password:''}})).status,401,'no password, no password sign-in');
   assert.equal((await request('/api/me',{token:mo.body.token,method:'PATCH',data:{name:'Mo Rossi'}})).body.user.name,'Mo Rossi');
   assert.equal((await request('/api/auth/password',{token:mo.body.token,method:'POST',data:{password:'a brand new password'}})).status,200);
-  assert.equal((await request('/api/auth/login',{method:'POST',data:{email:'mo@example.test',password:'a brand new password',client:'desktop'}})).status,200);
+  const moAgain=await request('/api/auth/login',{method:'POST',data:{email:'mo@example.test',password:'a brand new password',client:'desktop'}});assert.equal(moAgain.status,200);mo.body.token=moAgain.body.token;
 
   // The To-do's shared page: Macs copy their tasks in keeping the time they changed; the phone's edits are stamped now.
   const tasks=`/api/companies/${alpha.id}/tasks`;
@@ -135,6 +135,28 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal(logged.people.ilai.workingMinutes,90);
   assert.deepEqual((await request(`/api/companies/${alpha.id}/worklog`,{token:a.body.token})).body.days,[{day:'2026-11-04',people:['ilai']}]);
   assert.equal((await request(`/api/companies/${alpha.id}/worklog/2026-11-04`,{token:b.body.token})).status,404);
+
+  // Tabs as conversations, and agent messages between them: Ada's tab shared, Mo (a member) messages it, Ada's Mac takes it and answers.
+  const tabA=(await request(`/api/companies/${alpha.id}/conversations/tab/key-a`,{token:a.body.token,method:'PUT',data:{title:'Fix login',place:'~/app',status:'working'}})).body.conversation;
+  assert.equal(tabA.tab,true);assert.equal(tabA.live,true);assert.equal(tabA.visibility,'company');
+  assert.equal((await request(`/api/companies/${alpha.id}/conversations/tab/key-a`,{token:a.body.token,method:'PUT',data:{title:'Fix login 2'}})).body.conversation.id,tabA.id,'same tab, same conversation');
+  const tabMo=(await request(`/api/companies/${alpha.id}/conversations/tab/key-m`,{token:mo.body.token,method:'PUT',data:{title:'Mo tab'}})).body.conversation;
+  const shownRes=await request(`/api/companies/${alpha.id}/conversations`,{token:mo.body.token});assert.equal(shownRes.status,200,JSON.stringify(shownRes.body));const shown=shownRes.body.conversations;
+  assert.ok(shown.some(c=>c.id===tabA.id&&c.ownerName==='Ada'));
+  const sent=(await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{to:tabA.id,from:tabMo.id,content:'Which branch has the fix?'}})).body;
+  assert.equal(sent.live,true);
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:b.body.token,method:'POST',data:{to:tabA.id,content:'x'}})).status,404,'another workspace cannot');
+  const inbox=(await request(`/api/companies/${alpha.id}/agent/inbox`,{token:a.body.token})).body.messages;
+  assert.equal(inbox.length,1);assert.equal(inbox[0].tab,'key-a');assert.equal(inbox[0].fromName,'Mo Rossi');
+  assert.equal((await request(`/api/companies/${alpha.id}/agent/inbox`,{token:mo.body.token})).body.messages.length,0);
+  assert.equal((await request(`/api/companies/${alpha.id}/agent/${sent.id}/delivered`,{token:a.body.token,method:'POST',data:{}})).status,200);
+  assert.equal((await request(`/api/companies/${alpha.id}/agent/inbox`,{token:a.body.token})).body.messages.length,0);
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:a.body.token,method:'POST',data:{to:tabMo.id,from:tabA.id,replyTo:sent.id,content:'main'}})).status,200);
+  const replies=(await request(`/api/companies/${alpha.id}/agent/${sent.id}/replies`,{token:mo.body.token})).body;
+  assert.equal(replies.delivered,true);assert.equal(replies.replies[0].content,'main');
+  // A tab made private: nobody else reads or messages it.
+  await request(`/api/companies/${alpha.id}/conversations/tab/key-a`,{token:a.body.token,method:'PUT',data:{title:'Fix login',visibility:'owner'}});
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{to:tabA.id,content:'still?'}})).status,404);
 
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));

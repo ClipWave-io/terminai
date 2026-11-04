@@ -164,7 +164,7 @@ export async function workspaceFetchFile(note: string, fileId: string, name: str
 
 // The To-do's shared page on the server (see todos.ts mirror). Main process only: never reachable from the renderer.
 // The workspace is the one this person's To-do column is registered in; the first time, the first one they are in.
-async function teamOf(user: string): Promise<{ id: string; call: (path: string, method?: string, body?: unknown) => Promise<any> } | null> {
+export async function teamOf(user: string): Promise<{ id: string; call: (path: string, method?: string, body?: unknown) => Promise<any> } | null> {
   const session = await load()
   if (!session) return null
   const call = (path: string, method = 'GET', body?: unknown) => request(session.url, path, method, body, session.token)

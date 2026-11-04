@@ -114,6 +114,20 @@ export async function migrate(pool) {
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, person text NOT NULL, day date NOT NULL,
         data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (company_id,person,day)
       );
+      -- A conversation can be a TerminAI tab, mirrored by its Mac (source_key: the tab's key), with where and how it is now.
+      ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS source_key text;
+      ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS place text;
+      ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS tab_status text;
+      ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS seen_at timestamptz;
+      CREATE UNIQUE INDEX IF NOT EXISTS manager_conversations_source ON manager_conversations(owner_id,source_key) WHERE source_key IS NOT NULL;
+      -- Agent to agent: a message for a tab-conversation, typed into that tab by its owner's TerminAI when it is free.
+      CREATE TABLE IF NOT EXISTS manager_agent_messages (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        from_user uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, from_conversation uuid REFERENCES manager_conversations ON DELETE SET NULL,
+        to_conversation uuid NOT NULL REFERENCES manager_conversations ON DELETE CASCADE, reply_to uuid REFERENCES manager_agent_messages ON DELETE CASCADE,
+        content text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), delivered_at timestamptz
+      );
+      CREATE INDEX IF NOT EXISTS manager_agent_messages_to ON manager_agent_messages(to_conversation,delivered_at);
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

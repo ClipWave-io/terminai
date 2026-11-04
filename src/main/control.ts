@@ -15,8 +15,9 @@ import type {SavedTab,Task,TaskListPage} from '../shared/types'
 type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
   todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
     add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
-  log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>{context:string}|{}}}
-const COMMANDS=['list','open','send','read','close','focus','show','task','log']
+  log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>{context:string}|{}}
+  team:(args:any)=>Promise<unknown>}
+const COMMANDS=['list','open','send','read','close','focus','show','task','log','team']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -110,6 +111,7 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
     }
     // The To-do from a tab: a task added to a page, a private list described, or a task started, done or reopened
     // (starting links the row to the tab, by the key that outlives a restart).
+    case 'team':return d.team(a)
     case 'log':return a.action==='hook'?d.log.hook(a.session):d.log.day(a.day)
     case 'task':{
       if(a.action==='add'){const {scope,page,task}=await d.todo.add(a.to,a.title,a.note);return {id:task.id,title:task.title,status:task.status,scope,page}}

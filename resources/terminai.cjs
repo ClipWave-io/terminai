@@ -13,10 +13,15 @@
 //   terminai todo add <title> --to <page> [--note <text>]  page: matteo, together, ilai, unassigned or a private list's name
 //   terminai todo about <list> <text>                      what a private list is for (empty text clears it)
 //   terminai log [YYYY-MM-DD]                              the work log of a day (yours and the partner's): conversations, hours, finished work
+//   terminai team list                                     every shared session of the workspace (the partner's too): id, owner, title, folder, status, live
+//   terminai team read <id> [--lines N]                    its recent turns
+//   terminai team send <id> <message>                      to that session's agent, typed in there when it is free; prints the message id
+//   terminai team reply <message id> <answer>              answer a message that reached this tab
+//   terminai team replies <message id>                     answers to a message you sent
 //   terminai log hook                                      Claude Code's UserPromptSubmit hook: hands finished work of other tabs to this one for the To-do
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus','show','todo','log'],WRITES=['start','done','reopen','add','about'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
+const COMMANDS=['list','open','send','read','close','focus','show','todo','log','team'],WRITES=['start','done','reopen','add','about'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -72,6 +77,7 @@ function map(){
   private:pages.map(p=>({page:p.name,to:p.name,about:p.about||null,tasks:all.personal.filter(t=>t.list===p.name).map(short)}))};
 }
 function request(command,flags,words){
+ if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),tab:process.env.TERMINAI_TAB_ID};
  if(command==='log')return words[0]==='hook'?{action:'hook',session:flags.session}:{action:'day',day:words[0]};
  if(command==='task'){
   const action=words[0];

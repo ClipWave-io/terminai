@@ -344,6 +344,10 @@ export interface Prefs {
   doneNotices: boolean
   /** folders whose conversations stay out of the shared work log */
   worklogSkip: string[]
+  /** tabs' conversations shared with the workspace unless a tab says otherwise (teambridge.ts) */
+  shareConversations: boolean
+  /** per tab (its workspace key): true shared, false private, whatever the default */
+  tabSharing: Record<string, boolean>
   /** sidebar sessions bucketed under a heading per folder */
   groupByFolder: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
@@ -387,6 +391,8 @@ export const DEFAULT_PREFS: Prefs = {
   seenWelcome: false,
   doneNotices: true,
   worklogSkip: [],
+  shareConversations: true,
+  tabSharing: {},
   groupByFolder: true,
   tasksUser: '',
   todoHiddenColumns: [],

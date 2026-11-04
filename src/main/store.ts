@@ -28,6 +28,8 @@ function hydrate(raw: unknown): Prefs {
     // an upgrade from a prefs file that predates this field shows it once.
     seenWelcome: p.seenWelcome === true,
     doneNotices: p.doneNotices !== false,
+    shareConversations: p.shareConversations !== false,
+    tabSharing: p.tabSharing && typeof p.tabSharing === 'object' && !Array.isArray(p.tabSharing) ? Object.fromEntries(Object.entries(p.tabSharing).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'boolean').slice(-500)) as Record<string, boolean> : {},
     worklogSkip: Array.isArray(p.worklogSkip) ? p.worklogSkip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 50) : [],
     groupByFolder: p.groupByFolder !== false,
     tasksUser: p.tasksUser === 'livio' || p.tasksUser === 'ilai' ? p.tasksUser : '',
