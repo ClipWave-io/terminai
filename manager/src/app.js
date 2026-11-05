@@ -235,6 +235,13 @@ export function createApp(pool, config) {
         return json(res, response.status, response.value, response.headers);
       }
       const user = await auth(req);
+      // "Open TerminAI" on the website: a one-time code (10 minutes) the Mac app trades for its own session, through terminai://signin.
+      if (req.method === 'POST' && path === '/api/auth/handoff') {
+        await limit(pool, `handoff:${user.id}`, 20, 900);
+        const pollToken = opaqueToken(), code = Array.from({ length: 8 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[randomInt(32)]).join('');
+        await pool.query("INSERT INTO manager_device_logins(id,code_hash,poll_hash,user_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [randomUUID(), digest(code), digest(pollToken), user.id]);
+        return json(res, 200, { url: `terminai://signin?code=${pollToken}&server=${encodeURIComponent(origin)}` });
+      }
       if (req.method === 'POST' && path === '/api/auth/device/approve') {
         const input = await body(req), code = deviceCode(input.code);
         await limit(pool, `approve:${user.id}`, 20, 900);

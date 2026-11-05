@@ -170,6 +170,14 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   await pool.query("UPDATE manager_invite_links SET expires_at=now()-interval '1 minute'");
   assert.equal((await request('/api/auth/accept-invite',{method:'POST',data:{token:link.token,name:'Late',email:'late@example.test',client:'desktop'}})).status,410);
 
+  // Open TerminAI from the website: a one-time code the app trades for a desktop session.
+  const hand=(await request('/api/auth/handoff',{token:a.body.token,method:'POST',data:{}})).body.url;
+  const code=new URL(hand).searchParams.get('code');assert.match(hand,/^terminai:\/\/signin\?code=/);
+  const traded=(await request('/api/auth/device/poll',{method:'POST',data:{pollToken:code}})).body;
+  assert.equal(traded.user.email,'ada@example.test');
+  assert.equal((await request('/api/auth/device/poll',{method:'POST',data:{pollToken:code}})).status,410,'once');
+  assert.equal((await request('/api/auth/handoff',{method:'POST',data:{}})).status,401);
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

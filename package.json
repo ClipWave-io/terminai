@@ -49,6 +49,7 @@
       "out/**/*",
       "resources/**/*"
     ],
+    "protocols": [{ "name": "TerminAI", "schemes": ["terminai"] }],
     "mac": {
       "target": [
         {

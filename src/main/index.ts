@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
@@ -47,6 +47,17 @@ function queueOpenFile(path: string) {
   if (win && !win.isDestroyed()) { win.webContents.send('project:open-request', id); win.show(); win.focus() }
 }
 app.on('open-file', (event, path) => { event.preventDefault(); queueOpenFile(path) })
+// terminai://signin from the website: sign in with it, then the window refreshes its account (and shows the tour once).
+app.setAsDefaultProtocolClient('terminai')
+let pendingLink = ''
+async function openLink(link: string) {
+  if (!app.isReady()) { pendingLink = link; return }
+  if (!win || win.isDestroyed()) createWindow()
+  win?.show(); win?.focus()
+  try { await workspaceHandoff(link); win?.webContents.send('workspace:signed-in') }
+  catch (err) { dialog.showErrorBox('TerminAI could not sign in', err instanceof Error ? err.message : String(err)) }
+}
+app.on('open-url', (event, link) => { event.preventDefault(); void openLink(link) })
 let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
@@ -197,6 +208,7 @@ function tabDone(tabId: string, text: string): void {
 let crashedLastRun = false
 const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
 app.whenReady().then(() => {
+  if (pendingLink) setTimeout(() => void openLink(pendingLink), 1500)
   // Electron's own menu, plus Check for Updates… under TerminAI.
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: app.name, submenu: [{ role: 'about' }, { label: 'Check for Updates…', click: () => void checkForUpdatesNow(win) }, { type: 'separator' },

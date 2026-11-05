@@ -66,6 +66,8 @@ export function App(): JSX.Element {
   // TerminAI needs an account: null while checking, false shows the sign-in gate over everything.
   const [account, setAccount] = useState<boolean | null>(null)
   useEffect(() => { window.term.workspace.hasAccount().then(setAccount).catch(() => setAccount(true)) }, [])
+  // Signed in from the website's Open TerminAI: the gate goes, and the tour shows if it has not been seen.
+  useEffect(() => window.term.workspace.onSignedIn(() => setAccount(true)), [])
   const [restored, setRestored] = useState(false)
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)

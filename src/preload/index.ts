@@ -21,6 +21,7 @@ const api = {
   team: { tabs: (): Promise<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean }[] }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared) },
   worklog: { get: (day: string): Promise<{ day: string; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {
+    onSignedIn: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('workspace:signed-in', h); return () => { ipcRenderer.removeListener('workspace:signed-in', h) } },
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),
     state: (): Promise<WorkspaceState> => ipcRenderer.invoke('workspace:state'),
     hasAccount: (): Promise<boolean> => ipcRenderer.invoke('workspace:has-account'),

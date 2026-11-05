@@ -68,6 +68,14 @@ async function keep(url: string, result: any): Promise<WorkspaceState> {
   current = next; loaded = true
   return workspaceState()
 }
+/** terminai://signin?code=…&server=…: the website's "Open TerminAI" hands this Mac a session. Only the TerminAI server, or the one already in use. */
+export async function workspaceHandoff(link: string): Promise<WorkspaceState> {
+  const url = new URL(link), code = url.searchParams.get('code') ?? '', server = managerOrigin(url.searchParams.get('server') ?? DEFAULT_WORKSPACE_URL)
+  if (url.hostname !== 'signin' || !/^[A-Za-z0-9_-]{43}$/.test(code)) throw new Error('Invalid sign-in link.')
+  const known = (await load())?.url
+  if (server !== DEFAULT_WORKSPACE_URL && server !== known) throw new Error('That sign-in link is for another server.')
+  return keep(server, await request(server, '/api/auth/device/poll', 'POST', { pollToken: code }))
+}
 /** Whether this Mac has an account session, read locally so a server outage never locks anyone out. Test builds skip the gate. */
 /**
  * Sign in with the browser: the website, where people usually are signed in already, allows this Mac after

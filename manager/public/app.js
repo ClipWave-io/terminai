@@ -55,8 +55,11 @@ function run(fn) {
     try { await fn(event); } catch (error) { message(error.message, true); } finally { if (button) button.disabled = false; }
   };
 }
+// Opens the Mac app signed in as this account (terminai://signin); it shows its tour the first time.
+async function openApp() { const { url } = await api('/api/auth/handoff', 'POST', {}); location.href = url; }
 function download() {
   return el('div', null, { class: 'download-box' },
+    me && button('Open TerminAI', openApp, 'secondary'),
     el('a', null, { class: 'download', href: '/download/mac' }, el('b', 'Download for Mac'), el('span', 'Apple Silicon · signed · updates itself')),
     el('a', 'Code and instructions on GitHub', { class: 'download-gh', href: 'https://github.com/ClipWave-io/terminai#readme', target: '_blank', rel: 'noopener' }));
 }
@@ -158,7 +161,7 @@ async function start() {
     a.addEventListener('click', e => { e.preventDefault(); authMode = mode; start(); }); p.append(a); return p;
   };
   if (authMode === 'signup' && setup.signupOpen) {
-    const f = form(async data => { await api('/api/auth/signup', 'POST', data); await refresh(); });
+    const f = form(async data => { await api('/api/auth/signup', 'POST', data); me = await api('/api/me'); showWelcomeApp(); });
     field(f, 'Your name', 'name');
     field(f, 'Email', 'email', 'email');
     const pw = field(f, 'Password', 'password', 'password'); pw.placeholder = '12 characters or more'; pw.autocomplete = 'new-password';
@@ -180,8 +183,15 @@ async function start() {
   }
   authPage('Welcome back', 'Sign in to sync your notes and sessions.', f);
 }
+/** Right after joining or signing up: open the Mac app signed in, or download it first. */
+function showWelcomeApp() {
+  const box = el('div', null, { class: 'device-done' },
+    el('p', 'Have TerminAI on this Mac? Open it: it signs in as you and shows a short tour. No TerminAI yet? Download it, then come back and click Open TerminAI.'));
+  box.append(button('Open TerminAI', openApp, 'block'), el('a', 'Download for Mac', { class: 'download', href: '/download/mac' }), button('Continue on the web', () => workspace(), 'secondary block'));
+  authPage(`Welcome, ${me.user.name.split(' ')[0]}`, `You’re in ${me.companies.map(c => c.name).join(', ')}.`, box);
+}
 function showInvitation() {
-  const f = form(async data => { await api('/api/auth/accept-invite', 'POST', { ...data, token: inviteToken }); location.replace('/'); });
+  const f = form(async data => { await api('/api/auth/accept-invite', 'POST', { ...data, token: inviteToken }); me = await api('/api/me'); showWelcomeApp(); });
   field(f, 'Your name', 'name');
   field(f, 'Your email', 'email', 'email');
   const password = field(f, 'Password (optional)', 'password', 'password'); password.required = false;
