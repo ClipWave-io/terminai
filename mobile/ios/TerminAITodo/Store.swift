@@ -22,6 +22,7 @@ struct Note: Decodable, Identifiable, Equatable {
     var updatedAt: String
     var kind: String?           // card (an old board card) | doc (a shared note, like Apple Notes)
     var files: [NoteFile]?
+    var product: String?
     var isDone: Bool { status == "done" }
 }
 /// A task of the To-do's shared page, as the Mac app writes it (its repo file); the server keeps a copy.
@@ -57,6 +58,15 @@ struct NoteFile: Decodable, Identifiable, Hashable { let id: String; let name: S
 private struct TasksResponse: Decodable { let tasks: [TaskItem]; let people: [String: Person]; let me: String? }
 private struct TaskResponse: Decodable { let task: TaskItem }
 private struct InviteResponse: Decodable { let inviteUrl: String }
+/// A tab of a TerminAI Mac, as a conversation (teambridge.ts on the Mac mirrors it every 15 seconds).
+struct Session: Decodable, Identifiable, Hashable {
+    let id: String; let ownerId: String; let ownerName: String?; let title: String
+    let place: String?; let status: String?; let live: Bool?; let tab: Bool?; let visibility: String
+    let updatedAt: String
+}
+struct SessionMessage: Decodable, Identifiable, Hashable { let id: String; let kind: String; let content: String; let createdAt: String; let authorName: String? }
+private struct SessionsResponse: Decodable { let conversations: [Session] }
+private struct SessionMessagesResponse: Decodable { let messages: [SessionMessage] }
 private struct MeResponse: Decodable { let user: Me; let companies: [Team] }
 private struct SignedIn: Decodable { let token: String? }
 struct DeviceStart: Decodable { let code: String; let pollToken: String; let verifyUrl: String }
@@ -65,6 +75,8 @@ private struct NotesResponse: Decodable { let notes: [Note] }
 private struct NoteResponse: Decodable { let note: Note }
 private struct MembersResponse: Decodable { let members: [Member] }
 private struct APIError: Decodable { let error: String }
+
+struct AnyDecodable: Decodable { init(from decoder: Decoder) throws {} }
 
 extension ISO8601DateFormatter {
     /// The Mac writes 2026-10-20T16:21:03.120+02:00, the server 2026-10-20T14:21:03.120Z: both parse.
@@ -278,9 +290,36 @@ final class Store: ObservableObject {
     }
 
     // MARK: people
+    /// A link anyone can open for 24 hours to join (the owner's make admins).
+    func inviteLink() async -> String? {
+        var link: String?
+        await attempt {
+            let role = team?.role == "owner" ? "admin" : "member"
+            let r: InviteResponse = try await call("/api/companies/\(teamId)/invites/link", "POST", ["role": role])
+            link = r.inviteUrl
+        }
+        return link
+    }
+    // MARK: the Mac's sessions
+    func sessions() async -> [Session] {
+        var out: [Session] = []
+        await attempt { let r: SessionsResponse = try await call("/api/companies/\(teamId)/conversations"); out = r.conversations.filter { $0.tab == true } }
+        return out
+    }
+    func messages(of session: Session) async -> [SessionMessage] {
+        var out: [SessionMessage] = []
+        do { let r: SessionMessagesResponse = try await call("/api/companies/\(teamId)/conversations/\(session.id)/messages"); out = r.messages } catch { self.error = error.localizedDescription }
+        return out
+    }
+    /// Typed into that tab on the Mac when its agent is free: your own tab as a plain prompt, Matteo's as a message from you.
+    func send(_ text: String, to session: Session) async -> Bool {
+        var ok = false
+        await attempt { let _: AnyDecodable = try await call("/api/companies/\(teamId)/agent", "POST", ["to": session.id, "content": text]); ok = true }
+        return ok
+    }
     func invite(_ email: String) async -> String? {
         var link: String?
-        await attempt { let r: InviteResponse = try await call("/api/companies/\(teamId)/invites", "POST", ["email": email, "role": "admin"]); link = r.inviteUrl }
+        await attempt { let r: InviteResponse = try await call("/api/companies/\(teamId)/invites", "POST", ["email": email, "role": team?.role == "owner" ? "admin" : "member"]); link = r.inviteUrl }
         return link
     }
     func rename(_ name: String) async {

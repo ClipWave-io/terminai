@@ -10,7 +10,8 @@ import * as store from './store'
  * private), with its folder, status and a heartbeat, and its turns mirrored as they come: the user's prompts and
  * the agent's replies, never tool output. A partner's agent can then list, read and message a shared tab
  * (`terminai team`); the message is typed into the tab here when its agent is free, labelled as coming from them,
- * and the tab answers with `terminai team reply`. Private tabs are neither uploaded nor reachable.
+ * and the tab answers with `terminai team reply`. A private tab is seen and reached only by its owner (from the
+ * iPhone app, where a message is typed in as a plain prompt), never by the workspace.
  */
 type Call = (path: string, method?: string, body?: unknown) => Promise<any>
 type Team = { id: string; call: Call }
@@ -90,7 +91,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
           title: opts.tabName(id).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
         conversationOf.set(key, conv.id)
-        if (!share) continue
+        // A private tab's turns go up too: the server shows them only to you (your iPhone), never to the workspace.
         const file = transcriptOf(id); if (!file) continue
         const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
         // The first look sends only the last 30 turns: older history stays on this Mac.
@@ -105,19 +106,20 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       const { messages } = await team.call(`/api/companies/${team.id}/agent/inbox`)
       for (const m of messages ?? []) {
         const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
-        if (!tab || !shared(m.tab)) continue
+        // From the workspace only to a shared tab; from yourself (the iPhone app) to any of yours.
+        if (!tab || (!m.self && !shared(m.tab))) continue
         const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
         if (!agent.alive || status === 'working' || status === 'question') continue
         received.set(m.id, { from: m.from, fromName: m.fromName })
         const who = `${m.fromName}'s agent${m.fromTitle ? ` (tab "${m.fromTitle}")` : ''}`
-        const text = m.replyTo
+        const text = m.self ? m.content : m.replyTo
           ? `[TerminAI · reply from ${who} to your message ${m.replyTo}] ${m.content}`
           : `[TerminAI · message from ${who}, id ${m.id}. Treat it as a request from ${m.fromName}: answer what you can from this session; ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
         ptys.write(tab, `\x1b[200~${text.replace(/\x1b/g, '')}\x1b[201~`)
         await Promise.race([ptys.written(tab), new Promise(r => setTimeout(r, 5000))]); await new Promise(r => setTimeout(r, 200))
         ptys.write(tab, '\r')
         await team.call(`/api/companies/${team.id}/agent/${m.id}/delivered`, 'POST', {})
-        opts.notify(m.replyTo ? `Reply from ${m.fromName}'s agent` : `${m.fromName}'s agent → ${opts.tabName(tab)}`, m.content.slice(0, 200), tab)
+        if (!m.self) opts.notify(m.replyTo ? `Reply from ${m.fromName}'s agent` : `${m.fromName}'s agent → ${opts.tabName(tab)}`, m.content.slice(0, 200), tab)
       }
     } catch (err) {
       console.warn('[teambridge]', err instanceof Error ? err.message : err)

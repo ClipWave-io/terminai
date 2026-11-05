@@ -84,6 +84,7 @@ export async function migrate(pool) {
       );
       CREATE INDEX IF NOT EXISTS manager_notes_company ON manager_notes(company_id,visibility,owner_id);
       ALTER TABLE manager_notes ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'card' CHECK(kind IN ('card','doc'));
+      ALTER TABLE manager_notes ADD COLUMN IF NOT EXISTS product text NOT NULL DEFAULT '';
       CREATE TABLE IF NOT EXISTS manager_note_files (
         id uuid PRIMARY KEY, note_id uuid NOT NULL REFERENCES manager_notes ON DELETE CASCADE,
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,

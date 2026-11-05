@@ -19,6 +19,8 @@ export interface WorkspaceNote {
   assigneeId: string | null; position: number; updatedBy?: string; updatedByName?: string; createdAt: string; updatedAt: string
   /** card: a task on the board; doc: a shared note, like Apple Notes, that can hold files. */
   kind?: 'card' | 'doc'; files?: WorkspaceNoteFile[]
+  /** e.g. ManyMotions: the same product names as the To-do's */
+  product?: string
 }
 export interface WorkspaceNoteFile { id: string; name: string; mime: string; size: number; createdAt: string }
 /** An invitation arrives as a link (…/#invite=TOKEN) or the bare token; both work. */

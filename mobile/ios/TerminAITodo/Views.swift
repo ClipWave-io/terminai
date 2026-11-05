@@ -26,6 +26,7 @@ struct Root: View {
                 TabView {
                     TodoBoard().tabItem { Label("To-do", systemImage: "checklist") }
                     SharedNotes().tabItem { Label("Notes", systemImage: "note.text") }
+                    MacSessions().tabItem { Label("Mac", systemImage: "laptopcomputer") }
                 }
                 .task { await store.refresh() }
                 // The Macs copy their edits to the server every minute; the phone looks as often while open.
@@ -217,6 +218,8 @@ struct TodoBoard: View {
     @State private var column = "mine"
     @State private var showDone = false
     @State private var sheet: TopSheet?
+    @AppStorage("product") private var product = ""
+    var products: [String] { Array(Set(store.tasks.map(\.product).filter { !$0.isEmpty })).sorted() }
     /// Columns in the Mac's order: you, Together, the other one, Unassigned.
     var columns: [String?] {
         let me = store.myColumn ?? "ilai"
@@ -224,7 +227,7 @@ struct TodoBoard: View {
     }
     func key(_ c: String?) -> String { c ?? "none" }
     func items(_ c: String?, done: Bool) -> [TaskItem] {
-        store.tasks.filter { $0.assignee == c && $0.isDone == done }.sorted { done ? ($0.updatedAt ?? "") > ($1.updatedAt ?? "") : $0.sortKey < $1.sortKey }
+        store.tasks.filter { $0.assignee == c && $0.isDone == done && (product.isEmpty || $0.product == product) }.sorted { done ? ($0.updatedAt ?? "") > ($1.updatedAt ?? "") : $0.sortKey < $1.sortKey }
     }
     var shown: [String?] { column == "all" ? columns : columns.filter { key($0) == (column == "mine" ? key(columns[0]) : column) } }
     var body: some View {
@@ -256,9 +259,10 @@ struct TodoBoard: View {
                 ErrorBanner()
             }
             .listStyle(.sidebar)
-            .navigationTitle("To-do")
+            .navigationTitle(product.isEmpty ? "To-do" : product)
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: String.self) { TaskDetail(id: $0) }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ProductMenu(product: $product, products: products) } }
             .refreshable { await store.refresh() }
             .modifier(TopButtons(sheet: $sheet))
         }
@@ -285,6 +289,7 @@ struct TaskDetail: View {
                     Picker("Column", selection: Binding(get: { task.assignee ?? "" }, set: { v in Task { await store.edit(task) { $0.assignee = v.isEmpty ? nil : v } } })) {
                         ForEach(["ilai", "both", "livio", ""], id: \.self) { Text(store.name(column: $0.isEmpty ? nil : $0)).tag($0) }
                     }
+                    TextField("Product", text: Binding(get: { task.product }, set: { v in Task { await store.edit(task) { $0.product = v.trimmingCharacters(in: .whitespaces) } } }))
                     Picker("Status", selection: Binding(get: { task.status }, set: { v in Task { await store.edit(task) { $0.status = v } } })) {
                         Text("Open").tag("open"); Text("In progress").tag("doing"); Text("Done").tag("done")
                     }
@@ -313,9 +318,11 @@ struct SharedNotes: View {
     @State private var sheet: TopSheet?
     @State private var path: [String] = []
     @State private var query = ""
+    @AppStorage("notesProduct") private var product = ""
+    var products: [String] { Array(Set(store.notes.compactMap(\.product).filter { !$0.isEmpty })).sorted() }
     var shown: [Note] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return q.isEmpty ? store.notes : store.notes.filter { "\($0.title)\n\($0.body)".lowercased().contains(q) }
+        return store.notes.filter { (product.isEmpty || $0.product == product) && (q.isEmpty || "\($0.title)\n\($0.body)".lowercased().contains(q)) }
     }
     var body: some View {
         NavigationStack(path: $path) {
@@ -323,7 +330,7 @@ struct SharedNotes: View {
                 ForEach(shown) { n in
                     NavigationLink(value: n.id) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(n.title.isEmpty ? "Untitled" : n.title).bold().lineLimit(1)
+                            HStack { Text(n.title.isEmpty ? "Untitled" : n.title).bold().lineLimit(1); if let p = n.product, !p.isEmpty { Text(p).font(.caption2.bold()).foregroundStyle(accent) } }
                             HStack(spacing: 6) {
                                 Text(ISO8601DateFormatter.lenient(n.updatedAt).map { $0.formatted(.relative(presentation: .named)) } ?? "")
                                 Text(n.body.split(separator: "\n").first.map(String.init) ?? "No text").lineLimit(1)
@@ -341,6 +348,7 @@ struct SharedNotes: View {
             .navigationDestination(for: String.self) { DocDetail(id: $0) }
             .refreshable { await store.refresh() }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { ProductMenu(product: $product, products: products) }
                 ToolbarItem(placement: .topBarLeading) {
                     Button { Task { if let id = await store.addDoc() { path.append(id) } } } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New note").disabled(!store.canEditBoard)
                 }
@@ -358,6 +366,7 @@ struct DocDetail: View {
     @State private var text = ""
     @State private var preview: URL?
     @State private var confirmDelete = false
+    @State private var product = ""
     var note: Note? { store.notes.first { $0.id == id } }
     var body: some View {
         if let note {
@@ -365,6 +374,7 @@ struct DocDetail: View {
                 Section {
                     TextField("Title", text: $title, axis: .vertical).font(.title3.bold())
                     TextField("Write here", text: $text, axis: .vertical).lineLimit(8...)
+                    TextField("Product", text: $product)
                 }.disabled(!store.canEditBoard)
                 if let files = note.files, !files.isEmpty {
                     Section("Files") {
@@ -381,11 +391,12 @@ struct DocDetail: View {
             }
             .quickLookPreview($preview)
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { title = note.title; text = note.body }
+            .onAppear { title = note.title; text = note.body; product = note.product ?? "" }
             .onDisappear {
                 var patch: [String: Any?] = [:]
                 if !title.trimmingCharacters(in: .whitespaces).isEmpty && title != note.title { patch["title"] = title }
                 if text != note.body { patch["body"] = text }
+                if product.trimmingCharacters(in: .whitespaces) != (note.product ?? "") { patch["product"] = product.trimmingCharacters(in: .whitespaces) }
                 if !patch.isEmpty { Task { await store.update(note, patch) } }
             }
             .confirmationDialog("Delete this note for everyone?", isPresented: $confirmDelete) {
@@ -416,12 +427,13 @@ struct MembersView: View {
                         }
                     }
                 }
-                if store.isAdmin {
+                if store.canEditBoard {
                     Section {
-                        TextField("Their email", text: $email).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Button("Create invitation link") { Task { link = await store.invite(email.trimmingCharacters(in: .whitespaces)) } }.disabled(!email.contains("@"))
+                        Button("Create invite link (24 h)") { Task { link = await store.inviteLink() } }
+                        TextField("Or just for one email", text: $email).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("Link for this email") { Task { link = await store.invite(email.trimmingCharacters(in: .whitespaces)) } }.disabled(!email.contains("@"))
                         if let link, let url = URL(string: link) { ShareLink("Send the link", item: url) }
-                    } header: { Text("Invite someone") } footer: { Text("Opening the link signs them in, no password needed. It works for 48 hours.") }
+                    } header: { Text("Invite someone") } footer: { Text("Anyone with the link can join for 24 hours, no password needed: send it only to the people you mean.") }
                 }
                 Section {
                     TextField("ABCD-EFGH", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled().font(.system(.body, design: .monospaced))
@@ -467,5 +479,99 @@ struct Settings: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { if let me = store.me, name != me.name, !name.isEmpty { Task { await store.rename(name) } }; dismiss() } } }
         }
+    }
+}
+
+/// Filter by product, like the Mac's All products menu.
+struct ProductMenu: View {
+    @Binding var product: String
+    let products: [String]
+    var body: some View {
+        Menu {
+            Picker("Product", selection: $product) {
+                Text("All products").tag("")
+                ForEach(products, id: \.self) { Text($0).tag($0) }
+            }
+        } label: { Image(systemName: product.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") }
+        .accessibilityLabel("Product")
+    }
+}
+
+// MARK: - The Mac's sessions: every TerminAI tab, open one, read it and type into it
+
+struct MacSessions: View {
+    @EnvironmentObject var store: Store
+    @State private var sheet: TopSheet?
+    @State private var list: [Session] = []
+    @State private var loaded = false
+    var mine: [Session] { list.filter { $0.ownerId == store.me?.id } }
+    var theirs: [Session] { list.filter { $0.ownerId != store.me?.id } }
+    var body: some View {
+        NavigationStack {
+            List {
+                if loaded && list.isEmpty { Text("No sessions yet. They show here while TerminAI 0.3.10 or newer runs on your Mac.").foregroundStyle(.secondary) }
+                if !mine.isEmpty { Section("My Mac") { ForEach(mine) { s in NavigationLink(value: s) { SessionRow(session: s) } } } }
+                if !theirs.isEmpty { Section("Shared by others") { ForEach(theirs) { s in NavigationLink(value: s) { SessionRow(session: s) } } } }
+                ErrorBanner()
+            }
+            .navigationTitle("Mac")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: Session.self) { SessionChat(session: $0) }
+            .refreshable { list = await store.sessions() }
+            .task { while !Task.isCancelled { list = await store.sessions(); loaded = true; try? await Task.sleep(for: .seconds(10)) } }
+            .modifier(TopButtons(sheet: $sheet))
+        }
+    }
+}
+
+struct SessionRow: View {
+    let session: Session
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(session.live == true ? (session.status == "working" ? Color.orange : Color.green) : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title).lineLimit(1)
+                Text([session.ownerName, session.place?.split(separator: "/").last.map(String.init), session.live == true ? session.status : "Mac off"].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+}
+
+struct SessionChat: View {
+    @EnvironmentObject var store: Store
+    let session: Session
+    @State private var messages: [SessionMessage] = []
+    @State private var draft = ""
+    @State private var sent = false
+    var mine: Bool { session.ownerId == store.me?.id }
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(messages) { m in
+                            Text(m.content).font(.callout).textSelection(.enabled)
+                                .padding(10).frame(maxWidth: .infinity, alignment: m.kind == "user" ? .trailing : .leading)
+                                .background(RoundedRectangle(cornerRadius: 12).fill(m.kind == "user" ? accent.opacity(0.18) : Color(.secondarySystemBackground)))
+                                .id(m.id)
+                        }
+                        if sent { Text("Sent: it's typed into the tab on the Mac as soon as its agent is free.").font(.caption).foregroundStyle(.secondary) }
+                    }.padding()
+                }
+                .onChange(of: messages) { _, now in if let last = now.last { proxy.scrollTo(last.id, anchor: .bottom) } }
+            }
+            HStack {
+                TextField(mine ? "Message this session" : "Ask \(session.ownerName ?? "their") session", text: $draft, axis: .vertical).lineLimit(1...5)
+                    .padding(8).background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemBackground)))
+                Button { let t = draft.trimmingCharacters(in: .whitespacesAndNewlines); guard !t.isEmpty else { return }; draft = ""
+                    Task { sent = await store.send(t, to: session) } } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }.padding(10)
+            if session.live != true { Text("The Mac is off or TerminAI is closed: it gets your message once it is back on.").font(.caption2).foregroundStyle(.secondary).padding(.bottom, 6) }
+        }
+        .navigationTitle(session.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { while !Task.isCancelled { messages = await store.messages(of: session); try? await Task.sleep(for: .seconds(4)) } }
     }
 }

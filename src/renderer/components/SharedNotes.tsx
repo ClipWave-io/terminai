@@ -22,6 +22,7 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
   const [open, setOpen] = useState('')
   const [draft, setDraft] = useState<{ id: string; title: string; body: string } | null>(null)
   const [query, setQuery] = useState('')
+  const [product, setProduct] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(0)
   const [over, setOver] = useState(false)
@@ -96,7 +97,9 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
   </div>
 
   const q = query.trim().toLowerCase()
-  const listed = q ? notes.filter(n => `${n.title}\n${n.body}\n${(n.files ?? []).map(f => f.name).join(' ')}`.toLowerCase().includes(q)) : notes
+  const products = [...new Set(notes.map(n => n.product || '').filter(Boolean))].sort()
+  const listed = notes.filter(n => !product || (n.product || '') === product)
+    .filter(n => !q || `${n.title}\n${n.body}\n${(n.files ?? []).map(f => f.name).join(' ')}`.toLowerCase().includes(q))
   const files = note?.files ?? []
   return <div className="snotes">
     <aside className="snotes-list" aria-label="Shared notes">
@@ -105,13 +108,15 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
         <button className="todo-icon snotes-new" aria-label="New note" title="New note" onClick={() => void create()}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg></button>
       </div>
+      {products.length > 0 && <select className="snotes-workspace" aria-label="Product" value={product} onChange={e => setProduct(e.target.value)}>
+        <option value="">All products</option>{products.map(p => <option key={p} value={p}>{p}</option>)}</select>}
       {(state.identity?.companies.length ?? 0) > 1 && <select className="snotes-workspace" aria-label="Workspace" value={company} onChange={e => { setDraft(null); setOpen(''); setCompany(e.target.value) }}>
         {state.identity?.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
       <ul>
         {listed.map(n => <li key={n.id}>
           <button className={`snotes-item${n.id === open ? ' on' : ''}`} onClick={() => select(n.id)}>
             <strong>{(draft?.id === n.id ? draft.title : n.title) || 'Untitled'}</strong>
-            <span>{ago(n.updatedAt)}{n.updatedByName ? ` · ${n.updatedByName.split(' ')[0]}` : ''}{n.files?.length ? ` · ${n.files.length} file${n.files.length > 1 ? 's' : ''}` : ''}</span>
+            <span>{n.product ? `${n.product} · ` : ''}{ago(n.updatedAt)}{n.updatedByName ? ` · ${n.updatedByName.split(' ')[0]}` : ''}{n.files?.length ? ` · ${n.files.length} file${n.files.length > 1 ? 's' : ''}` : ''}</span>
             <em>{(draft?.id === n.id ? draft.body : n.body).split('\n').find(line => line.trim()) ?? 'No text'}</em>
           </button>
         </li>)}
@@ -126,6 +131,9 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
       {!shown ? <div className="snotes-empty"><p>Pick a note, or make a new one.</p><button className="btn" onClick={() => void create()}>New note</button></div> : <>
         <div className="snotes-head">
           <span>{note && `Edited ${ago(note.updatedAt)}${note.updatedByName ? ` by ${note.updatedByName.split(' ')[0]}` : ''}`}</span>
+          {note && <input className="snotes-product" aria-label="Product" placeholder="Product" list="snotes-products" defaultValue={note.product ?? ''} key={note.id}
+            onBlur={e => { const v = e.target.value.trim(); if (v !== (note.product ?? '')) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) }} />}
+          <datalist id="snotes-products">{products.map(p => <option key={p} value={p} />)}</datalist>
           <button className="todo-link" onClick={() => void window.term.workspace.pickFiles().then(attach)}>Add files…</button>
           {asking ? <><span className="snotes-ask">Delete for everyone?</span>
             <button className="todo-link danger" onClick={() => void remove()}>Delete</button>

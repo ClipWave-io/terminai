@@ -9,7 +9,7 @@ const publicUser = user => ({ id: user.id, email: user.email, name: user.name })
 const publicCompany = row => ({ id: row.id, name: row.name, role: row.role, classification: row.classification, defaultVisibility: row.default_visibility, allowCompanySharing: row.allow_company_sharing });
 const publicConversation = row => ({ id: row.id, companyId: row.company_id, ownerId: row.owner_id, ownerName: row.owner_name, title: row.title, visibility: row.visibility, allowedRoles: row.allowed_roles, createdAt: row.created_at, updatedAt: row.updated_at,
   ...(row.source_key ? { tab: true, place: row.place, status: row.tab_status, live: !!row.seen_at && Date.now() - new Date(row.seen_at).getTime() < 120000 } : {}) });
-const publicNote = row => ({ id: row.id, kind: row.kind || 'card', files: row.files || [], ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
+const publicNote = row => ({ id: row.id, kind: row.kind || 'card', product: row.product || '', files: row.files || [], ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
 const publicMessage = row => ({ id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorName: row.author_name, kind: row.kind, content: row.content, clientMessageId: row.client_message_id, createdAt: row.created_at });
 function roles(value) {
   requireThat(Array.isArray(value) && value.length > 0 && value.length <= ROLES.length, 400, 'Choose at least one allowed role.');
@@ -80,11 +80,11 @@ export function createApp(pool, config) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     if (secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
-    // terminai.xyz (and www.) is the address people are given: pages there go to the app's own origin, path and #link kept.
-    const host = String(req.headers.host || '').toLowerCase().split(':')[0];
-    if (/^(www\.)?terminai\.xyz$/.test(host) && new URL(origin).hostname !== host) {
-      res.writeHead(req.method === 'GET' || req.method === 'HEAD' ? 302 : 404, req.method === 'GET' || req.method === 'HEAD' ? { Location: origin + req.url } : {});
-      return res.end();
+    // The site has one address (PUBLIC_ORIGIN, terminai.xyz): pages opened on any other host go there. The API answers
+    // on every host, so the apps that call the Railway address directly keep working.
+    const host = String(req.headers.host || '').toLowerCase();
+    if ((req.method === 'GET' || req.method === 'HEAD') && host && host !== new URL(origin).host && !/^\/(api\/|health$)/.test(req.url || '') && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host)) {
+      res.writeHead(301, { Location: origin + req.url }); return res.end();
     }
     try {
       const url = new URL(req.url, origin), path = url.pathname;
@@ -240,7 +240,7 @@ export function createApp(pool, config) {
         await limit(pool, `handoff:${user.id}`, 20, 900);
         const pollToken = opaqueToken(), code = Array.from({ length: 8 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[randomInt(32)]).join('');
         await pool.query("INSERT INTO manager_device_logins(id,code_hash,poll_hash,user_id,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [randomUUID(), digest(code), digest(pollToken), user.id]);
-        return json(res, 200, { url: `terminai://signin?code=${pollToken}&server=${encodeURIComponent(origin)}` });
+        return json(res, 200, { url: `terminai://signin?code=${pollToken}&server=${encodeURIComponent(config.apiOrigin || origin)}` });
       }
       if (req.method === 'POST' && path === '/api/auth/device/approve') {
         const input = await body(req), code = deviceCode(input.code);
@@ -459,10 +459,10 @@ export function createApp(pool, config) {
           return {id,to,live:!!target.seen_at&&Date.now()-new Date(target.seen_at).getTime()<120000};
         }
         if(tail==='/agent/inbox'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,u.name AS from_name,f.title AS from_title,m.from_conversation
+          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id) AS self,u.name AS from_name,f.title AS from_title,m.from_conversation
             FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation
             WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
-          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_name,fromTitle:r.from_title,from:r.from_conversation}))};
+          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_name,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
         }
         const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies)$/);
         if(agentMsg) {
@@ -523,8 +523,8 @@ export function createApp(pool, config) {
           requireThat(visibility==='private'||member.role!=='viewer',403,'Viewers cannot add to the team board.');
           const {rows:[last]}=await db.query('SELECT coalesce(max(position),0)+1 AS p FROM manager_notes WHERE company_id=$1',[companyId]);
           const kind=enumValue(input.kind??'card',['card','doc'],'note kind');
-          const {rows:[row]}=await db.query('INSERT INTO manager_notes(id,company_id,owner_id,visibility,title,body,assignee_id,position,updated_by,kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$3,$9) RETURNING *',
-            [randomUUID(),companyId,user.id,visibility,kind==='doc'&&!input.title?'New note':text(input.title,'Title',500),typeof input.body==='string'?input.body.slice(0,kind==='doc'?100000:20000):'',visibility==='company'&&kind==='card'?await assignee(input.assigneeId):null,last.p,kind]);
+          const {rows:[row]}=await db.query('INSERT INTO manager_notes(id,company_id,owner_id,visibility,title,body,assignee_id,position,updated_by,kind,product) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$3,$9,$10) RETURNING *',
+            [randomUUID(),companyId,user.id,visibility,kind==='doc'&&!input.title?'New note':text(input.title,'Title',500),typeof input.body==='string'?input.body.slice(0,kind==='doc'?100000:20000):'',visibility==='company'&&kind==='card'?await assignee(input.assigneeId):null,last.p,kind,typeof input.product==='string'?input.product.trim().slice(0,100):'']);
           return {note:publicNote({...row,updated_by_name:user.name})};
         }
         const noteMatch=tail.match(/^\/notes\/([^/]+)$/);
@@ -535,13 +535,13 @@ export function createApp(pool, config) {
           if(req.method==='DELETE'){requireThat(note.owner_id===user.id||isAdmin(member),403,'Only its author or an admin can delete it.');await db.query('DELETE FROM manager_notes WHERE id=$1',[note.id]);return {ok:true};}
           const visibility=input.visibility===undefined?note.visibility:enumValue(input.visibility,['private','company'],'visibility');
           requireThat(visibility===note.visibility||note.owner_id===user.id,403,'Only its author can move it between private and team.');
-          const {rows:[row]}=await db.query('UPDATE manager_notes SET title=$1,body=$2,status=$3,assignee_id=$4,position=$5,visibility=$6,updated_by=$7,updated_at=now() WHERE id=$8 RETURNING *',[
+          const {rows:[row]}=await db.query('UPDATE manager_notes SET title=$1,body=$2,status=$3,assignee_id=$4,position=$5,visibility=$6,updated_by=$7,updated_at=now(),product=$9 WHERE id=$8 RETURNING *',[
             input.title===undefined?note.title:text(input.title,'Title',500),
             input.body===undefined?note.body:String(input.body).slice(0,note.kind==='doc'?100000:20000),
             input.status===undefined?note.status:enumValue(input.status,['open','done'],'status'),
             visibility==='private'?null:input.assigneeId===undefined?note.assignee_id:await assignee(input.assigneeId),
             input.position===undefined?note.position:(requireThat(Number.isFinite(input.position),400,'Invalid position.'),input.position),
-            visibility,user.id,note.id]);
+            visibility,user.id,note.id,input.product===undefined?note.product||'':String(input.product).trim().slice(0,100)]);
           const {rows:files}=await db.query('SELECT id,name,mime,size,created_at FROM manager_note_files WHERE note_id=$1 ORDER BY created_at',[note.id]);
           return {note:publicNote({...row,updated_by_name:user.name,files:files.map(publicFile)})};
         }
