@@ -184,7 +184,7 @@ function createWindow(): void {
   voice.startWatching(
     win.webContents,
     () => store.load().voice,
-    () => ptys.liveIds().map((id) => ({ id, cwd: ptys.cwdOf(id) })),
+    () => ptys.liveIds().map((id) => ({ id, cwd: ptys.cwdOf(id), session: ptys.agentOf(id).sessionId || ptys.claudeSessionOf(id) })),
     tabDone,
   )
 }

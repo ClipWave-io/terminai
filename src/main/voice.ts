@@ -33,12 +33,29 @@ function pathForCwd(cwd: string): string {
 interface OpenTab {
   id: string
   cwd: string
+  session?: string
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 /** path -> last-seen stat, so a poll tick can tell a rewrite from a no-op. */
 const seenStat = new Map<string, { mtimeMs: number; size: number }>()
 let onDone: ((tabId: string, text: string) => void) | undefined
+let doneTimer: ReturnType<typeof setInterval> | null = null
+const doneSeen = new Map<string, number>()
+/** A turn finished: the hook writes spoken/session-<conversation id>.txt, so the notice goes to the tab running that conversation. */
+async function pollDone(getOpenTabs: () => OpenTab[]): Promise<void> {
+  for (const tab of getOpenTabs()) {
+    const sid = tab.session
+    if (!sid || !/^[0-9a-f-]{36}$/i.test(sid)) continue
+    const path = join(SPOKEN_DIR, `session-${sid}.txt`)
+    let s; try { s = await stat(path) } catch { continue }
+    const prev = doneSeen.get(path)
+    doneSeen.set(path, s.mtimeMs)
+    if (prev === undefined || prev === s.mtimeMs) continue
+    const said = (await readFile(path, 'utf8').catch(() => '')).trim()
+    if (said && doneTextByPath.get(path) !== said) { doneTextByPath.set(path, said); onDone?.(tab.id, said) }
+  }
+}
 const doneTextByPath = new Map<string, string>()
 /** path -> last text spoken from it, to dedupe the hook rewriting unchanged content. */
 const lastTextByPath = new Map<string, string>()
@@ -245,9 +262,6 @@ async function poll(
 
     if (!prev) continue // first sighting: seed silently, don't replay old text
     if (prev.mtimeMs === s.mtimeMs && prev.size === s.size) continue
-    // A turn finished in this tab: the clickable notice, with the voice on or off.
-    const said = (await readFile(path, 'utf8').catch(() => '')).trim()
-    if (said && doneTextByPath.get(path) !== said) { doneTextByPath.set(path, said); onDone?.(tab.id, said) }
     if (!prefs.enabled) continue
 
     await speakFrom(wc, prefs, path, tab.id)
@@ -262,12 +276,16 @@ export function startWatching(
 ): void {
   stopWatching()
   onDone = done
+  doneTimer = setInterval(() => void pollDone(getOpenTabs), 1500)
   pollTimer = setInterval(() => void poll(wc, getPrefs, getOpenTabs), 700)
   trace(`watching ${SPOKEN_DIR} for open tabs' cwds`)
 }
 
 export function stopWatching(): void {
   if (pollTimer) clearInterval(pollTimer)
+  if (doneTimer) clearInterval(doneTimer)
+  doneTimer = null
+  doneSeen.clear()
   pollTimer = null
   seenStat.clear()
   lastTextByPath.clear()
