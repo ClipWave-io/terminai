@@ -308,17 +308,31 @@ export function AccountGate({ onDone }: { onDone: () => void }): JSX.Element {
   </div>
 }
 
-/** Which of this Mac's tabs are shared, and the default for new ones (teambridge.ts). */
+/** What the partner may see, by folder and by tab (sharing.ts). Work on this Mac is the same whatever is set here. */
+const MODES: [string, string, string][] = [['shared', 'Shared', 'Matteo and his agents can read and message it'], ['private', 'Only me', 'Only you, also from your iPhone'], ['off', 'Off the record', 'Nothing leaves this Mac']]
 function SessionSharing(): JSX.Element {
-  const [state, setState] = useState<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean }[] } | null>(null)
+  const [state, setState] = useState<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
   const load = () => void window.term.team.tabs().then(setState)
   useEffect(() => { load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t) }, [])
   const set = (key: string | null, shared: boolean) => void window.term.team.share(key, shared).then(load)
+  const folder = (path: string | null, mode: 'shared' | 'private' | 'off' | null) => void window.term.team.folder(path, mode).then(load)
   if (!state) return <></>
+  const home = (p: string) => p.replace(/^\/Users\/[^/]+/, '~')
   return <section className="share-box">
+    <p className="share-note">This decides only what your partner and their agents can see and reach. Your own sessions work the same whatever is set here.</p>
     <label className="share-default"><input type="checkbox" checked={state.byDefault} onChange={e => set(null, e.target.checked)} />
-      <span><strong>Share new sessions by default</strong><small>Off: a tab stays private until you share it here.</small></span></label>
-    {state.tabs.length > 0 && <div className="share-tabs">{state.tabs.map(t => <button key={t.key} className={`share-tab${t.shared ? ' on' : ''}`} title={t.shared ? 'Shared: click to make private' : 'Private: click to share'} onClick={() => set(t.key, !t.shared)}>
-      <i aria-hidden="true" />{t.name}<em>{t.shared ? 'Shared' : 'Private'}</em></button>)}</div>}
+      <span><strong>Share sessions by default</strong><small>For folders without a rule below. Off: only you.</small></span></label>
+    <div className="share-folders">
+      <strong>Folders</strong>
+      {Object.entries(state.folders).map(([path, mode]) => <div key={path} className="share-folder">
+        <span title={path}>{home(path)}</span>
+        <select value={mode} aria-label={`Sharing for ${path}`} onChange={e => folder(path, e.target.value as 'shared')}>{MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        <button className="todo-icon" aria-label={`Remove the rule for ${path}`} onClick={() => folder(path, null)}>×</button>
+      </div>)}
+      <button className="btn" onClick={() => folder(null, 'off')}>Add folder…</button>
+      <small>{MODES.map(([, l, d]) => `${l}: ${d}.`).join(' ')} A rule covers the folder and everything inside it; the deepest rule wins; a tab set below goes over it.</small>
+    </div>
+    {state.tabs.length > 0 && <div className="share-tabs">{state.tabs.map(t => <button key={t.key} className={`share-tab${t.shared ? ' on' : ''}`} title={t.shared ? 'Shared: click to make it only yours' : 'Only you: click to share'} onClick={() => set(t.key, !t.shared)}>
+      <i aria-hidden="true" />{t.name}<em>{t.mode === 'off' ? 'Off the record' : t.shared ? 'Shared' : 'Only me'}</em></button>)}</div>}
   </section>
 }

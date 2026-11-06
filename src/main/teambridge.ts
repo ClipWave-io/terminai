@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import * as ptys from './pty'
-import * as store from './store'
+import { tabMode, scrub } from './sharing'
 
 /**
  * The bridge between the partners' sessions. Each TerminAI tab running Claude Code or Codex is a conversation on the
@@ -59,6 +59,7 @@ function turns(file: string): { id: string; kind: 'user' | 'assistant'; content:
     // Command echoes, system reminders and the TerminAI hand-offs are not the conversation.
     if (!kind || !content || content.startsWith('<') || content.startsWith('[TerminAI')) continue
     if (!id) id = fakeUuid(`${basename(file)}:${n}`)
+    content = scrub(content)
     out.push({ id, kind, content: content.length > 12000 ? content.slice(0, 12000) + '\n…' : content })
   }
   return out
@@ -76,10 +77,8 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
   const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
   let running = false
 
-  const shared = (key: string) => {
-    const p = store.load()
-    return p.tabSharing?.[key] ?? p.shareConversations
-  }
+  const modeOf = (key: string) => { const id = ptys.liveIds().find(t => ptys.workspaceKeyOf(t) === key); return tabMode(key, id ? ptys.cwdOf(id) : '') }
+  const shared = (key: string) => modeOf(key) === 'shared'
   async function tick(): Promise<void> {
     if (running) return
     running = true
@@ -87,7 +86,9 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       const team = await opts.team(); if (!team) return
       for (const id of ptys.liveIds()) {
         const agent = ptys.agentOf(id); if (!agent.kind) continue
-        const key = ptys.workspaceKeyOf(id), share = shared(key)
+        const key = ptys.workspaceKeyOf(id), mode = tabMode(key, ptys.cwdOf(id)), share = mode === 'shared'
+        // Off the record: nothing of it goes to the server; a copy shared before is made private.
+        if (mode === 'off') { if (conversationOf.has(key)) { await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', { title: 'Private session', visibility: 'owner' }).catch(() => {}); conversationOf.delete(key) } continue }
         const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
           title: opts.tabName(id).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
         conversationOf.set(key, conv.id)
@@ -107,7 +108,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       for (const m of messages ?? []) {
         const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
         // From the workspace only to a shared tab; from yourself (the iPhone app) to any of yours.
-        if (!tab || (!m.self && !shared(m.tab))) continue
+        if (!tab || modeOf(m.tab) === 'off' || (!m.self && !shared(m.tab))) continue
         const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
         if (!agent.alive || status === 'working' || status === 'question') continue
         received.set(m.id, { from: m.from, fromName: m.fromName })

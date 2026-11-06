@@ -17,6 +17,7 @@ import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
+import { folderMode, tabMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import * as store from './store'
@@ -554,7 +555,15 @@ function registerIpc(): void {
     },
   })
   bridge.start()
-  appIpc.handle('team:tabs', () => { const p = store.load(); return { byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: p.tabSharing[key] ?? p.shareConversations } }) } })
+  appIpc.handle('team:tabs', () => { const p = store.load(); return { byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)) } }), folders: p.folderSharing } })
+  appIpc.handle('team:folder', async (_e, folder: unknown, mode: unknown) => {
+    const p = store.load(), rules = { ...p.folderSharing }
+    let path = typeof folder === 'string' ? folder : ''
+    if (folder === null) { const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], defaultPath: homedir(), message: 'Choose a folder to set what Matteo may see of its conversations' }); if (r.canceled || !r.filePaths[0]) return p.folderSharing; path = r.filePaths[0] }
+    if (!path || path.length > 1000) throw new Error('Invalid folder')
+    if (mode === null) delete rules[path]; else if (mode === 'shared' || mode === 'private' || mode === 'off') rules[path] = mode; else throw new Error('Invalid mode')
+    store.save({ ...p, folderSharing: rules }); void bridge?.tick(); return rules
+  })
   appIpc.handle('team:share', (_e, key: unknown, shared: unknown) => {
     if (typeof shared !== 'boolean') throw new Error('Invalid')
     const p = store.load()
@@ -567,7 +576,8 @@ function registerIpc(): void {
   const logDay = async (day: string) => {
     const user = store.load().tasksUser
     if (!user || process.env.TERMINAI_TEST_BUILD) return
-    await workspaceWorklog.put(user, day, workDay(day, user, store.load().worklogSkip)).catch(err => console.warn('[worklog]', err?.message ?? err))
+    const p = store.load()
+    await workspaceWorklog.put(user, day, workDay(day, user, p.worklogSkip, cwd => (folderMode(cwd) ?? (p.shareConversations ? 'shared' : 'private')) !== 'shared')).catch(err => console.warn('[worklog]', err?.message ?? err))
   }
   setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
   setInterval(() => void logDay(today()), 10 * 60_000)

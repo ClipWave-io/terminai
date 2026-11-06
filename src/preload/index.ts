@@ -18,7 +18,8 @@ const api = {
     toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     checkForUpdates: (): Promise<void> => ipcRenderer.invoke('app:check-updates') },
-  team: { tabs: (): Promise<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean }[] }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared) },
+  team: { tabs: (): Promise<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
+    folder: (folder: string | null, mode: 'shared' | 'private' | 'off' | null): Promise<Record<string, string>> => ipcRenderer.invoke('team:folder', folder, mode) },
   worklog: { get: (day: string): Promise<{ day: string; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {
     onSignedIn: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('workspace:signed-in', h); return () => { ipcRenderer.removeListener('workspace:signed-in', h) } },

@@ -90,12 +90,14 @@ function union(all: [number, number][]): number {
   return cur ? total + cur[1] - cur[0] : total
 }
 
-export function workDay(day: string, person: string, skip: string[] = []): WorkDay {
+/** `hidden(cwd)`: conversations the partner may not see, sent as "Private work" with their time only. */
+export function workDay(day: string, person: string, skip: string[] = [], hidden?: (cwd: string) => boolean): WorkDay {
   const rs = conversations(day, skip), all: [number, number][] = [], byPlace = new Map<string, number>()
   const list: WorkConversation[] = rs.sort((a, b) => a.times[0] - b.times[0]).map(r => {
     const s = spans(r.times); all.push(...s)
-    const ms = length(s), where = place(r.cwd)
+    const ms = length(s), secret = hidden?.(r.cwd) ?? false, where = secret ? 'Private work' : place(r.cwd)
     byPlace.set(where, (byPlace.get(where) ?? 0) + ms)
+    if (secret) return { tool: r.tool, title: 'Private work', place: where, start: new Date(r.times[0]).toISOString(), end: new Date(r.times[r.times.length - 1]).toISOString(), activeMinutes: Math.round(ms / 60000), done: [] }
     return { tool: r.tool, title: r.title || r.done[0]?.text.slice(0, 70) || 'Untitled', place: where, start: new Date(r.times[0]).toISOString(),
       end: new Date(r.times[r.times.length - 1]).toISOString(), activeMinutes: Math.round(ms / 60000),
       done: r.done.map(x => ({ at: new Date(x.at).toISOString(), text: x.text.replace(SECRET, '[hidden]') })) }

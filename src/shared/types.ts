@@ -346,6 +346,8 @@ export interface Prefs {
   worklogSkip: string[]
   /** tabs' conversations shared with the workspace unless a tab says otherwise (teambridge.ts) */
   shareConversations: boolean
+  /** folder -> what the partner may see of conversations there (sharing.ts) */
+  folderSharing: Record<string, FolderMode>
   /** per tab (its workspace key): true shared, false private, whatever the default */
   tabSharing: Record<string, boolean>
   /** sidebar sessions bucketed under a heading per folder */
@@ -393,6 +395,7 @@ export const DEFAULT_PREFS: Prefs = {
   worklogSkip: [],
   shareConversations: true,
   tabSharing: {},
+  folderSharing: {},
   groupByFolder: true,
   tasksUser: '',
   todoHiddenColumns: [],
@@ -405,3 +408,5 @@ export const DEFAULT_PREFS: Prefs = {
 /** One person's day in the work log (src/main/worklog.ts), as the server keeps it. Minutes are working time. */
 export interface WorkConversation { tool: 'Claude' | 'Codex'; title: string; place: string; start: string; end: string; activeMinutes: number; done: { at: string; text: string }[] }
 export interface WorkDay { day: string; person: string; workingMinutes: number; projects: { place: string; minutes: number }[]; conversations: WorkConversation[]; writtenAt: string }
+
+export type FolderMode = 'shared' | 'private' | 'off'
