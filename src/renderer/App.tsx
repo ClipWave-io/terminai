@@ -127,6 +127,11 @@ export function App(): JSX.Element {
   }
 
   const [showToolbar, setShowToolbar] = useState(false)
+  // Tabs the partner's agent wrote into, by renderer tab id: outlined in the sidebar until opened.
+  const [incoming, setIncoming] = useState<Record<string, string>>({})
+  // The tab's id is its pty's, as in the notices' focus requests.
+  useEffect(() => window.term.team.onIncoming(({ tabId, from }) => setIncoming(v => ({ ...v, [tabId]: from }))), [])
+  useEffect(() => { if (activeId && incoming[activeId]) setIncoming(({ [activeId]: _, ...rest }) => rest) }, [activeId, incoming])
   const [fullscreen, setFullscreen] = useState(false)
   useEffect(() => { void window.term.window.fullscreen().then(setFullscreen); return window.term.window.onFullscreen(setFullscreen) }, [])
   // Settings, Sync (Team), To-do and All sessions are one at a time: opening one closes whichever was open.
@@ -750,6 +755,7 @@ export function App(): JSX.Element {
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
             activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}
+            incoming={incoming}
             width={railWidth}
             onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal')}}
             onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}

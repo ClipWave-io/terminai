@@ -481,6 +481,8 @@ export function createApp(pool, config) {
           const {rows:[conversation]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2',[conversationId,companyId]);
           requireThat(conversation&&canReadConversation(conversation,member,user.id),404,'Conversation not found.');
           if(!conv[2]&&req.method==='GET')return {conversation:publicConversation(conversation)};
+          // Its owner deletes it for good: its messages, and the agent messages to and from it, go with it.
+          if(!conv[2]&&req.method==='DELETE'){requireThat(conversation.owner_id===user.id,403,'Only its owner can delete it.');await db.query('DELETE FROM manager_conversations WHERE id=$1',[conversationId]);return {ok:true};}
           if(!conv[2]&&req.method==='PATCH') {
             requireThat(conversation.owner_id===user.id&&member.role!=='viewer',403,'Only the conversation owner can change its visibility or title.');
             const visibility=enumValue(input.visibility??conversation.visibility,['owner','company'],'visibility');
@@ -554,6 +556,19 @@ export function createApp(pool, config) {
         if(tail==='/worklog'&&req.method==='GET'){
           const {rows}=await db.query("SELECT to_char(day,'YYYY-MM-DD') AS day,array_agg(person) AS people FROM manager_worklogs WHERE company_id=$1 GROUP BY day ORDER BY day DESC LIMIT 120",[companyId]);
           return {days:rows};
+        }
+        if(logDay&&req.method==='DELETE'){
+          const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
+          if(col)await db.query('DELETE FROM manager_worklogs WHERE company_id=$1 AND person=$2 AND day=$3',[companyId,col.key,logDay[1]]);
+          return {ok:true};
+        }
+        // Everything this person's Macs uploaded here: their sessions (with messages) and their work log days.
+        if(tail==='/uploads'&&req.method==='DELETE'){
+          const {rowCount:sessions}=await db.query('DELETE FROM manager_conversations WHERE company_id=$1 AND owner_id=$2 AND source_key IS NOT NULL',[companyId,user.id]);
+          const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
+          const {rowCount:days}=col?await db.query('DELETE FROM manager_worklogs WHERE company_id=$1 AND person=$2',[companyId,col.key]):{rowCount:0};
+          await audit(db,companyId,user.id,'uploads.deleted',null);
+          return {ok:true,sessions,days};
         }
         if(logDay&&req.method==='PUT'){
           const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);

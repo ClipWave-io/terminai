@@ -178,6 +178,14 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request('/api/auth/device/poll',{method:'POST',data:{pollToken:code}})).status,410,'once');
   assert.equal((await request('/api/auth/handoff',{method:'POST',data:{}})).status,401);
 
+  // Deleting what was uploaded: one conversation by its owner only, then everything of one's own.
+  assert.equal((await request(`/api/companies/${alpha.id}/conversations/${tabMo.id}`,{token:a.body.token,method:'DELETE'})).status,403);
+  assert.equal((await request(`/api/companies/${alpha.id}/conversations/${tabMo.id}`,{token:mo.body.token,method:'DELETE'})).status,200);
+  assert.equal((await request(`/api/companies/${alpha.id}/conversations/${tabMo.id}/messages`,{token:mo.body.token})).status,404);
+  const wiped=(await request(`/api/companies/${alpha.id}/uploads`,{token:a.body.token,method:'DELETE'})).body;
+  assert.ok(wiped.sessions>=1&&wiped.days>=1);
+  assert.deepEqual((await request(`/api/companies/${alpha.id}/worklog`,{token:a.body.token})).body.days,[]);
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

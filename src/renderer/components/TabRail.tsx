@@ -4,6 +4,8 @@ import type { JSX } from 'react'
 
 interface Props {
   filter: string
+  /** renderer tab id -> the partner whose agent wrote to it */
+  incoming?: Record<string, string>
   filterOpen: boolean
   onFilter: (value: string) => void
   /** Escape in the filter, or Enter once it has picked a session */
@@ -63,6 +65,7 @@ export function TabRail({
   tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onReorderGroups,
   activeId,
   speakingId,
+  incoming = {},
   width,
   onSelect,
   onClose,
@@ -122,6 +125,7 @@ export function TabRail({
         dragOver === i && dragFrom !== null && dragFrom !== i ? 'dropping' : '',
         dragFrom === i ? 'dragging' : '',
         tab.hidden ? 'is-hidden' : '',
+        incoming[tab.id] ? 'incoming' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -166,7 +170,7 @@ export function TabRail({
         title={tab.id === speakingId ? 'Speaking its summary' : DOT_TITLE[tab.status]}
       >{!tab.exited && tab.id !== speakingId && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
-        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tabLabel(tab)}</div>}
+        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tabLabel(tab)}{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
         <div className="tab-cwd">{shortCwd(tab.cwd)}</div>
       </span>
       <button

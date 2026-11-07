@@ -1255,3 +1255,6 @@ textarea.card-notes.editing {
 .arc-mini { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 0 0; }
 /* A name typed in place in the Files list (rename, new file, new folder). */
 .files-name { display: block; width: calc(100% - 12px); margin: 2px 6px; padding: 4px 6px; border: 1px solid var(--accent); border-radius: 5px; background: var(--bg); color: var(--fg); font: inherit; outline: none; }
+/* A session the partner's agent wrote to: outlined until it is opened. */
+.tab.incoming { box-shadow: inset 0 0 0 1.5px #e8a900; border-radius: 9px; }
+.tab-incoming { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 700; color: #1a1400; background: #e8a900; vertical-align: 1px; }

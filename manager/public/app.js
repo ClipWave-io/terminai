@@ -541,7 +541,10 @@ async function account(main) {
     el('small', 'Tap “Sign in with browser” in the app, then type the code it shows here.')), button('Enter a code', () => { deviceCode = ''; showDevice(); }));
   const naming = form(async data => { await api('/api/me', 'PATCH', data); location.reload(); });
   field(naming, 'Your name', 'name', 'text', me.user.name); submit(naming, 'Save name', 'secondary');
-  main.append(el('div', null, { class: 'stack' }, card('Name', 'What the others see on tasks and notes.', naming), el('h2', 'Signed-in devices'), list, card(null, null, link), card('Password', null, f)));
+  const wipe = el('div', null, { class: 'row' }, el('div', null, { class: 'grow' }, el('strong', 'Delete what your Macs uploaded'),
+    el('small', 'Your sessions (with their messages) and your work log, in this workspace. Tasks and notes stay. Your Mac uploads again only what is set to Shared.')),
+    button('Delete…', async () => { if (!confirm('Delete every session and work log day you uploaded here? This cannot be undone.')) return; const r = await api(`${base()}/uploads`, 'DELETE'); message(`Deleted ${r.sessions} sessions and ${r.days} log days.`); }, 'danger'));
+  main.append(el('div', null, { class: 'stack' }, card('Name', 'What the others see on tasks and notes.', naming), el('h2', 'Signed-in devices'), list, card(null, null, link), card(null, null, wipe), card('Password', null, f)));
 }
 
 run(start)();

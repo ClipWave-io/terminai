@@ -552,6 +552,9 @@ function registerIpc(): void {
       const note = new Notification({ title, body, silent: true })
       note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('tab:request', { reqId: `notice-${Date.now()}`, kind: 'focus', input: { id: tabId } }) })
       note.show()
+      // The tab gets the partner's outline in the sidebar until it is opened.
+      const from = /^(?:Reply from )?(.+?)'s agent/.exec(title)?.[1]
+      if (from && win && !win.isDestroyed()) win.webContents.send('team:incoming', { tabId, from })
     },
   })
   bridge.start()
