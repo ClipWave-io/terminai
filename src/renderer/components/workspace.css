@@ -146,3 +146,4 @@
 .share-folder { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
 .share-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
 .share-folder select { height: 26px; border-radius: 7px; border: 1px solid var(--border, #2a3140); background: var(--pane, #0f1420); color: inherit; font: inherit; }
+.share-add{display:flex;gap:6px}

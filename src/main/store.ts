@@ -28,7 +28,8 @@ function hydrate(raw: unknown): Prefs {
     // an upgrade from a prefs file that predates this field shows it once.
     seenWelcome: p.seenWelcome === true,
     doneNotices: p.doneNotices !== false,
-    shareConversations: p.shareConversations !== false,
+    // Off the record unless chosen: a Mac that never said so shares nothing.
+    shareConversations: p.shareConversations === true,
     tabSharing: p.tabSharing && typeof p.tabSharing === 'object' && !Array.isArray(p.tabSharing) ? Object.fromEntries(Object.entries(p.tabSharing).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'boolean').slice(-500)) as Record<string, boolean> : {},
     folderSharing: p.folderSharing && typeof p.folderSharing === 'object' && !Array.isArray(p.folderSharing) ? Object.fromEntries(Object.entries(p.folderSharing).filter(([k, v]) => typeof k === 'string' && k.length < 1000 && ['shared', 'private', 'off'].includes(v as string)).slice(0, 200)) as Record<string, 'shared' | 'private' | 'off'> : {},
     worklogSkip: Array.isArray(p.worklogSkip) ? p.worklogSkip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 50) : [],

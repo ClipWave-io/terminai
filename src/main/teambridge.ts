@@ -8,7 +8,7 @@ import { tabMode, scrub } from './sharing'
  * The bridge between the partners' sessions. Each TerminAI tab running Claude Code or Codex is a conversation on the
  * workspace server: shared with the workspace by default (Settings turns the default off; a tab can be made
  * private), with its folder, status and a heartbeat, and its turns mirrored as they come: the user's prompts and
- * the agent's replies, never tool output. A partner's agent can then list, read and message a shared tab
+ * the agent's replies, never tool output (only Shared tabs; Only me sends a name and status, Off the record nothing). A partner's agent can then list, read and message a shared tab
  * (`terminai team`); the message is typed into the tab here when its agent is free, labelled as coming from them,
  * and the tab answers with `terminai team reply`. A private tab is seen and reached only by its owner (from the
  * iPhone app, where a message is typed in as a plain prompt), never by the workspace.
@@ -76,6 +76,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
   const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
   let running = false
+  const wasShared = new Set<string>(), seen = new Set<string>()
 
   const modeOf = (key: string) => { const id = ptys.liveIds().find(t => ptys.workspaceKeyOf(t) === key); return tabMode(key, id ? ptys.cwdOf(id) : '') }
   const shared = (key: string) => modeOf(key) === 'shared'
@@ -87,12 +88,26 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       for (const id of ptys.liveIds()) {
         const agent = ptys.agentOf(id); if (!agent.kind) continue
         const key = ptys.workspaceKeyOf(id), mode = tabMode(key, ptys.cwdOf(id)), share = mode === 'shared'
-        // Off the record: nothing of it goes to the server; a copy shared before is made private.
-        if (mode === 'off') { if (conversationOf.has(key)) { await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', { title: 'Private session', visibility: 'owner' }).catch(() => {}); conversationOf.delete(key) } continue }
+        // Leaving Shared deletes what the server had of it (its turns and messages); it starts over below if it is Only me.
+        if (!share && wasShared.has(key) && conversationOf.has(key)) {
+          await team.call(`/api/companies/${team.id}/conversations/${conversationOf.get(key)}`, 'DELETE').catch(() => {})
+          posted.delete(conversationOf.get(key)!); conversationOf.delete(key)
+        }
+        // First sight since the app started, not Shared: whatever an earlier run uploaded of it is deleted.
+        if (!share && !seen.has(key)) {
+          const old = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', { title: 'Private session', visibility: 'owner' }).catch(() => null))?.conversation
+          if (old) await team.call(`/api/companies/${team.id}/conversations/${old.id}`, 'DELETE').catch(() => {})
+          conversationOf.delete(key)
+        }
+        seen.add(key)
+        if (share) wasShared.add(key); else wasShared.delete(key)
+        // Off the record: nothing of it goes to the server.
+        if (mode === 'off') continue
+        // Only me: a name and a status for your iPhone to reach it, never its conversation.
         const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
-          title: opts.tabName(id).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
+          title: share ? opts.tabName(id).slice(0, 200) || 'Session' : 'Private session', place: share ? place(ptys.cwdOf(id)) : undefined, status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
         conversationOf.set(key, conv.id)
-        // A private tab's turns go up too: the server shows them only to you (your iPhone), never to the workspace.
+        if (!share) continue
         const file = transcriptOf(id); if (!file) continue
         const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
         // The first look sends only the last 30 turns: older history stays on this Mac.

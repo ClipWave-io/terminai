@@ -7,13 +7,14 @@ let asking = false
 export function startUpdates(win: () => BrowserWindow | null): void {
   if (!app.isPackaged || process.env.TERMINAI_TEST_BUILD) return
   autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  // Installed only when the person clicks Restart now: never by itself on quit.
+  autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.on('update-downloaded', async info => {
     if (asking) return
     asking = true
     const options = { type: 'info' as const, buttons: ['Restart now', 'Later'], defaultId: 0, cancelId: 1,
       message: `TerminAI ${info.version} is ready`,
-      detail: 'Restart to update. Your tabs come back after the restart; choosing Later installs it the next time you quit.' }
+      detail: 'Restart to update. Your tabs come back after the restart; choose Later and it waits until you restart from TerminAI › Check for Updates….' }
     const owner = win()
     const { response } = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
     asking = false

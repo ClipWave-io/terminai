@@ -393,7 +393,7 @@ export const DEFAULT_PREFS: Prefs = {
   seenWelcome: false,
   doneNotices: true,
   worklogSkip: [],
-  shareConversations: true,
+  shareConversations: false,
   tabSharing: {},
   folderSharing: {},
   groupByFolder: true,

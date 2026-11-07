@@ -91,8 +91,10 @@ function union(all: [number, number][]): number {
 }
 
 /** `hidden(cwd)`: conversations the partner may not see, sent as "Private work" with their time only. */
-export function workDay(day: string, person: string, skip: string[] = [], hidden?: (cwd: string) => boolean): WorkDay {
-  const rs = conversations(day, skip), all: [number, number][] = [], byPlace = new Map<string, number>()
+export function workDay(day: string, person: string, skip: string[] = [], modeOf?: (cwd: string) => 'shared' | 'private' | 'off'): WorkDay {
+  // Off the record is left out completely; Only me shows as "Private work" with its time.
+  const hidden = modeOf && ((cwd: string) => modeOf(cwd) !== 'shared')
+  const rs = conversations(day, skip).filter(r => !modeOf || modeOf(r.cwd) !== 'off'), all: [number, number][] = [], byPlace = new Map<string, number>()
   const list: WorkConversation[] = rs.sort((a, b) => a.times[0] - b.times[0]).map(r => {
     const s = spans(r.times); all.push(...s)
     const ms = length(s), secret = hidden?.(r.cwd) ?? false, where = secret ? 'Private work' : place(r.cwd)
@@ -111,14 +113,15 @@ export function workDay(day: string, person: string, skip: string[] = [], hidden
  * Finished work from the other conversations since the last hand-off, given to one conversation only, so it can
  * tick the To-do tasks it finished and add done ones for work that had none (`terminai log hook`, at a prompt).
  */
-export function handoff(stateFile: string, session: string, every = 30 * 60_000): string[] {
+/** Only Shared work is handed on (`shared(cwd)`): it may become tasks on the shared To-do. */
+export function handoff(stateFile: string, session: string, every = 30 * 60_000, shared: (cwd: string) => boolean = () => true): string[] {
   let state: { handed?: number } = {}
   try { state = JSON.parse(readFileSync(stateFile, 'utf8')) } catch {}
   const now = Date.now(), since = state.handed ?? now - 3600_000
   if (now - since < every) return []
   writeFileSync(`${stateFile}.tmp`, JSON.stringify({ handed: now })); renameSync(`${stateFile}.tmp`, stateFile)
   const clock = (at: number) => new Date(at).toTimeString().slice(0, 5)
-  return conversations(today()).filter(r => r.id !== session)
+  return conversations(today()).filter(r => r.id !== session && shared(r.cwd))
     .flatMap(r => r.done.filter(x => x.at > since).map(x => ({ at: x.at, line: `${clock(x.at)} [${place(r.cwd)}] ${x.text.replace(SECRET, '[hidden]')}` })))
     .sort((a, b) => a.at - b.at).map(x => x.line).slice(-40)
 }

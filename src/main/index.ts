@@ -17,7 +17,7 @@ import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
-import { folderMode, tabMode } from './sharing'
+import { tabMode, defaultMode, repoOf } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import * as store from './store'
@@ -239,7 +239,7 @@ app.whenReady().then(() => {
       hook: (session) => {
         const user = store.load().tasksUser
         if (!user) return {}
-        const items = handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '')
+        const items = handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '', undefined, cwd => defaultMode(cwd) === 'shared')
         if (!items.length) return {}
         return { context: `TerminAI work log hand-off: finished work in this person's other conversations since the last hand-off, not yet matched to the To-do. `
           + `Before answering, quietly run \`terminai todo map\`; mark done any open task of the user's (theirs, Together or private) this work finished; for real work with no task, `
@@ -562,7 +562,12 @@ function registerIpc(): void {
   appIpc.handle('team:folder', async (_e, folder: unknown, mode: unknown) => {
     const p = store.load(), rules = { ...p.folderSharing }
     let path = typeof folder === 'string' ? folder : ''
-    if (folder === null) { const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], defaultPath: homedir(), message: 'Choose a folder to set what Matteo may see of its conversations' }); if (r.canceled || !r.filePaths[0]) return p.folderSharing; path = r.filePaths[0] }
+    if (folder === null || folder === 'git:') {
+      const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], defaultPath: homedir(), message: folder ? 'Choose a folder of the git repo: the rule covers every clone and worktree of it' : 'Choose a folder to set what Matteo may see of its conversations' })
+      if (r.canceled || !r.filePaths[0]) return p.folderSharing
+      path = r.filePaths[0]
+      if (folder === 'git:') { const repo = repoOf(path); if (!repo) throw new Error('That folder is not in a git repo with a remote.'); path = `git:${repo}` }
+    }
     if (!path || path.length > 1000) throw new Error('Invalid folder')
     if (mode === null) delete rules[path]; else if (mode === 'shared' || mode === 'private' || mode === 'off') rules[path] = mode; else throw new Error('Invalid mode')
     store.save({ ...p, folderSharing: rules }); void bridge?.tick(); return rules
@@ -580,7 +585,7 @@ function registerIpc(): void {
     const user = store.load().tasksUser
     if (!user || process.env.TERMINAI_TEST_BUILD) return
     const p = store.load()
-    await workspaceWorklog.put(user, day, workDay(day, user, p.worklogSkip, cwd => (folderMode(cwd) ?? (p.shareConversations ? 'shared' : 'private')) !== 'shared')).catch(err => console.warn('[worklog]', err?.message ?? err))
+    await workspaceWorklog.put(user, day, workDay(day, user, p.worklogSkip, defaultMode)).catch(err => console.warn('[worklog]', err?.message ?? err))
   }
   setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
   setInterval(() => void logDay(today()), 10 * 60_000)
