@@ -63,6 +63,7 @@ function applyThemeVars(prefs: Prefs): void {
 export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const [ready, setReady] = useState(false)
+  useEffect(() => window.term.window.onOpenSettings(() => setShowSettings(true)), [])
   // Signed in from the website's Open TerminAI: open Sync, which now shows the account.
   useEffect(() => window.term.workspace.onSignedIn(() => setShowTeam(true)), [])
   const [restored, setRestored] = useState(false)
@@ -940,6 +941,9 @@ export function App(): JSX.Element {
           onChange={patchPrefs}
           onClose={() => setShowSettings(false)}
           onCustomize={() => void customizeDesign()}
+          tabs={tabs.map(t => ({ id: t.id, label: tabLabel(t) }))}
+          onCloseTab={id => void closeTab(id)}
+          onOpenTab={id => { setActiveId(id); setShowTerminal(true); setShowSettings(false) }}
         />
       )}
 

@@ -17,6 +17,7 @@ import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
+import { memoryReport, watchMemory } from './memory'
 import { tabMode, defaultMode, repoOf } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
@@ -401,6 +402,16 @@ function registerIpc(): void {
   appIpc.handle('project:create', (_event, folder: string, name: string, directory: boolean) => projectFiles.create(folder, name, directory))
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
+  appIpc.handle('memory:report', () => memoryReport())
+  // macOS says memory is tight: name the tabs using most, before something is killed. A click opens Settings › Memory.
+  watchMemory(r => {
+    if (!Notification.isSupported()) return
+    const tabName = (id: string) => { const t = store.load().tabs.find(x => x.ptyId === id); return t?.customTitle || t?.name || t?.title || basename(ptys.cwdOf(id)) || 'Session' }
+    const top = r.tabs.slice(0, 3).map(t => `${tabName(t.id)} ${(t.mb / 1024).toFixed(1)} GB`).join(', ')
+    const note = new Notification({ title: r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', body: `Close a few sessions before apps get closed. Using most: ${top}.` })
+    note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
+    note.show()
+  })
   appIpc.handle('app:check-updates', () => checkForUpdatesNow(win))
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {

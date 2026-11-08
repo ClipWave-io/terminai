@@ -26,6 +26,9 @@ interface Props {
   onChange: (patch: Partial<Prefs>) => void
   onClose: () => void
   onCustomize: () => void
+  tabs: { id: string; label: string }[]
+  onCloseTab: (id: string) => void
+  onOpenTab: (id: string) => void
 }
 
 /** Every binding registered in App.tsx's keydown handler, grouped for reading. */
@@ -71,7 +74,7 @@ interface ElevenVoice {
   description: string
 }
 
-export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props): JSX.Element {
+export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onCloseTab, onOpenTab }: Props): JSX.Element {
   const [voices, setVoices] = useState<string[]>([])
   const [hasEleven, setHasEleven] = useState(false)
   const [elevenVoices, setElevenVoices] = useState<ElevenVoice[]>([])
@@ -135,6 +138,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize }: Props):
       <div className="sheet" onMouseDown={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
         <AppVersion />
+        <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} />
         <div className="row">
           <label>Notify when a chat is done<span className="hint">A notice with its summary; click it to open that tab.</span></label>
           <input type="checkbox" checked={prefs.doneNotices} onChange={e => onChange({ doneNotices: e.target.checked })} />
@@ -406,5 +410,23 @@ function AppVersion(): JSX.Element {
   return <div className="row">
     <label>TerminAI {version}<span className="hint">New versions download by themselves; they install when you click Restart now.</span></label>
     <button className="btn settings-update" onClick={() => void window.term.window.checkForUpdates()}>Check for updates</button>
+  </div>
+}
+
+/** Memory: the Mac's pressure, TerminAI's own use, and each session's, biggest first, with Open and Close (memory.ts). */
+function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; label: string }[]; onCloseTab: (id: string) => void; onOpenTab: (id: string) => void }): JSX.Element {
+  const [r, setR] = useState<Awaited<ReturnType<typeof window.term.window.memory>> | null>(null)
+  useEffect(() => { const load = () => void window.term.window.memory().then(setR); load(); const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [])
+  if (!r) return <></>
+  const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+  const max = Math.max(1, ...r.tabs.map(t => t.mb))
+  return <div className="mem" id="memory">
+    <div className="mem-head"><strong>Memory</strong>
+      <span className={`mem-level ${r.pressure}`}>{r.pressure === 'normal' ? 'Mac memory OK' : r.pressure === 'warning' ? 'Memory is tight: close some sessions' : 'Out of memory: close sessions now'}</span></div>
+    <p className="hint">Sessions {gb(r.tabsMb)} · TerminAI itself {gb(r.appMb)} · Mac {gb(r.totalMb)}. You get a notice when memory gets tight.</p>
+    {r.tabs.slice(0, 8).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
+      <span className="mem-name">{tab?.label ?? 'Session'}</span><i style={{ width: `${(t.mb / max) * 100}%` }} /><em>{gb(t.mb)}</em>
+      {tab && <><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}
+    </div> })}
   </div>
 }

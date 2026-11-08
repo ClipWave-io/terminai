@@ -17,6 +17,8 @@ const api = {
     onFullscreen: (cb: (value: boolean) => void): (() => void) => { const handler = (_event: Electron.IpcRendererEvent, value: boolean) => cb(value); ipcRenderer.on('window:fullscreen', handler); return () => { ipcRenderer.removeListener('window:fullscreen', handler) } },
     toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    memory: (): Promise<import('../main/memory').MemoryReport> => ipcRenderer.invoke('memory:report'),
+    onOpenSettings: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
     checkForUpdates: (): Promise<void> => ipcRenderer.invoke('app:check-updates') },
   team: {
     agentMessages: (v?: 'ask' | 'allow'): Promise<'ask' | 'allow'> => ipcRenderer.invoke('team:agentMessages', v),
