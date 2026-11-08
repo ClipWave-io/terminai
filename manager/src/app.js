@@ -111,6 +111,13 @@ export function createApp(pool, config) {
         const [file, type] = staticFiles[path]; res.setHeader('Content-Type', `${type}; charset=utf-8`); return res.end(await readFile(new URL(`../public/${file}`, import.meta.url)));
       }
       // The newest signed Mac app, straight from GitHub's latest release: the website's Download button.
+      // LocalFlow's DMG: the newest localflow-* release (a pre-release, so it never becomes TerminAI's latest).
+      if (req.method === 'GET' && path === '/localflow/download') {
+        const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases?per_page=30', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+        const rel = r?.ok ? (await r.json()).find(x => x.tag_name?.startsWith('localflow-')) : null, dmg = rel?.assets?.find(a => /\.dmg$/.test(a.name));
+        res.writeHead(302, { Location: dmg?.browser_download_url ?? '/localflow', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       if (req.method === 'GET' && path === '/download/mac') {
         const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases/latest', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);
         const release = r?.ok ? await r.json() : null, dmg = release?.assets?.find(a => /\.dmg$/.test(a.name));
