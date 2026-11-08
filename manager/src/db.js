@@ -144,6 +144,8 @@ export async function migrate(pool) {
         created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz, last_used_at timestamptz, revoked_at timestamptz
       );
       ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot text;
+      ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS app_version text;
+      ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS seen_at timestamptz;
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

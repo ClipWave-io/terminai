@@ -16,7 +16,9 @@ function hydrate(raw: unknown): Prefs {
   return {
     ...DEFAULT_PREFS,
     ...p,
-    paneOrder: normalizePaneOrder(p.paneOrder),
+    // Files open on the right: moved there once, after that wherever the person drags them.
+    paneOrder: p.filesRightV1 ? normalizePaneOrder(p.paneOrder) : [...normalizePaneOrder(p.paneOrder).filter(x => x !== 'files'), 'files'],
+    filesRightV1: true,
     hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','todo','sessions','maximize','sidebar'].includes(item)) : [],
     // Clamped on read as well as on write: a stale or hand-edited prefs file
     // must never be able to leave the rail off-screen or at zero width.

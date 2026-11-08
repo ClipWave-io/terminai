@@ -31,7 +31,7 @@ async function load(): Promise<Session | null> {
 async function request(url: string, path: string, method: string, body?: unknown, token?: string): Promise<any> {
   const response = await fetch(url + path, {
     method, redirect: 'error', signal: AbortSignal.timeout(15000),
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', 'X-TerminAI-Version': app.getVersion(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const value = await response.json().catch(() => ({})) as any

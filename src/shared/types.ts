@@ -327,6 +327,8 @@ export interface VoicePrefs {
 export interface Prefs {
   hiddenToolbarItems: string[]
   paneOrder: WorkspacePane[]
+  /** once: files moved to the right for everyone who had them on the left by default */
+  filesRightV1?: boolean
   theme: ThemeName
   fontSize: number
   /** width of the tab rail in px; drag its inner edge to change */
@@ -378,7 +380,7 @@ export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
   hiddenToolbarItems: [],
-  paneOrder: ['files', 'terminal', 'browser'],
+  paneOrder: ['terminal', 'browser', 'files'],
   theme: 'midnight',
   fontSize: 13,
   railWidth: RAIL_DEFAULT,

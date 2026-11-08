@@ -4,7 +4,7 @@ const errorMessage = (error: unknown) => String(error).replace(/^Error: Error in
 const PdfViewer = lazy(()=>import('./PdfViewer'))
 const CodeEditor = lazy(()=>import('./CodeEditor'))
 
-export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }: { openRequest?: string | null; side: 'left' | 'right'; onSide: () => void; onClose: () => void; onDirty: (dirty: boolean) => void }): JSX.Element {
+export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest, full, onFull }: { full?: boolean; onFull?: () => void; openRequest?: string | null; side: 'left' | 'right'; onSide: () => void; onClose: () => void; onDirty: (dirty: boolean) => void }): JSX.Element {
   const [listing, setListing] = useState<ProjectListing | null>(null)
   const [preview, setPreview] = useState<ProjectPreview | null>(null)
   const [draft, setDraft] = useState('')
@@ -84,7 +84,7 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest }
     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void finishNaming(true) } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); void finishNaming(false) } }}
     onBlur={() => void finishNaming(true)} />
   return <aside className="project-files-pane" aria-label="Project files">
-    <div className="files-toolbar"><strong>Files</strong><button className="btn" onClick={() => void choose()}>Choose folder</button><button className="btn" onClick={onSide} title={`Move files ${side === 'left' ? 'right' : 'left'}`} aria-label={`Move files ${side === 'left' ? 'right' : 'left'}`}>{side === 'left' ? '⇥' : '⇤'}</button><button className="btn" onClick={() => { if (!busy && discard()) onClose() }} aria-label="Close files">×</button></div>
+    <div className="files-toolbar"><strong>Files</strong><button className="btn" onClick={() => void choose()}>Choose folder</button>{onFull && <button className="btn" onClick={onFull} title={full ? 'Back to the sessions  Esc' : 'Show the file full size'} aria-label={full ? 'Exit full size' : 'Full size'} aria-pressed={full}>{full ? '⤡' : '⤢'}</button>}<button className="btn" onClick={onSide} title={`Move files ${side === 'left' ? 'right' : 'left'}`} aria-label={`Move files ${side === 'left' ? 'right' : 'left'}`}>{side === 'left' ? '⇥' : '⇤'}</button><button className="btn" onClick={() => { if (!busy && discard()) onClose() }} aria-label="Close files">×</button></div>
     {listing && <div className="files-path" title={listing.root}>{listing.root.split('/').pop()}/{listing.path}</div>}
     <div role="status" className="files-status">{error || (busy ? 'Loading…' : !listing ? 'Choose a project folder to edit text files.' : preview?.type === 'pdf' ? 'PDF viewer' : preview && preview.type !== 'text' ? 'Preview' : 'Text editor · ⌘S to save')}</div>
     {listing && <div className="files-body">

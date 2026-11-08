@@ -9,7 +9,7 @@ import './workspace.css'
 // The team workspace: the same server, account and data as the website and the iPhone app.
 type Conversation = { id: string; title: string; visibility: string; ownerId?: string; owner_id?: string; updatedAt?: string }
 type Message = { id: string; content: string; kind: string; authorName?: string; author_name?: string; createdAt?: string }
-type Member = { id: string; name: string; email: string; role: string }
+type Member = { id: string; name: string; email: string; role: string; app_version?: string | null; app_seen?: string | null }
 type Tab = { id: string; title: string; customTitle?: string }
 type Section = 'people' | 'conversations' | 'tools'
 const items = <T,>(value: any): T[] => Array.isArray(value) ? value : value?.items ?? value?.conversations ?? value?.messages ?? value?.catalog ?? []
@@ -162,7 +162,7 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
     <section className="m-card">
       {members.map(m => <div className="m-person" key={m.id}>
         <span className="team-avatar">{initials(m.name)}</span>
-        <div><strong>{m.name}{m.id === me.id && <em> · you</em>}</strong><small>{m.email}</small></div>
+        <div><strong>{m.name}{m.id === me.id && <em> · you</em>}</strong><small>{m.email}{m.app_version ? ` · TerminAI ${m.app_version}` : ' · TerminAI not signed in yet'}{m.app_seen ? `, seen ${new Date(m.app_seen).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</small></div>
         <span className="m-role">{m.role}</span>
       </div>)}
       {members.length < 2 && <p className="m-hint">Only you so far. Invite Matteo below: you then share the To-do and notes, on the Mac, the web and the iPhone.</p>}

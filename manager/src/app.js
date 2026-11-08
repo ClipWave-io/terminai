@@ -78,6 +78,9 @@ export function createApp(pool, config) {
     if (!bearer && unsafe(req.method)) requireThat(req.headers.origin === origin, 403, 'Invalid request origin.');
     const { rows: [user] } = await pool.query(`SELECT u.*,s.id AS session_id FROM manager_sessions s JOIN manager_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()`, [digest(token)]);
     requireThat(user, 401, 'Session expired. Sign in again.');
+    // Which TerminAI version each signed-in Mac runs, and when it was last seen: shown under Members.
+    const ver = String(req.headers['x-terminai-version'] || '').slice(0, 20);
+    if (/^\d+\.\d+\.\d+$/.test(ver)) void pool.query("UPDATE manager_sessions SET app_version=$1,seen_at=now() WHERE id=$2 AND (app_version IS DISTINCT FROM $1 OR seen_at IS NULL OR seen_at<now()-interval '5 minutes')", [ver, user.session_id]).catch(() => {});
     // Used sessions stay: each use moves the end to 90 days (app) or 30 days (browser) from now, at most once a day.
     void pool.query(`UPDATE manager_sessions SET expires_at=now()+CASE WHEN client='desktop' THEN interval '90 days' ELSE interval '30 days' END WHERE id=$1 AND expires_at<now()+CASE WHEN client='desktop' THEN interval '89 days' ELSE interval '29 days' END`, [user.session_id]).catch(() => {});
     return user;
@@ -419,7 +422,8 @@ export function createApp(pool, config) {
           await audit(db,companyId,user.id,'company.updated',companyId);return {ok:true};
         }
         if(tail==='/members'&&req.method==='GET') {
-          const {rows}=await db.query('SELECT u.id,u.name,u.email,m.role,m.classification FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1 ORDER BY u.name',[companyId]);
+          const {rows}=await db.query(`SELECT u.id,u.name,u.email,m.role,m.classification,(SELECT s.app_version FROM manager_sessions s WHERE s.user_id=u.id AND s.app_version IS NOT NULL ORDER BY s.seen_at DESC NULLS LAST LIMIT 1) AS app_version,
+            (SELECT max(s.seen_at) FROM manager_sessions s WHERE s.user_id=u.id) AS app_seen FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1 ORDER BY u.name`,[companyId]);
           return {members:rows};
         }
         if(/^\/members\/[^/]+$/.test(tail)&&['PATCH','DELETE'].includes(req.method)) {

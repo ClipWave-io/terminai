@@ -102,9 +102,12 @@ export function App(): JSX.Element {
       .then(state => { if (!cancelled) setShowBrowser(Boolean(state.tabs?.length)) })
     return () => { cancelled = true }
   }, [activeId])
-  const terminalVisible = showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
+  // A file opened full size: the files pane alone, until Esc or the button again.
+  const [filesOnly, setFilesOnly] = useState(false)
+  useEffect(() => { if (!filesOnly) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilesOnly(false) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [filesOnly])
+  const terminalVisible = !filesOnly && showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
   const filesVisible = showFiles && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'files')
-  const browserVisible = showBrowser && (!compactWorkspace || compactPane === 'browser')
+  const browserVisible = !filesOnly && showBrowser && (!compactWorkspace || compactPane === 'browser')
   const toggleTerminal = () => {
     setShowTerminal(!terminalVisible); setBrowserOnly(false)
     setCompactPane(terminalVisible ? showBrowser ? 'browser' : showFiles ? 'files' : 'terminal' : 'terminal')
@@ -825,7 +828,7 @@ export function App(): JSX.Element {
         </div>
 
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
-        {showFiles && <div className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
+        {showFiles && <div className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace || filesOnly ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane full={filesOnly} onFull={() => setFilesOnly(v => !v)} openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
         <div className={`pane ${!terminalVisible ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('terminal') }}>
           {tabs.length === 0 && (
             <div className="pane-empty">
