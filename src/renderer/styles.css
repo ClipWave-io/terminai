@@ -1258,3 +1258,4 @@ textarea.card-notes.editing {
 /* A session the partner's agent wrote to: outlined until it is opened. */
 .tab.incoming { box-shadow: inset 0 0 0 1.5px #e8a900; border-radius: 9px; }
 .tab-incoming { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 700; color: #1a1400; background: #e8a900; vertical-align: 1px; }
+.settings-update { white-space: nowrap; flex: none; padding: 5px 12px; }

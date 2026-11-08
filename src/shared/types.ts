@@ -346,6 +346,8 @@ export interface Prefs {
   worklogSkip: string[]
   /** tabs' conversations shared with the workspace unless a tab says otherwise (teambridge.ts) */
   shareConversations: boolean
+  /** chose to use the app without an account: no sign-in screen at start; Sync asks when opened */
+  skippedAccount: boolean
   /** folder -> what the partner may see of conversations there (sharing.ts) */
   folderSharing: Record<string, FolderMode>
   /** per tab (its workspace key): true shared, false private, whatever the default */
@@ -394,6 +396,7 @@ export const DEFAULT_PREFS: Prefs = {
   doneNotices: true,
   worklogSkip: [],
   shareConversations: false,
+  skippedAccount: false,
   tabSharing: {},
   folderSharing: {},
   groupByFolder: true,

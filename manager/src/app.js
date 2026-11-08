@@ -47,7 +47,7 @@ async function defaultAssignments(db,companyId) {
 }
 async function newSession(db, userId, client) {
   const token = opaqueToken();
-  const { rows: [session] } = await db.query(`INSERT INTO manager_sessions(id,token_hash,user_id,client,expires_at) VALUES($1,$2,$3,$4,now()+interval '7 days') RETURNING id,expires_at`, [randomUUID(), digest(token), userId, client]);
+  const { rows: [session] } = await db.query(`INSERT INTO manager_sessions(id,token_hash,user_id,client,expires_at) VALUES($1,$2,$3,$4,now()+($5||' days')::interval) RETURNING id,expires_at`, [randomUUID(), digest(token), userId, client, client === 'desktop' ? '90' : '30']);
   return { token, sessionId: session.id, expiresAt: session.expires_at };
 }
 export function createApp(pool, config) {
@@ -55,7 +55,7 @@ export function createApp(pool, config) {
   requireThat(origin === config.publicOrigin && (origin.startsWith('https:') || ['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname)), 500, 'PUBLIC_ORIGIN must be an HTTPS origin (HTTP allowed only on localhost).');
   const secure = origin.startsWith('https:');
   const cookieName = secure ? '__Host-terminai_session' : 'terminai_session';
-  const cookie = (value, age = 604800) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
+  const cookie = (value, age = 2592000) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
   const entries = catalog(config);
   function json(res, status, value, headers = {}) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(value)); }
   async function auth(req) {
@@ -66,6 +66,8 @@ export function createApp(pool, config) {
     if (!bearer && unsafe(req.method)) requireThat(req.headers.origin === origin, 403, 'Invalid request origin.');
     const { rows: [user] } = await pool.query(`SELECT u.*,s.id AS session_id FROM manager_sessions s JOIN manager_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()`, [digest(token)]);
     requireThat(user, 401, 'Session expired. Sign in again.');
+    // Used sessions stay: each use moves the end to 90 days (app) or 30 days (browser) from now, at most once a day.
+    void pool.query(`UPDATE manager_sessions SET expires_at=now()+CASE WHEN client='desktop' THEN interval '90 days' ELSE interval '30 days' END WHERE id=$1 AND expires_at<now()+CASE WHEN client='desktop' THEN interval '89 days' ELSE interval '29 days' END`, [user.session_id]).catch(() => {});
     return user;
   }
   async function signedInResponse(req, res, db, user, input) {
@@ -230,7 +232,7 @@ export function createApp(pool, config) {
           if (!login.user_id) return { status: 200, value: { pending: true } };
           await db.query('UPDATE manager_device_logins SET consumed_at=now() WHERE id=$1', [login.id]);
           const { rows: [user] } = await db.query('SELECT * FROM manager_users WHERE id=$1', [login.user_id]);
-          return signedInResponse(req, res, db, user, { client: 'desktop' });
+          return signedInResponse(req, res, db, user, { client: input.client === 'browser' ? 'browser' : 'desktop' });
         });
         return json(res, response.status, response.value, response.headers);
       }

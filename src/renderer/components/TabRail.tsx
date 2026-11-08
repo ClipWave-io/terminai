@@ -23,7 +23,6 @@ interface Props {
   onClose: (id: string) => void
   onNew: () => void
   onNewIn: () => void
-  onSettings: () => void
   onReorder: (from: number, to: number) => void
   /** bucket the rows under a heading per group, or per folder for tabs without one */
   grouped: boolean
@@ -71,7 +70,6 @@ export function TabRail({
   onClose,
   onNew,
   onNewIn,
-  onSettings,
   onReorder,
   grouped,
 }: Props): JSX.Element {
@@ -240,9 +238,6 @@ export function TabRail({
               strokeLinejoin="round"
             />
           </svg>
-        </button>
-        <button className="btn icon" onClick={onSettings} title="Settings  ⌘,">
-          ⚙
         </button>
       </div>
     </aside>

@@ -178,8 +178,8 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
           <small>Send it to them. Anyone with a 24-hour link can join, so share it only with the people you mean.</small></div>}
       </form>}
       <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void allow() }}>
-        <h3>Sign in your iPhone</h3>
-        <p>In the iPhone app tap “Sign in with a code”, then type the code it shows here.</p>
+        <h3>Sign in your iPhone or the website</h3>
+        <p>Tap “Sign in with a code” in the iPhone app, or “Sign in with TerminAI on your Mac” on terminai.xyz, then type the code it shows here.</p>
         <div className="m-inline"><input className="m-code" value={code} placeholder="ABCD-EFGH" maxLength={9} autoComplete="off" onChange={e => { setCode(e.target.value.toUpperCase()); setAllowed('') }} />
           <button className="btn primary" type="submit" disabled={code.trim().replace('-', '').length !== 8}>Allow</button></div>
         {allowed && <small className="m-ok">✓ {allowed} allowed: the phone signs in by itself.</small>}
@@ -298,13 +298,14 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
 }
 
 /** TerminAI needs an account: until this Mac is signed in, this covers the whole window. The code is open; using the app takes an account. */
-export function AccountGate({ onDone }: { onDone: () => void }): JSX.Element {
+export function AccountGate({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }): JSX.Element {
   const [error, setError] = useState('')
   const fail = (err: unknown) => setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : 'The server could not be reached.')
   return <div className="account-gate" role="dialog" aria-modal="true" aria-label="Sign in to TerminAI">
     {error && <p className="team-error" role="alert" onClick={() => setError('')}>{error}</p>}
     <TeamSignIn onDone={onDone} onError={fail} />
-    <p className="account-gate-foot">An account is free. It keeps your notes and conversations in sync across your Mac, the web and your iPhone.</p>
+    <p className="account-gate-foot">The terminal is free without an account. Sign in only for the To-do, notes and sessions on your iPhone, the web and with your team.</p>
+    <button className="btn account-gate-skip" onClick={onSkip}>Use TerminAI without an account</button>
   </div>
 }
 

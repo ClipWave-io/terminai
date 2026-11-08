@@ -762,7 +762,6 @@ export function App(): JSX.Element {
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
-            onSettings={() => setShowSettings(true)}
             onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(!prev[from]||!prev[to]||groupOf(prev[from])!==groupOf(prev[to]))return prev;const key=groupOf(prev[from]);const slots=prev.map((t,i)=>groupOf(t)===key?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}
             grouped={prefs.groupByFolder}
           />
@@ -855,7 +854,7 @@ export function App(): JSX.Element {
           {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome) && account !== false} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome) && (account !== false || prefs.skippedAccount)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
@@ -892,8 +891,8 @@ export function App(): JSX.Element {
 
       {/* First run only. Waits for `ready` so it never flashes over an empty
           window before prefs have loaded. */}
-      {account === false && <AccountGate onDone={() => setAccount(true)} />}
-      {ready && !prefs.seenWelcome && account !== false && (
+      {account === false && !prefs.skippedAccount && <AccountGate onDone={() => setAccount(true)} onSkip={() => patchPrefs({ skippedAccount: true })} />}
+      {ready && !prefs.seenWelcome && (account !== false || prefs.skippedAccount) && (
         <WelcomeSheet
           onOpenWorkspace={() => { patchPrefs({ seenWelcome: true }); setShowTeam(true) }}
           onDismiss={() => patchPrefs({ seenWelcome: true })}

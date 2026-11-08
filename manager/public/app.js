@@ -105,21 +105,22 @@ function authPage(title, subtitle, f) {
   const art = el('aside', null, { class: 'auth-art' },
     brand(),
     el('div', null, {},
-      el('h2', 'Your AI terminals, synced everywhere.'),
-      el('p', 'Notes, conversations and tools for your Claude Code and Codex sessions, the same on your Mac, iPhone and the web. Use it alone, or invite people whenever you like.', { class: 'dim' }),
+      el('h2', 'The terminal for Claude Code and Codex.'),
+      el('p', 'Many AI sessions side by side, each one coming back as you left it. Free for Mac. Sign in only if you want your to-dos, notes and sessions on your iPhone and shared with your team.', { class: 'dim' }),
       download(),
+      el('p', null, { class: 'localflow' }, el('b', 'Talk instead of typing.'), document.createTextNode(' Works great with LocalFlow, our own take on Wispr Flow: dictation that runs on your Mac, completely free.'))),
       el('div', null, { class: 'term' },
         el('div', null, { class: 'term-bar' }, el('i'), el('i'), el('i')),
         el('div', null, { class: 'term-body' },
           line('$ ', 'terminai sync', ''), line('', '✓ ', 'Signed in'),
-          line('', '✓ ', 'Notes synced to your iPhone'), line('', '✓ ', '3 conversations')))),
+          line('', '✓ ', 'Notes synced to your iPhone'), line('', '✓ ', '3 conversations'))),
     el('small', 'Agents run on each person’s Mac. This server only stores accounts, access and shared history.'));
   function line(prompt, strong, rest) {
     const d = el('div'); if (prompt) d.append(prompt);
     d.append(prompt ? el('b', strong) : el('em', strong)); if (rest) d.append(rest); return d;
   }
   const main = el('main', null, { class: 'auth-main' }, el('div', null, { class: 'auth-card' },
-    el('header', null, {}, el('h1', title), el('p', subtitle, { class: 'dim' })), f), el('div', null, { class: 'auth-download' }, download()));
+    el('header', null, {}, el('h1', title), el('p', subtitle, { class: 'dim' })), f));
   app.replaceChildren(el('div', null, { class: 'auth' }, art, main));
   f.querySelector('input')?.focus();
 }
@@ -171,6 +172,8 @@ async function start() {
     return authPage('Create your account', 'Free. Use it by yourself; invite people only if you want to.', f);
   }
   const f = form(async data => { await api('/api/auth/login', 'POST', data); await refresh(); });
+  // No password: TerminAI on your Mac (or iPhone) allows this browser with a code.
+  f.append(button('Sign in with TerminAI on your Mac', signInWithMac, 'block'), el('div', 'or with a password', { class: 'or' }));
   field(f, 'Email', 'email', 'email');
   const password = field(f, 'Password', 'password', 'password'); password.removeAttribute('minlength'); password.autocomplete = 'current-password';
   submit(f, 'Sign in', 'block');
@@ -181,7 +184,20 @@ async function start() {
     f.prepend(el('div', null, { class: 'device-hint' }, el('strong', `No password? Your code is ${deviceCode}.`),
       el('small', 'On your Mac, open this website where you are signed in, go to Account › Enter a code, and type it there. This phone then signs in by itself.')));
   }
-  authPage('Welcome back', 'Sign in to sync your notes and sessions.', f);
+  authPage('Sign in', 'For your to-dos, notes and sessions on every device.', f);
+}
+async function signInWithMac() {
+  const s = await api('/api/auth/device/start', 'POST', {});
+  const box = el('div', null, { class: 'device-done' }, el('div', s.code, { class: 'device-code' }),
+    el('p', 'In TerminAI on your Mac: click the people icon › Members › “Sign in your iPhone or another device”, type this code and click Allow. This page signs in by itself.'));
+  let live = true;
+  box.append(button('Cancel', () => { live = false; start(); }, 'secondary block'));
+  authPage('Sign in with your Mac', 'No password needed.', box);
+  while (live) {
+    await new Promise(r => setTimeout(r, 2000));
+    try { const r = await api('/api/auth/device/poll', 'POST', { pollToken: s.pollToken, client: 'browser' }); if (!r.pending) { live = false; await refresh(); } }
+    catch (e) { live = false; message(e.message, true); start(); }
+  }
 }
 /** Right after joining or signing up: open the Mac app signed in, or download it first. */
 function showWelcomeApp() {

@@ -171,3 +171,18 @@ nav button{justify-content:flex-start}
 .device-input{font:600 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;text-align:center}
 .device-hint{display:grid;gap:4px;padding:12px 14px;border:1px dashed var(--border);border-radius:12px;margin-bottom:6px}
 .download-box{display:grid;gap:8px;justify-items:start}.download-gh{font-size:13px;color:inherit;opacity:.75}.download-gh:hover{opacity:1}
+/* Landing: the download is the main thing, sign-in is for sync. */
+.auth{grid-template-columns:1.25fr 1fr}
+.auth-art .download{padding:16px 26px;border-radius:14px;margin-top:26px}.auth-art .download b{font-size:18px}
+.auth-art .localflow{margin-top:22px;max-width:420px;font-size:13.5px;color:var(--dim);line-height:1.5}.localflow b{color:var(--fg)}
+.auth-card h1{font-size:22px}
+.or{text-align:center;font-size:12px;color:var(--dim);margin:2px 0}
+@media (max-width:820px){
+  .auth{grid-template-columns:1fr;min-height:auto}
+  .auth-art{display:flex;padding:28px 20px 30px;border-right:0;border-bottom:1px solid var(--border);gap:18px}
+  .auth-art h2{font-size:27px}.auth-art p.dim{font-size:14.5px}
+  .auth-art .term,.auth-art>small{display:none}
+  .auth-art .download-box{justify-items:stretch}.auth-art .download{width:auto;text-align:center;justify-items:center}
+  .auth-main{padding:26px 20px 40px;place-items:start center}
+  .auth-card{gap:16px}.auth-card h1{font-size:19px}
+}
