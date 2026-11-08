@@ -108,7 +108,7 @@ function authPage(title, subtitle, f) {
       el('h2', 'The terminal for Claude Code and Codex.'),
       el('p', 'Many AI sessions side by side, each one coming back as you left it. Free for Mac. Sign in only if you want your to-dos, notes and sessions on your iPhone and shared with your team.', { class: 'dim' }),
       download(),
-      el('p', null, { class: 'localflow' }, el('b', 'Talk instead of typing.'), document.createTextNode(' Works great with LocalFlow, our own take on Wispr Flow: dictation that runs on your Mac, completely free.'))),
+      el('p', null, { class: 'localflow' }, el('b', 'Talk instead of typing.'), document.createTextNode(' Works great with '), el('a', 'LocalFlow', { href: '/localflow' }), document.createTextNode(', our own take on Wispr Flow: dictation that runs on your Mac, completely free.'))),
       el('div', null, { class: 'term' },
         el('div', null, { class: 'term-bar' }, el('i'), el('i'), el('i')),
         el('div', null, { class: 'term-body' },

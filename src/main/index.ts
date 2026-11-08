@@ -458,7 +458,7 @@ function registerIpc(): void {
   const todosChanged = () => { if (win && !win.isDestroyed()) win.webContents.send('todos:changed') }
   todos = createTodos(app.getPath('userData'), {
     // The test build never falls back to the real shared repo: it syncs only with TERMINAI_TASKS_REMOTE.
-    remote: process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
+    remote: !store.load().teamTasks ? '' : process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
     user: () => store.load().tasksUser,
     changed: todosChanged,
     listsChanged: writeGuides,

@@ -12,7 +12,7 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const hm = (m: number) => m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`
 const clock = (at: string) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 
-export function WorkLog({ user }: { user: TasksUser }): JSX.Element {
+export function WorkLog({ user, team = true }: { user: TasksUser; team?: boolean }): JSX.Element {
   const [day, setDay] = useState(iso(new Date()))
   const [who, setWho] = useState<string>(user)
   const [data, setData] = useState<{ people: Record<string, WorkDay>; offline: boolean } | null>(null)
@@ -36,10 +36,10 @@ export function WorkLog({ user }: { user: TasksUser }): JSX.Element {
       <button className="todo-icon" aria-label="Next day" disabled={isToday} onClick={() => step(1)}>›</button>
       {!isToday && <button className="todo-link" onClick={() => setDay(iso(new Date()))}>Today</button>}
       <span className="todo-head-gap" />
-      <span className="todo-seg" role="tablist" aria-label="Whose day">
+      {team && <span className="todo-seg" role="tablist" aria-label="Whose day">
         {(['ilai', 'livio'] as const).map(p => <button key={p} role="tab" aria-selected={who === p} className={who === p ? 'on' : ''} onClick={() => setWho(p)}>
           {NAME[p]}{data?.people[p] ? ` · ${hm(data.people[p].workingMinutes)}` : ''}</button>)}
-      </span>
+      </span>}
     </div>
     {error && <p className="todo-error">{error}</p>}
     {!data ? <p className="wlog-empty">Reading the log…</p> : !log ? <p className="wlog-empty">

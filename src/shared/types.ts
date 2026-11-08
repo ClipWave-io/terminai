@@ -348,6 +348,8 @@ export interface Prefs {
   shareConversations: boolean
   /** chose to use the app without an account: no sign-in screen at start; Sync asks when opened */
   skippedAccount: boolean
+  /** the shared To-do page (columns per partner, synced through the build-tasks repo): Ilai's and Matteo's Macs; everyone else has private lists */
+  teamTasks: boolean
   /** folder -> what the partner may see of conversations there (sharing.ts) */
   folderSharing: Record<string, FolderMode>
   /** per tab (its workspace key): true shared, false private, whatever the default */
@@ -375,7 +377,7 @@ export const RAIL_DEFAULT = 224
 export const DEFAULT_PREFS: Prefs = {
   hiddenToolbarItems: [],
   paneOrder: ['files', 'terminal', 'browser'],
-  theme: 'linen',
+  theme: 'midnight',
   fontSize: 13,
   railWidth: RAIL_DEFAULT,
   railHidden: false,
@@ -397,10 +399,11 @@ export const DEFAULT_PREFS: Prefs = {
   worklogSkip: [],
   shareConversations: false,
   skippedAccount: false,
+  teamTasks: false,
   tabSharing: {},
   folderSharing: {},
   groupByFolder: true,
-  tasksUser: '',
+  tasksUser: 'ilai',
   todoHiddenColumns: [],
   todoProducts: [],
   todoActivity: false,

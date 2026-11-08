@@ -1,0 +1,29 @@
+.onb { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; background: var(--bg); overflow: hidden; -webkit-app-region: drag; animation: onb-in .5s ease both; }
+.onb button, .onb a { -webkit-app-region: no-drag; }
+.onb-glow { position: absolute; width: 900px; height: 900px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%); filter: blur(20px); animation: onb-float 9s ease-in-out infinite alternate; }
+.onb-card { position: relative; width: min(560px, calc(100vw - 48px)); display: grid; justify-items: center; gap: 18px; text-align: center; animation: onb-up .55s cubic-bezier(.2,.8,.2,1) both; }
+.onb h1 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -.02em; color: var(--fg); }
+.onb-lead { margin: 0; font-size: 15.5px; line-height: 1.55; color: var(--dim); max-width: 480px; }
+.onb-mark { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; font: 700 24px ui-monospace, Menlo, monospace; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--pane)); box-shadow: 0 10px 40px color-mix(in srgb, var(--accent) 30%, transparent); animation: onb-pop .6s .1s cubic-bezier(.2,1.4,.4,1) both; }
+.onb-term { width: 100%; box-sizing: border-box; min-height: 168px; text-align: left; padding: 12px 16px 16px; border-radius: 14px; background: color-mix(in srgb, var(--pane) 92%, black); border: 1px solid var(--border); font: 13px/1.7 ui-monospace, Menlo, monospace; color: var(--fg); box-shadow: 0 20px 60px color-mix(in srgb, var(--shadow) 60%, transparent); }
+.onb-term-bar { display: flex; gap: 6px; margin-bottom: 8px; } .onb-term-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+.onb-line { animation: onb-type .35s ease both; } .onb-line b { color: var(--accent); } .onb-line.dim { color: var(--dim); } .onb-line.ok { color: #3fb950; }
+.onb-cursor { display: inline-block; width: 8px; height: 15px; background: var(--accent); vertical-align: -2px; animation: onb-blink 1s steps(1) infinite; }
+.onb-primary { height: 44px; padding: 0 26px; border: 0; border-radius: 12px; font: inherit; font-size: 15px; font-weight: 650; color: #fff; background: var(--accent); cursor: pointer; box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 35%, transparent); transition: transform .15s; }
+.onb-primary:hover { transform: translateY(-1px); }
+.onb-ghost { height: 44px; padding: 0 22px; display: inline-grid; place-items: center; border-radius: 12px; font: inherit; font-size: 15px; color: var(--fg); background: transparent; border: 1px solid var(--border); cursor: pointer; text-decoration: none; }
+.onb-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.onb-foot { color: var(--dim); font-size: 12px; }
+.onb-icons { display: flex; gap: 12px; } .onb-icons span { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 15px; font-size: 22px; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, var(--pane)); animation: onb-pop .5s cubic-bezier(.2,1.4,.4,1) both; }
+.onb-icons span:nth-child(2) { animation-delay: .08s; } .onb-icons span:nth-child(3) { animation-delay: .16s; }
+.onb-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; text-align: left; font-size: 14px; color: var(--dim); }
+.onb-points li { padding-left: 22px; position: relative; animation: onb-up .45s ease both; } .onb-points li::before { content: '✓'; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+.onb-points li:nth-child(2) { animation-delay: .1s; } .onb-points li:nth-child(3) { animation-delay: .2s; } .onb-points b { color: var(--fg); font-weight: 600; }
+.onb-wave { display: flex; gap: 5px; align-items: center; height: 56px; } .onb-wave i { width: 6px; height: 14px; border-radius: 3px; background: var(--accent); animation: onb-wave 1s ease-in-out infinite alternate; }
+.onb-dots { display: flex; gap: 8px; margin-top: 10px; } .onb-dots i { width: 7px; height: 7px; border-radius: 4px; background: var(--border); cursor: pointer; transition: all .25s; } .onb-dots i.on { width: 22px; background: var(--accent); }
+.onb-skip { position: absolute; top: 18px; right: 22px; border: 0; background: none; color: var(--dim); font: inherit; font-size: 13px; cursor: pointer; }
+@keyframes onb-in { from { opacity: 0 } } @keyframes onb-up { from { opacity: 0; transform: translateY(14px) } }
+@keyframes onb-pop { from { opacity: 0; transform: scale(.6) } } @keyframes onb-type { from { opacity: 0; transform: translateX(-6px) } }
+@keyframes onb-blink { 50% { opacity: 0 } } @keyframes onb-wave { to { height: 46px } }
+@keyframes onb-float { to { transform: translate(60px, -40px) scale(1.08) } }
+@media (prefers-reduced-motion: reduce) { .onb *, .onb { animation: none !important; } }

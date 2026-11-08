@@ -186,3 +186,10 @@ nav button{justify-content:flex-start}
   .auth-main{padding:26px 20px 40px;place-items:start center}
   .auth-card{gap:16px}.auth-card h1{font-size:19px}
 }
+.lf{max-width:680px;margin:0 auto;padding:40px 22px 60px;display:grid;gap:16px;line-height:1.55}
+.lf .brand{text-decoration:none;color:inherit}.lf h1{font-size:40px;letter-spacing:-.02em;margin-top:18px}.lf h2{font-size:20px;margin-top:10px}
+.lf-lead{font-size:17px;color:var(--dim)}.lf kbd{padding:1px 7px;border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,monospace}
+.lf-points{margin:0;padding-left:18px;color:var(--dim)}.lf-points b{color:var(--fg)}
+.lf pre{margin:0;padding:14px 16px;border-radius:12px;background:var(--pane);border:1px solid var(--border);overflow-x:auto;font-size:13.5px}
+.lf-foot a{color:var(--accent)}
+.localflow a{color:var(--accent)}

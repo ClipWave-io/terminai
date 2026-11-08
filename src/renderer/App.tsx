@@ -7,7 +7,7 @@ import { TerminalPane } from './components/TerminalPane'
 import { VoiceDock } from './components/VoiceDock'
 import { SettingsSheet } from './components/SettingsSheet'
 import { WelcomeSheet } from './components/WelcomeSheet'
-import { WorkspaceSheet, AccountGate } from './components/WorkspaceSheet'
+import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { TodoSheet } from './components/TodoSheet'
 import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
@@ -63,11 +63,8 @@ function applyThemeVars(prefs: Prefs): void {
 export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const [ready, setReady] = useState(false)
-  // TerminAI needs an account: null while checking, false shows the sign-in gate over everything.
-  const [account, setAccount] = useState<boolean | null>(null)
-  useEffect(() => { window.term.workspace.hasAccount().then(setAccount).catch(() => setAccount(true)) }, [])
-  // Signed in from the website's Open TerminAI: the gate goes, and the tour shows if it has not been seen.
-  useEffect(() => window.term.workspace.onSignedIn(() => setAccount(true)), [])
+  // Signed in from the website's Open TerminAI: open Sync, which now shows the account.
+  useEffect(() => window.term.workspace.onSignedIn(() => setShowTeam(true)), [])
   const [restored, setRestored] = useState(false)
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -854,7 +851,7 @@ export function App(): JSX.Element {
           {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome) && (account !== false || prefs.skippedAccount)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
@@ -891,16 +888,9 @@ export function App(): JSX.Element {
 
       {/* First run only. Waits for `ready` so it never flashes over an empty
           window before prefs have loaded. */}
-      {account === false && !prefs.skippedAccount && <AccountGate onDone={() => setAccount(true)} onSkip={() => patchPrefs({ skippedAccount: true })} />}
-      {ready && !prefs.seenWelcome && (account !== false || prefs.skippedAccount) && (
-        <WelcomeSheet
-          onOpenWorkspace={() => { patchPrefs({ seenWelcome: true }); setShowTeam(true) }}
-          onDismiss={() => patchPrefs({ seenWelcome: true })}
-          onOpenSettings={() => {
-            patchPrefs({ seenWelcome: true })
-            setShowSettings(true)
-          }}
-        />
+      {/* First run only: the terminal works without an account; the tour offers sync and LocalFlow. */}
+      {ready && !prefs.seenWelcome && (
+        <WelcomeSheet onDismiss={() => patchPrefs({ seenWelcome: true })} onSignIn={() => setShowTeam(true)} />
       )}
 
       {recovery && (
@@ -939,7 +929,7 @@ export function App(): JSX.Element {
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
       {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
-      {showTodos && <TodoSheet user={prefs.tasksUser} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}
+      {showTodos && <TodoSheet user={prefs.tasksUser} team={prefs.teamTasks} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}
         prefs={{ hiddenColumns: prefs.todoHiddenColumns, products: prefs.todoProducts, activityOpen: prefs.todoActivity, activitySeen: prefs.todoActivitySeen }}
         onPrefs={patch => patchPrefs(patch)} activity={activity}
         tabs={tabs.map(tab => ({ id: tab.id, key: tab.browserKey || tab.id, label: tabLabel(tab) }))}

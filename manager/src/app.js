@@ -91,7 +91,7 @@ export function createApp(pool, config) {
     try {
       const url = new URL(req.url, origin), path = url.pathname;
       if (req.method === 'GET' && path === '/health') { await pool.query('SELECT 1'); return json(res, 200, { ok: true }); }
-      const staticFiles = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] };
+      const staticFiles = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/localflow': ['localflow.html', 'text/html'] };
       if (req.method === 'GET' && staticFiles[path]) {
         const [file, type] = staticFiles[path]; res.setHeader('Content-Type', `${type}; charset=utf-8`); return res.end(await readFile(new URL(`../public/${file}`, import.meta.url)));
       }
