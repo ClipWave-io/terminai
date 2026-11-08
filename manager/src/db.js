@@ -136,6 +136,14 @@ export async function migrate(pool) {
         created_by uuid NOT NULL REFERENCES manager_users, expires_at timestamptz NOT NULL, revoked_at timestamptz,
         created_at timestamptz NOT NULL DEFAULT now()
       );
+      -- Bot keys: another agent (a Telegram bot, a script) acting for the person who made the key, limited to the
+      -- shared sessions: list, read, message, read replies. Revocable; the token itself is never stored.
+      CREATE TABLE IF NOT EXISTS manager_bot_keys (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, name text NOT NULL, token_hash text NOT NULL UNIQUE,
+        created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz, last_used_at timestamptz, revoked_at timestamptz
+      );
+      ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot text;
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,
         actor_id uuid REFERENCES manager_users, action text NOT NULL, target_id text,

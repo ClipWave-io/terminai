@@ -58,7 +58,19 @@ export function createApp(pool, config) {
   const cookie = (value, age = 2592000) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
   const entries = catalog(config);
   function json(res, status, value, headers = {}) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(value)); }
+  /** A bot key (Authorization: Bearer tbot_…): the key's maker, marked as that bot, in that workspace only. */
+  async function botAuth(req) {
+    const key = req.headers.authorization?.match(/^Bearer tbot_([A-Za-z0-9_-]{43})$/)?.[1];
+    if (!key) return null;
+    const { rows: [user] } = await pool.query(`SELECT u.*,k.id AS bot_id,k.name AS bot_name,k.company_id AS bot_company FROM manager_bot_keys k JOIN manager_users u ON u.id=k.user_id
+      WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())`, [digest(key)]);
+    requireThat(user, 401, 'Invalid or revoked bot key.');
+    void pool.query('UPDATE manager_bot_keys SET last_used_at=now() WHERE id=$1 AND (last_used_at IS NULL OR last_used_at<now()-interval \'1 minute\')', [user.bot_id]).catch(() => {});
+    return user;
+  }
   async function auth(req) {
+    const bot = await botAuth(req);
+    if (bot) return bot;
     const bearer = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
     const cookieToken = (req.headers.cookie || '').split(';').map(p => p.trim()).find(p => p.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     const token = bearer || cookieToken;
@@ -108,9 +120,42 @@ export function createApp(pool, config) {
       const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim());
       const ip = config.trustProxyHops > 0 ? forwarded.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
       await limit(pool, `api:${ip}`, 300, 60);
+      // Continue with Google: an account by its verified Google email (made the first time), signed in in this browser.
+      if (req.method === 'GET' && path === '/api/auth/google' && config.google) {
+        const state = opaqueToken();
+        const q = new URLSearchParams({ client_id: config.google.id, redirect_uri: `${origin}/api/auth/google/callback`, response_type: 'code', scope: 'openid email profile', state, prompt: 'select_account' });
+        res.writeHead(302, { Location: `https://accounts.google.com/o/oauth2/v2/auth?${q}`, 'Set-Cookie': `terminai_gstate=${state}; Path=/api/auth/google; HttpOnly; SameSite=Lax; Max-Age=600${secure ? '; Secure' : ''}` });
+        return res.end();
+      }
+      if (req.method === 'GET' && path === '/api/auth/google/callback' && config.google) {
+        const state = (req.headers.cookie || '').split(';').map(p => p.trim()).find(p => p.startsWith('terminai_gstate='))?.slice(16);
+        requireThat(state && safeEqual(state, url.searchParams.get('state') || ''), 400, 'Sign-in expired. Try again.');
+        const tokens = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(10000),
+          body: new URLSearchParams({ code: url.searchParams.get('code') || '', client_id: config.google.id, client_secret: config.google.secret, redirect_uri: `${origin}/api/auth/google/callback`, grant_type: 'authorization_code' }) }).then(r => r.json());
+        requireThat(tokens.access_token, 401, 'Google did not sign you in.');
+        const g = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tokens.access_token}` }, signal: AbortSignal.timeout(10000) }).then(r => r.json());
+        requireThat(g.email && g.email_verified, 401, 'Your Google email is not verified.');
+        const accountEmail = email(g.email);
+        const response = await transaction(pool, async db => {
+          await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [accountEmail]);
+          let { rows: [user] } = await db.query('SELECT * FROM manager_users WHERE email=$1', [accountEmail]);
+          if (!user) {
+            requireThat(config.signupOpen !== false, 403, 'Sign-up is closed on this server.');
+            user = { id: randomUUID(), email: accountEmail, name: text(g.name || accountEmail.split('@')[0], 'Name') };
+            const companyId = randomUUID();
+            await db.query("INSERT INTO manager_users(id,email,name,password_hash) VALUES($1,$2,$3,'')", [user.id, user.email, user.name]);
+            await db.query('INSERT INTO manager_companies(id,name) VALUES($1,$2)', [companyId, `${user.name.split(' ')[0]}’s workspace`.slice(0, 120)]);
+            await db.query("INSERT INTO manager_memberships(company_id,user_id,role) VALUES($1,$2,'owner')", [companyId, user.id]);
+            await defaultAssignments(db, companyId);
+          }
+          return signedInResponse(req, res, db, user, { client: 'browser' });
+        });
+        res.writeHead(302, { Location: '/', 'Set-Cookie': [response.headers['Set-Cookie'], 'terminai_gstate=; Path=/api/auth/google; Max-Age=0'] });
+        return res.end();
+      }
       if (req.method === 'GET' && path === '/api/setup') {
         const { rows: [row] } = await pool.query('SELECT EXISTS(SELECT 1 FROM manager_users) AS initialized');
-        return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken), signupOpen: config.signupOpen !== false });
+        return json(res, 200, { setupRequired: !row.initialized, setupEnabled: Boolean(config.setupToken), signupOpen: config.signupOpen !== false, google: Boolean(config.google) });
       }
       if (req.method === 'POST' && ['/api/setup','/api/auth/signup','/api/auth/login','/api/auth/accept-invite'].includes(path)) {
         await limit(pool, `auth:${ip}`, 20, 900);
@@ -275,14 +320,19 @@ export function createApp(pool, config) {
       if (req.method === 'POST' && path === '/api/auth/password') {
         const input = await body(req);
         await limit(pool,`password:${user.id}`,5,900);
+        requireThat(!user.bot_id,403,'Not for bots.');
         const passwordHash = await hashPassword(input.password);
+        // From the signed-in TerminAI app (its own device), a password is set without the old one, and its devices stay signed in.
+        const {rows:[session]}=await pool.query('SELECT client FROM manager_sessions WHERE id=$1',[user.session_id]);
+        const fromApp=session?.client==='desktop'&&!input.currentPassword;
         await transaction(pool,async db=>{
           const {rows:[current]}=await db.query('SELECT password_hash FROM manager_users WHERE id=$1 FOR UPDATE',[user.id]);
-          requireThat(current.password_hash==='' || await verifyPassword(input.currentPassword,current.password_hash),401,'Current password is incorrect.');
+          requireThat(fromApp || current.password_hash==='' || await verifyPassword(input.currentPassword,current.password_hash),401,'Current password is incorrect.');
           await db.query('UPDATE manager_users SET password_hash=$1 WHERE id=$2',[passwordHash,user.id]);
-          await db.query('UPDATE manager_sessions SET revoked_at=now() WHERE user_id=$1',[user.id]);
+          if(fromApp)await db.query("UPDATE manager_sessions SET revoked_at=now() WHERE user_id=$1 AND client='browser'",[user.id]);
+          else await db.query('UPDATE manager_sessions SET revoked_at=now() WHERE user_id=$1',[user.id]);
         });
-        return json(res,200,{ok:true,signInRequired:true},{'Set-Cookie':cookie('',0)});
+        return json(res,200,{ok:true,signInRequired:!fromApp},fromApp?{}:{'Set-Cookie':cookie('',0)});
       }
       if (req.method === 'POST' && path === '/api/companies') {
         const input = await body(req), name = text(input.name,'Company name'), companyId=randomUUID();
@@ -333,8 +383,23 @@ export function createApp(pool, config) {
         return json(res,200,result);
       }
       const match = path.match(/^\/api\/companies\/([^/]+)(\/.*)?$/);
+      if (match) {
+        const u0 = await botAuth(req).catch(() => null);
+        if (u0) requireThat(match[1] === u0.bot_company && /^\/(conversations|conversations\/[0-9a-f-]{36}\/messages|agent|agent\/[0-9a-f-]{36}\/replies)$/.test(match[2] || '') && (req.method === 'GET' || (req.method === 'POST' && match[2] === '/agent')), 403, 'A bot key can list, read and message shared sessions only.');
+      }
       requireThat(match,404,'Not found.');
       const companyId=uuid(match[1]), tail=match[2]||'', input=unsafe(req.method) && req.method!=='DELETE' ? await body(req) : {};
+      // The inbox as a long poll (?wait=25): answered the moment a message for this person's sessions arrives, at most 25 s later empty.
+      if(tail==='/agent/inbox'&&req.method==='GET'&&url.searchParams.get('wait')){
+        const until=Date.now()+Math.min(25,Math.max(1,Number(url.searchParams.get('wait'))||25))*1000;
+        let closed=false;req.on('close',()=>{closed=true});
+        while(!closed&&Date.now()<until){
+          const {rowCount}=await pool.query("SELECT 1 FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' LIMIT 1",[companyId,user.id]);
+          if(rowCount)break;
+          await new Promise(r=>setTimeout(r,700));
+        }
+        if(closed)return;
+      }
       const result=await transaction(pool,async db=>{
         const { rows:[company] }=await db.query(`SELECT * FROM manager_companies WHERE id=$1 FOR ${unsafe(req.method)?'UPDATE':'SHARE'}`,[companyId]);
         const { rows:[member] }=await db.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
@@ -425,7 +490,7 @@ export function createApp(pool, config) {
         if(tail==='/conversations'&&req.method==='GET') {
           const before=url.searchParams.get('before');if(before)requireThat(Number.isFinite(Date.parse(before)),400,'Invalid before cursor.');
           const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
-          return {conversations:rows.map(publicConversation)};
+          return {conversations:rows.filter(r=>!user.bot_id||r.visibility==='company').map(publicConversation)};
         }
         if(tail==='/conversations'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot create conversations.');
@@ -452,19 +517,30 @@ export function createApp(pool, config) {
           requireThat(member.role!=='viewer',403,'Viewers cannot message sessions.');
           const to=uuid(input.to),content=text(input.content,'Message',20000),from=input.from?uuid(input.from):null,replyTo=input.replyTo?uuid(input.replyTo):null;
           const {rows:[target]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2 AND source_key IS NOT NULL',[to,companyId]);
-          requireThat(target&&canReadConversation(target,member,user.id),404,'That session is not shared with you.');
+          requireThat(target&&canReadConversation(target,member,user.id)&&(!user.bot_id||target.visibility==='company'),404,'That session is not shared with you.');
           if(from){const {rowCount}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND owner_id=$2',[from,user.id]);requireThat(rowCount,400,'Not your session.');}
           if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2',[replyTo,user.id]);requireThat(rowCount,404,'No such message to answer.');}
           await limit(pool,`agent:${user.id}`,120,3600);
           const id=randomUUID();
-          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,companyId,user.id,from,to,replyTo,content]);
+          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content,from_bot) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,companyId,user.id,from,to,replyTo,content,user.bot_name||null]);
           return {id,to,live:!!target.seen_at&&Date.now()-new Date(target.seen_at).getTime()<120000};
         }
+        // Bot keys: made by any member for their own bots, listed and revoked by them.
+        if(tail==='/bots'&&req.method==='GET'){const {rows}=await db.query('SELECT id,name,created_at,expires_at,last_used_at FROM manager_bot_keys WHERE company_id=$1 AND user_id=$2 AND revoked_at IS NULL ORDER BY created_at DESC',[companyId,user.id]);return {bots:rows};}
+        if(tail==='/bots'&&req.method==='POST'){
+          requireThat(member.role!=='viewer'&&!user.bot_id,403,'Not allowed.');
+          const name=text(input.name,'Name',60),days=Number.isInteger(input.days)&&input.days>0?Math.min(input.days,365):null,token=opaqueToken(),id=randomUUID();
+          await db.query(`INSERT INTO manager_bot_keys(id,company_id,user_id,name,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,${days?"now()+make_interval(days=>$6)":"NULL"})`,days?[id,companyId,user.id,name,digest(token),days]:[id,companyId,user.id,name,digest(token)]);
+          await audit(db,companyId,user.id,'bot.created',id);
+          return {id,name,key:`tbot_${token}`,api:`${config.apiOrigin||origin}/api/companies/${companyId}`};
+        }
+        const botMatch=tail.match(/^\/bots\/([0-9a-f-]{36})$/);
+        if(botMatch&&req.method==='DELETE'){await db.query('UPDATE manager_bot_keys SET revoked_at=now() WHERE id=$1 AND company_id=$2 AND user_id=$3',[botMatch[1],companyId,user.id]);return {ok:true};}
         if(tail==='/agent/inbox'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id) AS self,u.name AS from_name,f.title AS from_title,m.from_conversation
+          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,f.title AS from_title,m.from_conversation
             FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation
             WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
-          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_name,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
+          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
         }
         const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies)$/);
         if(agentMsg) {
@@ -481,7 +557,7 @@ export function createApp(pool, config) {
         if(conv) {
           const conversationId=uuid(conv[1]);
           const {rows:[conversation]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2',[conversationId,companyId]);
-          requireThat(conversation&&canReadConversation(conversation,member,user.id),404,'Conversation not found.');
+          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&(!user.bot_id||conversation.visibility==='company'),404,'Conversation not found.');
           if(!conv[2]&&req.method==='GET')return {conversation:publicConversation(conversation)};
           // Its owner deletes it for good: its messages, and the agent messages to and from it, go with it.
           if(!conv[2]&&req.method==='DELETE'){requireThat(conversation.owner_id===user.id,403,'Only its owner can delete it.');await db.query('DELETE FROM manager_conversations WHERE id=$1',[conversationId]);return {ok:true};}

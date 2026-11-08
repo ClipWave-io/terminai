@@ -19,7 +19,8 @@ const api = {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     checkForUpdates: (): Promise<void> => ipcRenderer.invoke('app:check-updates') },
   team: {
-    onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
+    agentMessages: (v?: 'ask' | 'allow'): Promise<'ask' | 'allow'> => ipcRenderer.invoke('team:agentMessages', v),
+    onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
     folder: (folder: string | null, mode: 'shared' | 'private' | 'off' | null): Promise<Record<string, string>> => ipcRenderer.invoke('team:folder', folder, mode) },
   worklog: { get: (day: string): Promise<{ day: string; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {

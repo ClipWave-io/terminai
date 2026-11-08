@@ -547,6 +547,14 @@ function registerIpc(): void {
   bridge = createBridge({
     team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
     tabName,
+    approve: async (from, tab, text, tabId) => {
+      if (store.load().agentMessages === 'allow' || !win || win.isDestroyed()) return true
+      win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
+      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: ['Allow', 'Decline', 'Always allow'], defaultId: 0, cancelId: 1,
+        message: `${from} wants to message “${tab}”`, detail: text.length > 600 ? text.slice(0, 597) + '…' : text })
+      if (response === 2) store.save({ ...store.load(), agentMessages: 'allow' })
+      return response !== 1
+    },
     notify: (title, body, tabId) => {
       if (!Notification.isSupported()) return
       const note = new Notification({ title, body, silent: true })
@@ -558,7 +566,8 @@ function registerIpc(): void {
     },
   })
   bridge.start()
-  appIpc.handle('team:tabs', () => { const p = store.load(); return { byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)) } }), folders: p.folderSharing } })
+  appIpc.handle('team:agentMessages', (_e, v: unknown) => { if (v === 'ask' || v === 'allow') store.save({ ...store.load(), agentMessages: v }); return store.load().agentMessages })
+  appIpc.handle('team:tabs', () => { const p = store.load(); return { agentMessages: p.agentMessages, byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)) } }), folders: p.folderSharing } })
   appIpc.handle('team:folder', async (_e, folder: unknown, mode: unknown) => {
     const p = store.load(), rules = { ...p.folderSharing }
     let path = typeof folder === 'string' ? folder : ''

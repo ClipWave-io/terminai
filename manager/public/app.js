@@ -173,6 +173,7 @@ async function start() {
   }
   const f = form(async data => { await api('/api/auth/login', 'POST', data); await refresh(); });
   // No password: TerminAI on your Mac (or iPhone) allows this browser with a code.
+  if (setup.google) f.append(el('a', 'Continue with Google', { class: 'google-btn', href: '/api/auth/google' }));
   f.append(button('Sign in with TerminAI on your Mac', signInWithMac, 'block'), el('div', 'or with a password', { class: 'or' }));
   field(f, 'Email', 'email', 'email');
   const password = field(f, 'Password', 'password', 'password'); password.removeAttribute('minlength'); password.autocomplete = 'current-password';

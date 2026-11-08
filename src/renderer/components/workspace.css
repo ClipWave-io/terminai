@@ -150,3 +150,4 @@
 .m-inline .btn { flex: none; padding: 0 14px; }
 .m-form > .btn.primary { height: 34px; }
 .account-gate-skip{flex:0 0 auto !important;align-self:center;height:auto !important;min-height:0 !important;max-height:36px;margin:-14px auto 36px;padding:8px 18px;-webkit-app-region:no-drag}
+.m-bot{display:flex;justify-content:space-between;align-items:center;font-size:13px}.m-bot small{color:var(--muted,#9aa3b2)}.share-default select{height:28px;border-radius:7px;border:1px solid var(--border,#2a3140);background:var(--pane,#0f1420);color:inherit;font:inherit}

@@ -184,6 +184,8 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
           <button className="btn primary" type="submit" disabled={code.trim().replace('-', '').length !== 8}>Allow</button></div>
         {allowed && <small className="m-ok">✓ {allowed} allowed: the phone signs in by itself.</small>}
       </form>
+      <Bots base={base} onError={onError} />
+      <Password onError={onError} />
       <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void rename() }}>
         <h3>Your name</h3>
         <p>What the others see on tasks and notes.</p>
@@ -312,7 +314,7 @@ export function AccountGate({ onDone, onSkip }: { onDone: () => void; onSkip: ()
 /** What the partner may see, by folder and by tab (sharing.ts). Work on this Mac is the same whatever is set here. */
 const MODES: [string, string, string][] = [['shared', 'Shared', 'your partner and their agents can read and message it'], ['private', 'Only me', 'your iPhone can reach it; its conversation never leaves this Mac'], ['off', 'Off the record', 'nothing leaves this Mac']]
 function SessionSharing(): JSX.Element {
-  const [state, setState] = useState<{ byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
+  const [state, setState] = useState<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
   const load = () => void window.term.team.tabs().then(setState)
   useEffect(() => { load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t) }, [])
   const set = (key: string | null, shared: boolean) => void window.term.team.share(key, shared).then(load)
@@ -321,6 +323,9 @@ function SessionSharing(): JSX.Element {
   const home = (p: string) => p.replace(/^\/Users\/[^/]+/, '~')
   return <section className="share-box">
     <p className="share-note">This decides only what your partner and their agents can see and reach. Your own sessions work the same whatever is set here.</p>
+    <label className="share-default"><select value={state.agentMessages} onChange={e => void window.term.team.agentMessages(e.target.value as 'ask').then(load)}>
+        <option value="ask">Ask me</option><option value="allow">Allow all</option></select>
+      <span><strong>Messages from others’ agents and bots</strong><small>Ask me: you allow each one before it is typed into a session. Replies to your own messages always come in.</small></span></label>
     <label className="share-default"><input type="checkbox" checked={state.byDefault} onChange={e => set(null, e.target.checked)} />
       <span><strong>Share sessions by default</strong><small>For folders and repos without a rule below. Off (the default): nothing leaves this Mac.</small></span></label>
     <div className="share-folders">
@@ -337,4 +342,38 @@ function SessionSharing(): JSX.Element {
     {state.tabs.length > 0 && <div className="share-tabs">{state.tabs.map(t => <button key={t.key} className={`share-tab${t.shared ? ' on' : ''}`} title={t.shared ? 'Shared: click to make it only yours' : 'Only you: click to share'} onClick={() => set(t.key, !t.shared)}>
       <i aria-hidden="true" />{t.name}<em>{t.mode === 'off' ? 'Off the record' : t.shared ? 'Shared' : 'Only me'}</em></button>)}</div>}
   </section>
+}
+
+/** Keys for other agents and bots (a Telegram bot, a script): they list, read and message your shared sessions as you. */
+function Bots({ base, onError }: { base: string; onError: (e: unknown) => void }): JSX.Element {
+  const [bots, setBots] = useState<{ id: string; name: string; last_used_at?: string }[]>([])
+  const [name, setName] = useState('')
+  const [made, setMade] = useState<{ key: string; api: string } | null>(null)
+  const load = () => void window.term.workspace.request(`${base}/bots`).then(v => setBots(v.bots ?? [])).catch(onError)
+  useEffect(load, [base])
+  const create = async () => { try { const v = await window.term.workspace.request(`${base}/bots`, 'POST', { name: name.trim() }); setMade(v); setName(''); load() } catch (e) { onError(e) } }
+  return <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void create() }}>
+    <h3>Bots and other agents</h3>
+    <p>A key lets a bot (Grokbot, a script) list, read and message your Shared sessions, like your partner’s agent can. Revoke it any time.</p>
+    {bots.map(b => <div key={b.id} className="m-bot"><span>{b.name}<small>{b.last_used_at ? ` · used ${new Date(b.last_used_at).toLocaleDateString()}` : ' · not used yet'}</small></span>
+      <button type="button" className="todo-link" onClick={() => void window.term.workspace.request(`${base}/bots/${b.id}`, 'DELETE').then(load).catch(onError)}>Revoke</button></div>)}
+    <div className="m-inline"><input placeholder="Bot name, e.g. Grokbot" value={name} maxLength={60} onChange={e => setName(e.target.value)} /><button className="btn" type="submit" disabled={!name.trim()}>Create key</button></div>
+    {made && <div className="m-link"><code>{made.key}</code><button type="button" className="btn" onClick={() => void navigator.clipboard.writeText(`TerminAI API: ${made.api}\nAuthorization: Bearer ${made.key}\nGET /conversations · GET /conversations/<id>/messages · POST /agent {to, content} · GET /agent/<message id>/replies`)}>Copy for the bot</button>
+      <small>Shown once. Give it to the bot with the API address; it acts as you on Shared sessions only.</small></div>}
+  </form>
+}
+
+/** A password for the website, set from this signed-in Mac (no old one needed); this Mac and your iPhone stay signed in. */
+function Password({ onError }: { onError: (e: unknown) => void }): JSX.Element {
+  const [done, setDone] = useState(false)
+  const make = async () => {
+    const abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789', bytes = crypto.getRandomValues(new Uint8Array(20))
+    const pw = [...bytes].map(b => abc[b % abc.length]).join('').replace(/(.{5})(?!$)/g, '$1-')
+    try { await window.term.workspace.request('/api/auth/password', 'POST', { password: pw }); await navigator.clipboard.writeText(pw); setDone(true) } catch (e) { onError(e) }
+  }
+  return <div className="m-card m-form">
+    <h3>Password</h3>
+    <p>Only for signing in with email on the web. TerminAI makes a strong one, saves it to your account and puts it on your clipboard: paste it into your password manager.</p>
+    <button type="button" className="btn" onClick={() => void make()}>{done ? 'New password copied ✓' : 'Make a password'}</button>
+  </div>
 }

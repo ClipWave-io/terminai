@@ -193,3 +193,4 @@ nav button{justify-content:flex-start}
 .lf pre{margin:0;padding:14px 16px;border-radius:12px;background:var(--pane);border:1px solid var(--border);overflow-x:auto;font-size:13.5px}
 .lf-foot a{color:var(--accent)}
 .localflow a{color:var(--accent)}
+.google-btn{display:block;text-align:center;padding:11px;border-radius:10px;border:1px solid var(--border);color:var(--fg);text-decoration:none;font-weight:600;background:var(--pane)}.google-btn:hover{border-color:var(--dim)}

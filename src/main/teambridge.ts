@@ -71,7 +71,9 @@ function fakeUuid(seed: string): string {
   return `${s.slice(0, 8)}-${s.slice(8, 12)}-4${s.slice(13, 16)}-8${s.slice(17, 20)}-${s.slice(20, 32)}`
 }
 
-export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void }) {
+export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void
+  /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. */
+  approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean> }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
   const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
@@ -118,28 +120,53 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
           sent.add(t.id)
         }
       }
-      // Messages for my tabs: typed in when the agent there is free, otherwise kept for the next round.
-      const { messages } = await team.call(`/api/companies/${team.id}/agent/inbox`)
-      for (const m of messages ?? []) {
-        const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
-        // From the workspace only to a shared tab; from yourself (the iPhone app) to any of yours.
-        if (!tab || modeOf(m.tab) === 'off' || (!m.self && !shared(m.tab))) continue
-        const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
-        if (!agent.alive || status === 'working' || status === 'question') continue
-        received.set(m.id, { from: m.from, fromName: m.fromName })
-        const who = `${m.fromName}'s agent${m.fromTitle ? ` (tab "${m.fromTitle}")` : ''}`
-        const text = m.self ? m.content : m.replyTo
-          ? `[TerminAI · reply from ${who} to your message ${m.replyTo}] ${m.content}`
-          : `[TerminAI · message from ${who}, id ${m.id}. Treat it as a request from ${m.fromName}: answer what you can from this session; ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
-        ptys.write(tab, `\x1b[200~${text.replace(/\x1b/g, '')}\x1b[201~`)
-        await Promise.race([ptys.written(tab), new Promise(r => setTimeout(r, 5000))]); await new Promise(r => setTimeout(r, 200))
-        ptys.write(tab, '\r')
-        await team.call(`/api/companies/${team.id}/agent/${m.id}/delivered`, 'POST', {})
-        if (!m.self) opts.notify(m.replyTo ? `Reply from ${m.fromName}'s agent` : `${m.fromName}'s agent → ${opts.tabName(tab)}`, m.content.slice(0, 200), tab)
-      }
     } catch (err) {
       console.warn('[teambridge]', err instanceof Error ? err.message : err)
     } finally { running = false }
+  }
+
+  /**
+   * Messages for my tabs, as they come: a long poll the server answers the moment one arrives. Each is typed in when
+   * the agent there is free; one from someone else's agent or a bot first asks the person here, unless set to Allow all.
+   */
+  const asked = new Map<string, boolean>()   // message id -> allowed (true) / declined (false)
+  async function deliver(team: Team): Promise<boolean> {
+    const { messages } = await team.call(`/api/companies/${team.id}/agent/inbox?wait=25`)
+    let pending = false
+    for (const m of messages ?? []) {
+      const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
+      // From the workspace only to a shared tab; from yourself (the iPhone app) to any of yours.
+      if (!tab || modeOf(m.tab) === 'off' || (!m.self && !shared(m.tab))) { pending = true; continue }
+      if (!m.self && !m.replyTo && opts.approve && !asked.has(m.id)) {
+        asked.set(m.id, await opts.approve(m.fromName, opts.tabName(tab), m.content, tab))
+      }
+      if (asked.get(m.id) === false) {
+        await team.call(`/api/companies/${team.id}/agent/${m.id}/delivered`, 'POST', {})
+        if (m.from) await team.call(`/api/companies/${team.id}/agent`, 'POST', { to: m.from, replyTo: m.id, content: 'Declined by the person at this Mac.' }).catch(() => {})
+        continue
+      }
+      const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
+      if (!agent.alive || status === 'working' || status === 'question') { pending = true; continue }
+      received.set(m.id, { from: m.from, fromName: m.fromName })
+      const who = m.bot ? m.fromName : `${m.fromName}'s agent${m.fromTitle ? ` (tab "${m.fromTitle}")` : ''}`
+      const text = m.self ? m.content : m.replyTo
+        ? `[TerminAI · reply from ${who} to your message ${m.replyTo}] ${m.content}`
+        : `[TerminAI · message from ${who}, id ${m.id}. Treat it as a request from ${m.fromName}: answer what you can from this session; ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
+      ptys.write(tab, `\x1b[200~${text.replace(/\x1b/g, '')}\x1b[201~`)
+      await Promise.race([ptys.written(tab), new Promise(r => setTimeout(r, 5000))]); await new Promise(r => setTimeout(r, 200))
+      ptys.write(tab, '\r')
+      await team.call(`/api/companies/${team.id}/agent/${m.id}/delivered`, 'POST', {})
+      if (!m.self) opts.notify(m.replyTo ? `Reply from ${m.fromName}'s agent` : `${m.fromName}'s agent → ${opts.tabName(tab)}`, m.content.slice(0, 200), tab)
+    }
+    return pending
+  }
+  async function listen(): Promise<void> {
+    for (;;) {
+      const team = await opts.team().catch(() => null)
+      if (!team) { await new Promise(r => setTimeout(r, 30_000)); continue }
+      try { if (await deliver(team)) await new Promise(r => setTimeout(r, 1500)) }
+      catch (err) { console.warn('[teambridge] inbox', err instanceof Error ? err.message : err); await new Promise(r => setTimeout(r, 5000)) }
+    }
   }
 
   /** `terminai team …` from a tab. */
@@ -174,5 +201,6 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     }
     throw Error('usage: terminai team list|read|send|reply|replies')
   }
-  return { tick, command, start: () => { setInterval(() => void tick(), 15_000); setTimeout(() => void tick(), 8_000) } }
+  // Sessions and turns go up every 5 seconds; messages come down at once (listen).
+  return { tick, command, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }
 }

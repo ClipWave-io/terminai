@@ -117,7 +117,8 @@ export async function workspaceLogout(): Promise<void> {
 }
 export async function workspaceRequest(path: string, method = 'GET', body?: unknown): Promise<any> {
   // This is deliberately a narrow API bridge, not an authenticated fetch proxy.
-  const rename = (path === '/api/me' && method === 'PATCH') || (path === '/api/auth/device/approve' && method === 'POST'), invite = /^\/api\/companies\/[a-zA-Z0-9-]+\/invites(\/link)?$/.test(path) && method === 'POST'
+  const rename = (path === '/api/me' && method === 'PATCH') || (path === '/api/auth/device/approve' && method === 'POST') || (path === '/api/auth/password' && method === 'POST'),
+    invite = (/^\/api\/companies\/[a-zA-Z0-9-]+\/invites(\/link)?$/.test(path) && method === 'POST') || (/^\/api\/companies\/[a-zA-Z0-9-]+\/bots(\/[a-f0-9-]{36})?$/.test(path) && ['GET', 'POST', 'DELETE'].includes(method))
   const file = /^\/api\/companies\/[a-zA-Z0-9-]+\/notes\/[a-zA-Z0-9-]+\/files\/[a-zA-Z0-9-]+$/.test(path)
   if (rename || invite) {
     const session = await load()

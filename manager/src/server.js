@@ -6,7 +6,7 @@ await migrate(pool);
 const hops=Number(process.env.TRUST_PROXY_HOPS||0);
 if(!Number.isInteger(hops)||hops<0||hops>3)throw new Error('TRUST_PROXY_HOPS must be 0–3.');
 const server=createServer({requestTimeout:30000,headersTimeout:10000},createApp(pool,{
-  publicOrigin:process.env.PUBLIC_ORIGIN||'http://localhost:8080',apiOrigin:process.env.API_ORIGIN,setupToken:process.env.SETUP_TOKEN,signupOpen:process.env.SIGNUP!=='closed',
+  publicOrigin:process.env.PUBLIC_ORIGIN||'http://localhost:8080',apiOrigin:process.env.API_ORIGIN,google:process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET?{id:process.env.GOOGLE_CLIENT_ID,secret:process.env.GOOGLE_CLIENT_SECRET}:null,setupToken:process.env.SETUP_TOKEN,signupOpen:process.env.SIGNUP!=='closed',
   trustProxyHops:hops
 }));
 server.listen(Number(process.env.PORT||8080),'0.0.0.0',()=>console.log('TerminAI manager listening'));
