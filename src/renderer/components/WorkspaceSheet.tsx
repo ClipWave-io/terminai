@@ -187,7 +187,6 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
           <button className="btn primary" type="submit" disabled={code.trim().replace('-', '').length !== 8}>Allow</button></div>
         {allowed && <small className="m-ok">✓ {allowed} allowed: the phone signs in by itself.</small>}
       </form>
-      <Bots base={base} onError={onError} />
       <Password onError={onError} />
       <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void rename() }}>
         <h3>Your name</h3>
@@ -361,7 +360,7 @@ function SessionSharing(): JSX.Element {
 }
 
 /** Keys for other agents and bots (a Telegram bot, a script): they list, read and message your shared sessions as you. */
-function Bots({ base, onError }: { base: string; onError: (e: unknown) => void }): JSX.Element {
+export function Bots({ base, onError }: { base: string; onError: (e: unknown) => void }): JSX.Element {
   const [bots, setBots] = useState<{ id: string; name: string; last_used_at?: string }[]>([])
   const [name, setName] = useState('')
   const [made, setMade] = useState<{ key: string; api: string } | null>(null)

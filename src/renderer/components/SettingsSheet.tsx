@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type React from 'react'
 import {
   DEFAULT_PREFS,
   type Prefs,
@@ -21,6 +22,8 @@ const LOCAL_VOICES = [
 import { THEMES } from '../../shared/themes'
 import { PermissionsSetup } from './PermissionsSetup'
 import { GrokConnection } from './GrokConnection'
+import { Bots } from './WorkspaceSheet'
+import './workspace.css'
 import './welcome.css'
 import type { JSX } from 'react'
 
@@ -133,298 +136,98 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       .catch(() => setElevenError('preview failed'))
   }
 
+  const [section, setSection] = useState<SettingsSection>('general')
+  const [company, setCompany] = useState('')
+  useEffect(() => { void window.term.workspace.state().then(v => setCompany(v.identity?.companies[0]?.id ?? '')).catch(() => {}) }, [])
   const patchVoice = (p: Partial<Prefs['voice']>): void =>
     onChange({ voice: { ...prefs.voice, ...p } })
 
-  return (
-    <div className="sheet-backdrop" onMouseDown={onClose}>
-      <div className="sheet" onMouseDown={(e) => e.stopPropagation()}>
-        <h2>Settings</h2>
-        <AppVersion />
-        <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} />
-        <MemoryDetailPanel />
-        <StoragePanel />
-        <div className="row">
-          <label>New tabs start<span className="hint">Opens a new conversation right away, with permissions skipped.</span></label>
+  // One row of a card: what it is on the left, its control on the right.
+  const Row = ({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) =>
+    <div className="st-row"><div className="st-label"><strong>{label}</strong>{hint && <small>{hint}</small>}</div><div className="st-control">{children}</div></div>
+  const Toggle = ({ on, set }: { on: boolean; set: (v: boolean) => void }) =>
+    <button type="button" role="switch" aria-checked={on} className={`st-switch${on ? ' on' : ''}`} onClick={() => set(!on)}><i /></button>
+  const page = (title: string, text: string, body: React.ReactNode) => <div className="team-page st-page"><header><div><h2>{title}</h2><p>{text}</p></div></header>{body}</div>
+  const pages: Record<SettingsSection, () => React.ReactNode> = {
+    general: () => page('General', 'How TerminAI starts, updates and behaves.', <>
+      <AppVersion />
+      <div className="st-card">
+        <Row label="New tabs start" hint="Opens a new conversation right away, with permissions skipped.">
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
-            <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select>
-        </div>
-        <div className="row">
-          <label>Install updates at night<span className="hint">Between 3 and 6, when no tab is working: TerminAI restarts into the new version and your conversations come back.</span></label>
-          <input type="checkbox" checked={prefs.nightUpdates} onChange={e => onChange({ nightUpdates: e.target.checked })} />
-        </div>
-        <div className="row"><label>Connections<span className="hint">Your own bots that your sessions can ask, and that can reach your sessions.</span></label></div>
-        <GrokConnection />
-        <div className="row"><label>Permissions<span className="hint">What macOS lets TerminAI do.</span></label></div>
-        <PermissionsSetup compact />
-        <div className="row">
-          <label>Browser (beta)<span className="hint">The built-in browser pane. Off until it is finished.</span></label>
-          <input type="checkbox" checked={prefs.browserBeta} onChange={e => onChange({ browserBeta: e.target.checked })} />
-        </div>
-        <Feedback />
-        <div className="row">
-          <label>Notify when a chat is done<span className="hint">A notice with its summary; click it to open that tab.</span></label>
-          <input type="checkbox" checked={prefs.doneNotices} onChange={e => onChange({ doneNotices: e.target.checked })} />
-        </div>
-
-        <div className="row">
-          <label>
-            Theme
-            <span className="hint">
-              Cycle all {Object.keys(THEMES).length} with <span className="kbd">⇧⌘L</span>
-            </span>
-          </label>
-          <select
-            value={prefs.theme}
-            onChange={(e) => onChange({ theme: e.target.value as ThemeName })}
-          >
-            {Object.values(THEMES).map((t) => (
-              <option key={t.name} value={t.name}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="row">
-          <label>
-            Sidebar
-            <span className="hint">
-              <span className="kbd">⌥⌘S</span> to flip · <span className="kbd">⌘S</span> to hide
-            </span>
-          </label>
-          <select
-            value={prefs.railSide}
-            onChange={(e) => onChange({ railSide: e.target.value as RailSide })}
-          >
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-        </div>
-
-        <div className="row">
-          <label>
-            Group by folder
-            <span className="hint">Sessions sit under the folder they are in</span>
-          </label>
-          <input
-            type="checkbox"
-            checked={prefs.groupByFolder}
-            onChange={(e) => onChange({ groupByFolder: e.target.checked })}
-          />
-        </div>
-
-        <div className="row">
-          <label>
-            Font size
-            <span className="hint">
-              <span className="kbd">⌘+</span> / <span className="kbd">⌘−</span>
-            </span>
-          </label>
-          <select
-            value={prefs.fontSize}
-            onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-          >
-            {[11, 12, 13, 14, 15, 16, 18].map((n) => (
-              <option key={n} value={n}>
-                {n}px
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="row">
-          <label>
-            Spoken summaries
-            <span className="hint">Reads the SPOKEN: line each turn ends with</span>
-          </label>
-          <input
-            type="checkbox"
-            checked={prefs.voice.enabled}
-            onChange={(e) => patchVoice({ enabled: e.target.checked })}
-          />
-        </div>
-
-        <div className="row">
-          <label>
-            Play automatically
-            <span className="hint">Off = the dock waits for you to press play</span>
-          </label>
-          <input
-            type="checkbox"
-            checked={prefs.voice.autoplay}
-            onChange={(e) => patchVoice({ autoplay: e.target.checked })}
-          />
-        </div>
-
-        <div className="row">
-          <label>
-            Engine
-            <span className="hint">
-              {prefs.voice.engine === 'local' && !hasLocal
-                ? 'Not installed — run scripts/setup-local-tts.sh, falling back to say'
-                : prefs.voice.engine === 'local'
-                  ? 'Free, on-device, no API cost'
-                  : prefs.voice.engine === 'elevenlabs' && !hasEleven
-                    ? 'No key saved — falling back to macOS say'
-                    : 'Best quality, billed per character'}
-            </span>
-          </label>
-          <select
-            value={prefs.voice.engine}
-            onChange={(e) => patchVoice({ engine: e.target.value as VoiceEngine })}
-          >
-            <option value="local">Local (Kokoro){hasLocal ? '' : ' — not installed'}</option>
-            <option value="elevenlabs">ElevenLabs{hasEleven ? '' : ' — no key'}</option>
-            <option value="say">macOS say</option>
-          </select>
-        </div>
-
-        {prefs.voice.engine === 'elevenlabs' && !hasEleven && (
-          <div className="row">
-            <label>
-              API key
-              <span className="hint">Stored in your login Keychain, never in a file</span>
-            </label>
-            <span style={{ display: 'flex', gap: 6 }}>
-              <input
-                type="password"
-                placeholder="sk_…"
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                style={{ minWidth: 150 }}
-              />
-              <button className="chip" onClick={() => void saveKey()} disabled={busy || !keyDraft}>
-                Save
-              </button>
-            </span>
-          </div>
-        )}
-
-        {prefs.voice.engine === 'local' && hasLocal && (
-          <div className="row">
-            <label>Voice</label>
-            <select
-              value={prefs.voice.localVoice}
-              onChange={(e) => patchVoice({ localVoice: e.target.value })}
-            >
-              {LOCAL_VOICES.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {prefs.voice.engine === 'say' && (
-          <div className="row">
-            <label>Voice</label>
-            <select
-              value={prefs.voice.sayVoice}
-              onChange={(e) => patchVoice({ sayVoice: e.target.value })}
-            >
-              {(voices.length ? voices : [prefs.voice.sayVoice]).map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {prefs.voice.engine === 'elevenlabs' && hasEleven && (
-          <div className="row">
-            <label>
-              Voice
-              <span className="hint">
-                {elevenError
-                  ? elevenError
-                  : elevenVoices.length
-                    ? `${elevenVoices.length} from your library`
-                    : 'loading…'}
-              </span>
-            </label>
-            <select
-              value={prefs.voice.elevenVoiceId}
-              onChange={(e) => patchVoice({ elevenVoiceId: e.target.value })}
-            >
-              {/* The stored voice may be one of ElevenLabs' premade voices,
-                  which are not part of the account's own library listing. It
-                  still synthesizes fine, so keep it selectable and say so. */}
-              {!elevenVoices.some((v) => v.id === prefs.voice.elevenVoiceId) && (
-                <option value={prefs.voice.elevenVoiceId}>
-                  {prefs.voice.elevenVoiceId === DEFAULT_PREFS.voice.elevenVoiceId
-                    ? 'Rachel — ElevenLabs default'
-                    : 'Current voice — not in your library'}
-                </option>
-              )}
-              {elevenVoices.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                  {v.description ? ` — ${v.description}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div className="row">
-          <label>
-            Preview
-            <span className="hint">Hear the current engine and voice</span>
-          </label>
-          <button className="chip" onClick={preview}>
-            ▶ Play sample
-          </button>
-        </div>
-
-        <div className="row">
-          <label>Volume</label>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={prefs.voice.volume}
-            onChange={(e) => patchVoice({ volume: Number(e.target.value) })}
-          />
-        </div>
-
-        <div className="row">
-          <label>
-            Customise the design
-            <span className="hint">
-              Opens Claude Code in this app's own source, then rebuilds and relaunches
-            </span>
-          </label>
-          <button className="chip on" onClick={onCustomize}>
-            Open Claude Code
-          </button>
-        </div>
-
-        <h3 className="sheet-section">Keyboard shortcuts</h3>
-        {SHORTCUTS.map((g) => (
-          <div key={g.group} className="keys-group">
-            <div className="keys-title">{g.group}</div>
-            {g.items.map(([keys, what]) => (
-              <div key={keys} className="keys-row">
-                <span className="keys-what">{what}</span>
-                <span className="kbd">{keys}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-
-        <div className="row" style={{ paddingTop: 14, justifyContent: 'flex-end' }}>
-          <button className="btn" style={{ flex: '0 0 auto' }} onClick={onClose}>
-            Done
-          </button>
-        </div>
+            <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select></Row>
+        <Row label="Install updates at night" hint="Between 3 and 6, when no tab is working: TerminAI restarts into the new version and your conversations come back."><Toggle on={prefs.nightUpdates} set={v => onChange({ nightUpdates: v })} /></Row>
+        <Row label="Browser (beta)" hint="The built-in browser pane. Off until it is finished."><Toggle on={prefs.browserBeta} set={v => onChange({ browserBeta: v })} /></Row>
+        <Row label="Customise the design" hint="Opens Claude Code in this app's own source, then rebuilds and relaunches."><button className="btn" onClick={onCustomize}>Open Claude Code</button></Row>
       </div>
+      <Feedback />
+    </>),
+    appearance: () => page('Appearance', 'Theme, sidebar and text size.', <div className="st-card">
+      <Row label="Theme" hint={<>Cycle all {Object.keys(THEMES).length} with <span className="kbd">⇧⌘L</span></>}>
+        <select value={prefs.theme} onChange={e => onChange({ theme: e.target.value as ThemeName })}>{Object.values(THEMES).map(t => <option key={t.name} value={t.name}>{t.label}</option>)}</select></Row>
+      <Row label="Sidebar" hint={<><span className="kbd">⌥⌘S</span> to flip · <span className="kbd">⌘S</span> to hide</>}>
+        <select value={prefs.railSide} onChange={e => onChange({ railSide: e.target.value as RailSide })}><option value="left">Left</option><option value="right">Right</option></select></Row>
+      <Row label="Group by folder" hint="Sessions sit under the folder they are in."><Toggle on={prefs.groupByFolder} set={v => onChange({ groupByFolder: v })} /></Row>
+      <Row label="Font size" hint={<><span className="kbd">⌘+</span> / <span className="kbd">⌘−</span></>}>
+        <select value={prefs.fontSize} onChange={e => onChange({ fontSize: Number(e.target.value) })}>{[11, 12, 13, 14, 15, 16, 18].map(n => <option key={n} value={n}>{n}px</option>)}</select></Row>
+    </div>),
+    voice: () => page('Voice', 'Each finished turn read aloud from its SPOKEN line.', <div className="st-card">
+      <Row label="Spoken summaries" hint="Reads the SPOKEN: line each turn ends with."><Toggle on={prefs.voice.enabled} set={v => patchVoice({ enabled: v })} /></Row>
+      <Row label="Play automatically" hint="Off: the dock waits for you to press play."><Toggle on={prefs.voice.autoplay} set={v => patchVoice({ autoplay: v })} /></Row>
+      <Row label="Engine" hint={prefs.voice.engine === 'local' && !hasLocal ? 'Not installed: run scripts/setup-local-tts.sh, falling back to say' : prefs.voice.engine === 'local' ? 'Free, on-device, no API cost' : prefs.voice.engine === 'elevenlabs' && !hasEleven ? 'No key saved: falling back to macOS say' : prefs.voice.engine === 'elevenlabs' ? 'Best quality, billed per character' : 'Built into macOS'}>
+        <select value={prefs.voice.engine} onChange={e => patchVoice({ engine: e.target.value as VoiceEngine })}>
+          <option value="local">Local (Kokoro){hasLocal ? '' : ', not installed'}</option><option value="elevenlabs">ElevenLabs{hasEleven ? '' : ', no key'}</option><option value="say">macOS say</option></select></Row>
+      {prefs.voice.engine === 'elevenlabs' && !hasEleven && <Row label="API key" hint="Stored in your login Keychain, never in a file.">
+        <span className="st-inline"><input type="password" placeholder="sk_…" value={keyDraft} onChange={e => setKeyDraft(e.target.value)} /><button className="btn" onClick={() => void saveKey()} disabled={busy || !keyDraft}>Save</button></span></Row>}
+      {prefs.voice.engine === 'local' && hasLocal && <Row label="Voice"><select value={prefs.voice.localVoice} onChange={e => patchVoice({ localVoice: e.target.value })}>{LOCAL_VOICES.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}</select></Row>}
+      {prefs.voice.engine === 'say' && <Row label="Voice"><select value={prefs.voice.sayVoice} onChange={e => patchVoice({ sayVoice: e.target.value })}>{(voices.length ? voices : [prefs.voice.sayVoice]).map(v => <option key={v} value={v}>{v}</option>)}</select></Row>}
+      {prefs.voice.engine === 'elevenlabs' && hasEleven && <Row label="Voice" hint={elevenError ? elevenError : elevenVoices.length ? `${elevenVoices.length} from your library` : 'loading…'}>
+        <select value={prefs.voice.elevenVoiceId} onChange={e => patchVoice({ elevenVoiceId: e.target.value })}>
+          {!elevenVoices.some(v => v.id === prefs.voice.elevenVoiceId) && <option value={prefs.voice.elevenVoiceId}>{prefs.voice.elevenVoiceId === DEFAULT_PREFS.voice.elevenVoiceId ? 'Rachel, ElevenLabs default' : 'Current voice, not in your library'}</option>}
+          {elevenVoices.map(v => <option key={v.id} value={v.id}>{v.name}{v.description ? `, ${v.description}` : ''}</option>)}</select></Row>}
+      <Row label="Preview" hint="Hear the current engine and voice."><button className="btn" onClick={preview}>Play sample</button></Row>
+      <Row label="Volume"><input type="range" min={0} max={1} step={0.05} value={prefs.voice.volume} onChange={e => patchVoice({ volume: Number(e.target.value) })} /></Row>
+    </div>),
+    memory: () => page('Memory', 'What your sessions and the rest of the Mac use, and what to put to sleep.', <>
+      <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
+    notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
+      <PermissionsSetup compact />
+      <div className="st-card"><Row label="Notify when a chat is done" hint="A notice with its summary when you are not looking at that tab; click it to open the tab."><Toggle on={prefs.doneNotices} set={v => onChange({ doneNotices: v })} /></Row></div>
+    </>),
+    connections: () => page('Connections', 'Your own bots: your sessions can ask them, and they can reach your Shared sessions.', <>
+      <GrokConnection />{company ? <Bots base={`/api/companies/${company}`} onError={e => console.warn(e)} /> : null}</>),
+    shortcuts: () => page('Keyboard shortcuts', 'Everything you can do from the keyboard.', <div className="st-keys">
+      {SHORTCUTS.map(g => <div key={g.group} className="st-card"><div className="st-keys-title">{g.group}</div>
+        {g.items.map(([keys, what]) => <div key={keys} className="st-key"><span>{what}</span><span className="kbd">{keys}</span></div>)}</div>)}</div>),
+  }
+  return (
+    <div className="workspace-overlay" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <section className="team-sheet" role="dialog" aria-modal="true" aria-label="Settings">
+        <div className="team-shell">
+          <aside className="team-side">
+            <div className="team-brand"><span className="team-mark">›_</span>Settings</div>
+            <nav>{SECTIONS.map(([key, label, icon]) => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => setSection(key)}><SIcon d={icon} />{label}</button>)}</nav>
+          </aside>
+          <main className="team-main">
+            <button className="team-close" aria-label="Close settings" onClick={onClose}><SIcon d="M6 6l12 12M18 6 6 18" /></button>
+            {pages[section]()}
+          </main>
+        </div>
+      </section>
     </div>
   )
 }
+
+type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'notifications' | 'connections' | 'shortcuts'
+const SECTIONS: [SettingsSection, string, string][] = [
+  ['general', 'General', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z'],
+  ['appearance', 'Appearance', 'M12 3a9 9 0 1 0 9 9c0-.8-.7-1.5-1.5-1.5H17a2.5 2.5 0 0 1 0-5h.5A1.5 1.5 0 0 0 19 4 9 9 0 0 0 12 3ZM7.5 11.5h.01M10 7.5h.01M15 7.5h.01'],
+  ['voice', 'Voice', 'M4 9h4l5-4v14l-5-4H4ZM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12'],
+  ['memory', 'Memory', 'M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'],
+  ['notifications', 'Notifications', 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15ZM10 20a2 2 0 0 0 4 0'],
+  ['connections', 'Connections', 'M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1'],
+  ['shortcuts', 'Shortcuts', 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10'],
+]
+const SIcon = ({ d }: { d: string }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
 
 /** The version this Mac runs, and the same check as TerminAI › Check for Updates… in the menu bar. */
 function AppVersion(): JSX.Element {

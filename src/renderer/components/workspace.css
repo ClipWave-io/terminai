@@ -176,3 +176,24 @@
 .perm-role { height: 28px; border-radius: 7px; border: 1px solid var(--border, #2a3140); background: var(--pane, #0f1420); color: inherit; font: inherit; font-size: 12.5px; }
 .perm-scope { display: flex; gap: 8px; align-items: center; justify-content: flex-end; font-size: 12.5px; }
 .perm-edit { display: flex; gap: 6px; } .perm-edit input { width: 170px; height: 28px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--border, #2a3140); background: var(--pane, #0f1420); color: inherit; font: inherit; font-size: 12.5px; }
+/* Settings, in the Sync window's layout: a sidebar of sections, and cards of rows (label and hint left, control right). */
+.st-page { max-width: 860px; }
+.st-card { border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--surface) 60%, transparent); overflow: hidden; }
+.st-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 18px; }
+.st-row + .st-row { border-top: 1px solid var(--border); }
+.st-label { min-width: 0; display: grid; gap: 3px; } .st-label strong { font-size: 13px; font-weight: 600; } .st-label small { font-size: 12px; color: var(--dim); line-height: 1.45; }
+.st-control { flex: none; display: flex; align-items: center; gap: 8px; } .st-control select { min-width: 160px; }
+.st-control .btn, .st-page .btn { flex: none; padding: 7px 14px; }
+.st-inline { display: flex; gap: 6px; } .st-inline input { width: 170px; }
+.st-switch { position: relative; width: 38px; height: 22px; border-radius: 999px; border: 1px solid var(--border); background: var(--pane); padding: 0; transition: background 140ms ease; }
+.st-switch i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--dim); transition: transform 140ms ease, background 140ms ease; }
+.st-switch.on { background: var(--accent); border-color: var(--accent); } .st-switch.on i { transform: translateX(16px); background: #fff; }
+/* The older blocks (version, feedback, memory, connections) shown as cards on these pages. */
+.st-page > .row { border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--surface) 60%, transparent); padding: 13px 18px; margin: 0; }
+.st-page > .row label { display: grid; gap: 3px; font-weight: 600; } .st-page > .row .hint { font-weight: 400; }
+.st-page .mem, .st-page .gk { margin: 0; border-radius: 14px; background: color-mix(in srgb, var(--surface) 60%, transparent); padding: 16px 18px; }
+.st-page .ps { gap: 10px; } .st-page .ps-card { border-radius: 14px; background: color-mix(in srgb, var(--surface) 60%, transparent); padding: 14px 18px; }
+.st-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.st-keys .st-card { padding: 14px 18px; display: grid; gap: 8px; align-content: start; }
+.st-keys-title { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+.st-key { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
