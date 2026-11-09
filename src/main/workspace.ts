@@ -15,7 +15,7 @@ export function managerOrigin(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Enter your workspace manager URL.')
   const url = new URL(value)
   // Test builds may use a manager on this Mac (UI tests); the installed app never does.
-  if (process.env.TERMINAI_TEST_BUILD && url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.pathname === '/') return url.origin
+  if (globalThis.process?.env?.TERMINAI_TEST_BUILD && url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.pathname === '/') return url.origin
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)
     throw new Error('Use the HTTPS address of your workspace manager, without a path.')
   return url.origin
@@ -33,7 +33,7 @@ async function load(): Promise<Session | null> {
 async function request(url: string, path: string, method: string, body?: unknown, token?: string): Promise<any> {
   const response = await fetch(url + path, {
     method, redirect: 'error', signal: AbortSignal.timeout(15000),
-    headers: { 'Content-Type': 'application/json', 'X-TerminAI-Version': app.getVersion(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', 'X-TerminAI-Version': app.getVersion?.() ?? '', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const value = await response.json().catch(() => ({})) as any
@@ -225,7 +225,7 @@ async function authed(path: string, init: RequestInit & { timeout?: number } = {
   const session = await load()
   if (!session) throw new Error('Sign in with Sync first.')
   const response = await fetch(session.url + path, { ...init, redirect: 'error', signal: AbortSignal.timeout(init.timeout ?? 15000),
-    headers: { 'X-TerminAI-Version': app.getVersion(), Authorization: `Bearer ${session.token}`, ...(init.headers ?? {}) } })
+    headers: { 'X-TerminAI-Version': app.getVersion?.() ?? '', Authorization: `Bearer ${session.token}`, ...(init.headers ?? {}) } })
   if (!response.ok) { const v = await response.json().catch(() => ({})) as any; throw new Error(typeof v.error === 'string' ? v.error.slice(0, 240) : `Request failed (${response.status}).`) }
   return response
 }

@@ -73,7 +73,7 @@ function fakeUuid(seed: string): string {
 
 export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void
   /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. */
-  approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean>; wake?: (tabId: string) => unknown }) {
+  approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
   const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
@@ -88,15 +88,16 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     try {
       const team = await opts.team(); if (!team) return
       for (const id of ptys.liveIds()) {
-        const agent = ptys.agentOf(id); if (!agent.kind) continue
+        // A tab whose conversation waits to resume since a restart is listed too: a message from your phone starts it.
+        const agent = ptys.agentOf(id); if (!agent.kind && !opts.waiting?.(id)) continue
         const key = ptys.workspaceKeyOf(id), mode = tabMode(key, ptys.cwdOf(id)), share = mode === 'shared'
-        // Leaving Shared deletes what the server had of it (its turns and messages); it starts over below if it is Only me.
-        if (!share && wasShared.has(key) && conversationOf.has(key)) {
+        // Off the record deletes what the server had of it (its turns and messages). Shared to Only me keeps it, readable by you alone.
+        if (mode === 'off' && wasShared.has(key) && conversationOf.has(key)) {
           await team.call(`/api/companies/${team.id}/conversations/${conversationOf.get(key)}`, 'DELETE').catch(() => {})
           posted.delete(conversationOf.get(key)!); conversationOf.delete(key)
         }
-        // First sight since the app started, not Shared: whatever an earlier run uploaded of it is deleted.
-        if (!share && !seen.has(key)) {
+        // First sight since the app started, Off the record: whatever an earlier run uploaded of it is deleted.
+        if (mode === 'off' && !seen.has(key)) {
           const old = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', { title: 'Private session', visibility: 'owner' }).catch(() => null))?.conversation
           if (old) await team.call(`/api/companies/${team.id}/conversations/${old.id}`, 'DELETE').catch(() => {})
           conversationOf.delete(key)
@@ -105,11 +106,10 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         if (share) wasShared.add(key); else wasShared.delete(key)
         // Off the record: nothing of it goes to the server.
         if (mode === 'off') continue
-        // Only me: a name and a status for your iPhone to reach it, never its conversation.
+        // Only me: the same as Shared, but readable by you alone (your iPhone and the web), never by the team or bots.
         const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
-          title: share ? opts.tabName(id).slice(0, 200) || 'Session' : 'Private session', place: share ? place(ptys.cwdOf(id)) : undefined, status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
+          title: opts.tabName(id).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
         conversationOf.set(key, conv.id)
-        if (!share) continue
         const file = transcriptOf(id); if (!file) continue
         const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
         // The first look sends only the last 30 turns: older history stays on this Mac.

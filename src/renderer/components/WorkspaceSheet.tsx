@@ -315,7 +315,7 @@ export function AccountGate({ onDone, onSkip }: { onDone: () => void; onSkip: ()
 }
 
 /** What the partner may see, by folder and by tab (sharing.ts). Work on this Mac is the same whatever is set here. */
-const MODES: [string, string, string][] = [['shared', 'Shared', 'your partner and their agents can read and message it'], ['private', 'Only me', 'your iPhone can reach it; its conversation never leaves this Mac'], ['off', 'Off the record', 'nothing leaves this Mac']]
+const MODES: [string, string, string][] = [['shared', 'Shared', 'your partner and their agents can read and message it'], ['private', 'Only me', 'only you can read and message it, on your iPhone and the web'], ['off', 'Off the record', 'nothing leaves this Mac']]
 function SessionSharing(): JSX.Element {
   const [state, setState] = useState<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
   const [query, setQuery] = useState(''), [all, setAll] = useState(false)

@@ -686,6 +686,7 @@ function registerIpc(): void {
     team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
     tabName,
     wake: (tabId: string) => resumeLater(tabId) || wakeTab(tabId),
+    waiting: (tabId: string) => laterResume.has(tabId),
     approve: async (from, tab, text, tabId) => {
       if (store.load().agentMessages === 'allow' || !win || win.isDestroyed()) return true
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
