@@ -62,6 +62,7 @@ function applyThemeVars(prefs: Prefs): void {
 
 export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
+  const prefsRef = useRef(prefs); prefsRef.current = prefs
   const [ready, setReady] = useState(false)
   useEffect(() => window.term.window.onOpenSettings(() => setShowSettings(true)), [])
   // Signed in from the website's Open TerminAI: open Sync, which now shows the account.
@@ -218,7 +219,7 @@ export function App(): JSX.Element {
   }
 
   // ---- tabs --------------------------------------------------------------
-  const newTab = useCallback(async (cwd?: string, restore?: SavedTab) => {
+  const newTab = useCallback(async (cwd?: string, restore?: SavedTab, start = false) => {
     const browserKey = restore?.browserKey || crypto.randomUUID()
     const { id, cwd: realCwd } = await window.term.pty.create({
       cwd, browserKey,
@@ -252,6 +253,11 @@ export function App(): JSX.Element {
       const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs, cwd: realCwd })
       setTabs(prev => prev.map(t=>t.id===id?{...t, agent:kind, agentSession:sessionId, agentArgs:restore.agentArgs||[]}:t))
       window.term.pty.exec(id, cmd, { continue: restore.wasWorking === true })
+    } else if (start) {
+      // A tab you open starts the agent chosen in Settings, by default Claude Code with permissions skipped.
+      const agent = prefsRef.current.newTabAgent
+      const cmd = agent === 'claude' ? 'claude --dangerously-skip-permissions' : agent === 'codex' ? 'codex --dangerously-bypass-approvals-and-sandbox' : ''
+      if (cmd) window.term.pty.exec(id, cmd)
     }
     return id
   }, [])
@@ -656,7 +662,7 @@ export function App(): JSX.Element {
         case 'n':
         case 't':
           e.preventDefault()
-          void newTab(list[cur]?.cwd)
+          void newTab(list[cur]?.cwd, undefined, true)
           break
         case 'w':
           e.preventDefault()
@@ -708,7 +714,7 @@ export function App(): JSX.Element {
         case 'O':
           if (!e.shiftKey) return
           e.preventDefault()
-          void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))
+          void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir, undefined, true))
           break
         case '=':
         case '+':
@@ -761,8 +767,8 @@ export function App(): JSX.Element {
             onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal');void window.term.window.wake(id)}}
             onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}
             onClose={closeTab}
-            onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
-            onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir))}
+            onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd, undefined, true)}
+            onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir, undefined, true))}
             onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(!prev[from]||!prev[to]||groupOf(prev[from])!==groupOf(prev[to]))return prev;const key=groupOf(prev[from]);const slots=prev.map((t,i)=>groupOf(t)===key?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}
             grouped={prefs.groupByFolder}
           />
@@ -836,7 +842,7 @@ export function App(): JSX.Element {
               <button
                 className="btn primary"
                 style={{ flex: '0 0 auto' }}
-                onClick={() => void newTab()}
+                onClick={() => void newTab(undefined, undefined, true)}
               >
                 New tab ⌘T
               </button>
@@ -962,7 +968,7 @@ export function App(): JSX.Element {
           onClose={closeTab}
           onReorder={reorderTabs}
           onNotes={setNotes}
-          onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
+          onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd, undefined, true)}
           onClose_={() => setShowGrid(false)}
         />
       )}

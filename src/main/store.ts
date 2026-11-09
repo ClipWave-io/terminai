@@ -29,6 +29,7 @@ function hydrate(raw: unknown): Prefs {
     // Anything but an explicit true means the tour has not been dismissed, so
     // an upgrade from a prefs file that predates this field shows it once.
     seenWelcome: p.seenWelcome === true,
+    newTabAgent: p.newTabAgent === 'codex' || p.newTabAgent === 'none' ? p.newTabAgent : 'claude',
     doneNotices: p.doneNotices !== false,
     // Off the record unless chosen: a Mac that never said so shares nothing.
     shareConversations: p.shareConversations === true,

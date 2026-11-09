@@ -139,6 +139,11 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
         <h2>Settings</h2>
         <AppVersion />
         <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} />
+        <div className="row">
+          <label>New tabs start<span className="hint">Opens a new conversation right away, with permissions skipped.</span></label>
+          <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
+            <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select>
+        </div>
         <Feedback />
         <div className="row">
           <label>Notify when a chat is done<span className="hint">A notice with its summary; click it to open that tab.</span></label>

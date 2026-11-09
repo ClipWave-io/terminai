@@ -346,6 +346,8 @@ export interface Prefs {
   voice: VoicePrefs
   /** false until the first-run welcome has been dismissed */
   seenWelcome: boolean
+  /** what a tab you open starts: Claude Code or Codex with permissions skipped, or a plain shell */
+  newTabAgent: 'claude' | 'codex' | 'none'
   /** a notice when a tab's conversation finishes a turn; a click opens that tab */
   doneNotices: boolean
   /** folders whose conversations stay out of the shared work log */
@@ -403,6 +405,7 @@ export const DEFAULT_PREFS: Prefs = {
     volume: 1,
   },
   seenWelcome: false,
+  newTabAgent: 'claude',
   doneNotices: true,
   worklogSkip: [],
   shareConversations: false,
