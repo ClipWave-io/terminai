@@ -76,7 +76,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
   approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
-  const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
+  const received = new Map<string, { from: string | null; fromName: string; bot?: boolean }>() // agent message id -> who sent it
   let running = false
   const wasShared = new Set<string>(), seen = new Set<string>()
 
@@ -148,9 +148,12 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
       if (!agent.alive) opts.wake?.(tab)
       if (!agent.alive || status === 'working' || status === 'question') { pending = true; continue }
-      received.set(m.id, { from: m.from, fromName: m.fromName })
+      received.set(m.id, { from: m.from, fromName: m.fromName, bot: !!m.bot })
       const who = m.bot ? m.fromName : `${m.fromName}'s agent${m.fromTitle ? ` (tab "${m.fromTitle}")` : ''}`
-      const text = m.self ? m.content : m.replyTo
+      // A bot (Grok Bot and the like) asks over its key and reads the answer from this conversation, or it is an answer to `terminai ask-grok`.
+      const text = m.self ? m.content : m.bot && !m.from
+        ? `[TerminAI · message from the bot ${m.fromName}, id ${m.id}. It may be the answer to something you asked with terminai ask-grok; otherwise treat it as a request: answer here in this session (the bot reads it from here), and ask the person here before anything destructive, any purchase or any secret.] ${m.content}`
+        : m.replyTo
         ? `[TerminAI · reply from ${who} to your message ${m.replyTo}] ${m.content}`
         : `[TerminAI · message from ${who}, id ${m.id}. Treat it as a request from ${m.fromName}: answer what you can from this session; ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
       ptys.write(tab, `\x1b[200~${text.replace(/\x1b/g, '')}\x1b[201~`)
@@ -193,6 +196,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     if (a.action === 'reply') {
       if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team reply <message id> <answer>')
       const original = received.get(a.id)
+      if (original?.bot && !original.from) return { ok: true, note: 'A bot sent it: it reads your answer from this session, so answering here is enough.' }
       if (!original?.from) throw Error('That message came from no session (or not to this Mac): nothing to reply to.')
       return team.call(`${base}/agent`, 'POST', { to: original.from, content: a.text, from: mine() ?? undefined, replyTo: a.id })
     }
@@ -203,5 +207,5 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     throw Error('usage: terminai team list|read|send|reply|replies')
   }
   // Sessions and turns go up every 5 seconds; messages come down at once (listen).
-  return { tick, command, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }
+  return { tick, command, conversationFor: (tabId: string): string | null => conversationOf.get(ptys.workspaceKeyOf(tabId)) ?? null, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }
 }

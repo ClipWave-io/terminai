@@ -20,6 +20,7 @@ const LOCAL_VOICES = [
 ]
 import { THEMES } from '../../shared/themes'
 import { PermissionsSetup } from './PermissionsSetup'
+import { GrokConnection } from './GrokConnection'
 import './welcome.css'
 import type { JSX } from 'react'
 
@@ -150,6 +151,8 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <label>Install updates at night<span className="hint">Between 3 and 6, when no tab is working: TerminAI restarts into the new version and your conversations come back.</span></label>
           <input type="checkbox" checked={prefs.nightUpdates} onChange={e => onChange({ nightUpdates: e.target.checked })} />
         </div>
+        <div className="row"><label>Connections<span className="hint">Your own bots that your sessions can ask, and that can reach your sessions.</span></label></div>
+        <GrokConnection />
         <div className="row"><label>Permissions<span className="hint">What macOS lets TerminAI do.</span></label></div>
         <PermissionsSetup compact />
         <div className="row">
