@@ -20,6 +20,8 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
   const [data, setData] = useState<ClaudeAccounts | null>(null)
   const [current, setCurrent] = useState('')
   const [open, setOpen] = useState(false)
+  const [switched, setSwitched] = useState('')
+  useEffect(() => { if (!open) setSwitched('') }, [open])
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<ClaudeAccount | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null)
@@ -48,10 +50,10 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
   if (!data) return null
   const active = data.accounts.find(a => a.id === current) ?? data.accounts[0]
   const pick = async (id: string) => {
-    setOpen(false)
-    if (id === current) return
+    if (id === current) { setOpen(false); return }
     setError('')
-    await window.term.accounts.use(ptyId, id).catch((e: Error) => setError(e.message))
+    // Stays open on a line saying what changed: Claude's own /status keeps showing the login, so this is the proof.
+    await window.term.accounts.use(ptyId, id).then(() => setSwitched(id)).catch((e: Error) => setError(e.message))
   }
   const run = (p: Promise<unknown>) => p.catch((e: Error) => setError(e.message))
 
@@ -69,6 +71,11 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
       {open && (
         <div className="account-pop" role="menu" aria-label="Claude account for this tab">
           <div className="account-head">Claude account for this tab</div>
+          <p className="account-note">This tab's messages use the plan ticked here, from its next message on. Claude's own <code>/status</code> keeps showing your login email: that is expected.</p>
+          {switched && switched === current && <div className="account-switched">
+            <span>This tab now runs on <b>{data.accounts.find(a => a.id === switched)?.label}</b>. Its 5h bar rises after the next message.</span>
+            {data.defaultId !== switched && <button onClick={() => void run(window.term.accounts.setDefault(switched))}>Use for new tabs too</button>}
+          </div>}
           {data.accounts.map(a => (
             <div key={a.id} className={`account-row${a.id === active.id ? ' current' : ''}`}>
               {renaming?.id === a.id ? (
@@ -81,7 +88,7 @@ export function AccountMenu({ ptyId }: { ptyId: string }): JSX.Element | null {
                   <span className="account-main">
                     <span className="account-line">
                       <span className="account-name">{a.label}</span>
-                      {a.login && <span className="account-tag">login</span>}
+                      {a.login && <span className="account-tag" title="The account Claude Code itself is signed in with (/login)">Claude login</span>}{a.id === data.defaultId && <span className="account-tag">new tabs</span>}
                       {a.exhaustedUntil > 0 && <span className="account-limit">limit until {resetTime(a.exhaustedUntil)}</span>}
                     </span>
                     {a.usage

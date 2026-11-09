@@ -42,3 +42,8 @@
 .usage-label { min-width: 14px; }
 
 .account-hint { margin: -2px 0 10px; font-size: 12px; line-height: 1.45; color: var(--dim); }
+.account-note { margin: 0 8px 8px; font-size: 11.5px; line-height: 1.45; color: var(--dim); } .account-note code { font-size: 11px; }
+.account-switched { margin: 0 6px 8px; padding: 8px 10px; border-radius: 9px; font-size: 12px; line-height: 1.4; display: grid; gap: 6px;
+  background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border)); }
+.account-switched b { font-weight: 600; }
+.account-switched button { justify-self: start; border: 0; border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
