@@ -187,7 +187,7 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.ok(wiped.sessions>=1&&wiped.days>=1);
   assert.deepEqual((await request(`/api/companies/${alpha.id}/worklog`,{token:a.body.token})).body.days,[]);
 
-  // Bot keys: act for their maker on shared sessions only; list, read, message; nothing else.
+  // Bot keys: act for their maker on shared sessions; list, read, message; nothing else.
   const tabB=(await request(`/api/companies/${alpha.id}/conversations/tab/key-b`,{token:a.body.token,method:'PUT',data:{title:'Shared tab',visibility:'company'}})).body.conversation;
   const tabP=(await request(`/api/companies/${alpha.id}/conversations/tab/key-p`,{token:a.body.token,method:'PUT',data:{title:'Mine',visibility:'owner'}})).body.conversation;
   const bot=(await request(`/api/companies/${alpha.id}/bots`,{token:a.body.token,method:'POST',data:{name:'Grokbot'}})).body;
@@ -195,7 +195,6 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   const asBot=(path,o={})=>fetch(`http://127.0.0.1:${server.address().port}${path}`,{method:o.method||'GET',headers:{Authorization:`Bearer ${bot.key}`,...(o.data?{'Content-Type':'application/json'}:{})},body:o.data?JSON.stringify(o.data):undefined}).then(async r=>({status:r.status,body:await r.json()}));
   const seen=(await asBot(`/api/companies/${alpha.id}/conversations`)).body.conversations.map(c=>c.id);
   assert.ok(seen.includes(tabB.id));assert.ok(!seen.includes(tabP.id),'not the private one');
-  assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabP.id,content:'x'}})).status,404);
   assert.equal((await asBot(`/api/companies/${alpha.id}/notes`)).status,403,'nothing else');
   assert.equal((await asBot('/api/auth/password',{method:'POST',data:{password:'xxxxxxxxxxxxxxxx'}})).status,403);
   const t0=Date.now();const waited=request(`/api/companies/${alpha.id}/agent/inbox?wait=5`,{token:a.body.token});
@@ -203,6 +202,9 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabB.id,content:'hello from grok'}})).status,200);
   const fromBot=(await waited).body.messages.find(m=>m.content==='hello from grok');
   assert.ok(fromBot&&fromBot.bot&&/Grokbot/.test(fromBot.fromName)&&!fromBot.self);assert.ok(Date.now()-t0<4000,'the long poll answers at once');
+  // It may answer into its maker's own private tab (the id comes with an ask-grok question), never read it.
+  assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabP.id,content:'general: pong'}})).status,200);
+  assert.equal((await asBot(`/api/companies/${alpha.id}/conversations/${tabP.id}/messages`)).status,404);
   await request(`/api/companies/${alpha.id}/bots/${bot.id}`,{token:a.body.token,method:'DELETE'});
   assert.equal((await asBot(`/api/companies/${alpha.id}/conversations`)).status,401,'revoked');
   // A password set from the app keeps its devices signed in.

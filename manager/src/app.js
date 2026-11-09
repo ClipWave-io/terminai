@@ -618,7 +618,7 @@ export function createApp(pool, config) {
         if(tail==='/conversations'&&req.method==='GET') {
           const before=url.searchParams.get('before');if(before)requireThat(Number.isFinite(Date.parse(before)),400,'Invalid before cursor.');
           const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
-          return {conversations:rows.filter(r=>(!user.bot_id||r.visibility==='company'||r.owner_id===user.id)&&seesSession(r)).map(publicConversation)};
+          return {conversations:rows.filter(r=>(!user.bot_id||r.visibility==='company')&&seesSession(r)).map(publicConversation)};
         }
         if(tail==='/conversations'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot create conversations.');
@@ -685,7 +685,7 @@ export function createApp(pool, config) {
         if(conv) {
           const conversationId=uuid(conv[1]);
           const {rows:[conversation]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2',[conversationId,companyId]);
-          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company'||conversation.owner_id===user.id),404,'Conversation not found.');
+          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company'),404,'Conversation not found.');
           if(!conv[2]&&req.method==='GET')return {conversation:publicConversation(conversation)};
           // Its owner deletes it for good: its messages, and the agent messages to and from it, go with it.
           if(!conv[2]&&req.method==='DELETE'){requireThat(conversation.owner_id===user.id,403,'Only its owner can delete it.');await db.query('DELETE FROM manager_conversations WHERE id=$1',[conversationId]);return {ok:true};}
