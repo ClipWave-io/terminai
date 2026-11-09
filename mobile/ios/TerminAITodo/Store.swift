@@ -332,3 +332,14 @@ final class Store: ObservableObject {
         return ok
     }
 }
+
+#if DEBUG
+extension Store {
+    /// Simulator only: sign in to a test server from the launch environment (TERMINAI_TEST_SERVER, TERMINAI_TEST_TOKEN).
+    func useTestAccount() {
+        let env = ProcessInfo.processInfo.environment
+        guard let s = env["TERMINAI_TEST_SERVER"], let t = env["TERMINAI_TEST_TOKEN"] else { return }
+        server = s; token = t
+    }
+}
+#endif

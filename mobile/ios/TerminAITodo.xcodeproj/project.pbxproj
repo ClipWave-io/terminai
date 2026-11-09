@@ -8,12 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		523248722606683CDE8C620D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BCD2E0BDAC80F32BCAFCF00C /* Assets.xcassets */; };
+		B8E3702873288C490C474FE5 /* TeamChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5E49CCF24E5C811A8B8BA1 /* TeamChat.swift */; };
 		DB0D62CFCC76D9E617BCD36E /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FC92362DD5B5C3F0D926950 /* Store.swift */; };
 		E1F17ACCF9C8080B62940CFA /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98DCCDA77030F7CD6821D917 /* Views.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		26EF1D2943EB9D4087389D71 /* TerminAITodo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TerminAITodo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5F5E49CCF24E5C811A8B8BA1 /* TeamChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamChat.swift; sourceTree = "<group>"; };
 		8FC92362DD5B5C3F0D926950 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		98DCCDA77030F7CD6821D917 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		BCD2E0BDAC80F32BCAFCF00C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -25,6 +27,7 @@
 			children = (
 				BCD2E0BDAC80F32BCAFCF00C /* Assets.xcassets */,
 				8FC92362DD5B5C3F0D926950 /* Store.swift */,
+				5F5E49CCF24E5C811A8B8BA1 /* TeamChat.swift */,
 				98DCCDA77030F7CD6821D917 /* Views.swift */,
 			);
 			path = TerminAITodo;
@@ -118,6 +121,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DB0D62CFCC76D9E617BCD36E /* Store.swift in Sources */,
+				B8E3702873288C490C474FE5 /* TeamChat.swift in Sources */,
 				E1F17ACCF9C8080B62940CFA /* Views.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -182,7 +186,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 99PQ34696X;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -271,7 +275,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 99PQ34696X;
 				ENABLE_NS_ASSERTIONS = NO;

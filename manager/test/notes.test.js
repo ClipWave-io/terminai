@@ -235,6 +235,10 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request(`/api/companies/${alpha.id}/files/${fAll.id}`,{token:p1.body.token,method:'DELETE'})).status,403,'not hers');
   assert.equal((await request(`/api/companies/${alpha.id}/files/${fMany.id}`,{token:a.body.token,method:'PATCH',data:{access:'all'}})).status,200);
   assert.ok((await request(`/api/companies/${alpha.id}/files`,{token:p1.body.token})).body.files.some(f=>f.id===fMany.id));
+  // Read before ever opening the chat still counts.
+  await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'first'}});
+  await request(`/api/companies/${alpha.id}/chat/read`,{token:mo.body.token,method:'POST',data:{}});
+  assert.ok((await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token})).body.people.find(x=>x.name.startsWith('Mo'))?.readAt,'read receipt without an earlier visit');
   await request(`/api/companies/${alpha.id}/chat/typing`,{token:a.body.token,method:'POST',data:{}});
   const c0=(await request(`/api/companies/${alpha.id}/chat`,{token:p1.body.token})).body;
   assert.ok(c0.people.find(x=>x.id===c0.people.find(y=>y.name==='Ada')?.id)?.typing,'Ada is typing');

@@ -5,7 +5,12 @@ import QuickLook
 struct TerminAITeamApp: App {
     @StateObject private var store = Store()
     var body: some Scene {
-        WindowGroup { Root().environmentObject(store) }
+        WindowGroup {
+            Root().environmentObject(store)
+            #if DEBUG
+                .onAppear { store.useTestAccount() }
+            #endif
+        }
     }
 }
 
@@ -17,16 +22,22 @@ func initials(_ name: String) -> String { name.split(separator: " ").prefix(2).c
 
 struct Root: View {
     @EnvironmentObject var store: Store
+    #if DEBUG
+    @State private var tab = ProcessInfo.processInfo.environment["TERMINAI_TEST_TAB"] ?? "todo"
+    #else
+    @State private var tab = "todo"
+    #endif
     @Environment(\.scenePhase) private var phase
     var body: some View {
         Group {
             if store.token.isEmpty { Welcome() }
             else if store.me != nil && store.teams.isEmpty { NoTeam() }
             else {
-                TabView {
-                    TodoBoard().tabItem { Label("To-do", systemImage: "checklist") }
-                    SharedNotes().tabItem { Label("Notes", systemImage: "note.text") }
-                    MacSessions().tabItem { Label("Mac", systemImage: "laptopcomputer") }
+                TabView(selection: $tab) {
+                    TodoBoard().tabItem { Label("To-do", systemImage: "checklist") }.tag("todo")
+                    SharedNotes().tabItem { Label("Notes", systemImage: "note.text") }.tag("notes")
+                    TeamChatView().tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }.tag("chat")
+                    MacSessions().tabItem { Label("Mac", systemImage: "laptopcomputer") }.tag("mac")
                 }
                 .task { await store.refresh() }
                 // The Macs copy their edits to the server every minute; the phone looks as often while open.

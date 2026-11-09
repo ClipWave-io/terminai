@@ -441,14 +441,14 @@ export function createApp(pool, config) {
         if (kind === 'chat' && req.method === 'POST') {
           const input = await body(req);
           if (sub === 'typing') { await seen(true); return json(res, 200, { ok: true }); }
-          if (sub === 'read') { await pool.query('UPDATE manager_presence SET read_at=now(),seen_at=now() WHERE company_id=$1 AND user_id=$2', [companyId, user.id]); return json(res, 200, { ok: true }); }
+          if (sub === 'read') { await seen(); await pool.query('UPDATE manager_presence SET read_at=now(),seen_at=now() WHERE company_id=$1 AND user_id=$2', [companyId, user.id]); return json(res, 200, { ok: true }); }
           requireThat(!sub && member.role !== 'viewer', 403, 'Viewers cannot write in the chat.');
           const bodyText = typeof input.body === 'string' ? input.body.slice(0, 8000) : '', fileId = input.fileId ? uuid(input.fileId) : null;
           requireThat(bodyText.trim() || fileId, 400, 'Write something.');
           if (fileId) { const { rowCount } = await pool.query('SELECT 1 FROM manager_team_files WHERE id=$1 AND company_id=$2', [fileId, companyId]); requireThat(rowCount, 404, 'File not found.'); }
           await limit(pool, `chat:${user.id}`, 600, 3600);
           const { rows: [row] } = await pool.query('INSERT INTO manager_chat(id,company_id,from_user,body,file_id) VALUES($1,$2,$3,$4,$5) RETURNING id,created_at', [randomUUID(), companyId, user.id, bodyText, fileId]);
-          await pool.query("UPDATE manager_presence SET typing_until=NULL,seen_at=now(),read_at=now() WHERE company_id=$1 AND user_id=$2", [companyId, user.id]);
+          await seen(); await pool.query("UPDATE manager_presence SET typing_until=NULL,seen_at=now(),read_at=now() WHERE company_id=$1 AND user_id=$2", [companyId, user.id]);
           return json(res, 200, { id: row.id, at: row.created_at });
         }
         throw new HttpError(404, 'Not found.');
