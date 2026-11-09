@@ -348,7 +348,14 @@ app.on('window-all-closed', () => {
   ptys.detachAll()
 })
 
-app.on('before-quit', () => {
+// Quitting waits (at most 2 s) for the shells to finish exiting: an exit event that lands while Electron tears the
+// process down throws inside node-pty and macOS reports TerminAI as crashed (every crash report since 2 Nov).
+let shellsGone = false, quitting = false
+app.on('before-quit', event => {
+  if (shellsGone) return
+  event.preventDefault()
+  if (quitting) return
+  quitting = true
   // Persist the last main-process identity before killing PTYs. Renderer polling
   // may not have saved the latest /new or /resume yet.
   const prefs = store.load()
@@ -359,6 +366,9 @@ app.on('before-quit', () => {
   }) })
   voice.stopWatching()
   ptys.killAll()
+  const until = Date.now() + 2000
+  const done = () => { if (ptys.exitsPending() && Date.now() < until) { setTimeout(done, 50); return } setTimeout(() => { shellsGone = true; app.quit() }, 150) }
+  done()
 })
 
 // Every privileged channel accepts only the app shell's main frame, never a

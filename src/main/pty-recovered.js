@@ -230,6 +230,7 @@ function createSession(opts = {}) {
     if (!safeSend(session.wc, "pty:data", { id, data })) session.wc = null;
   });
   proc.onExit(({ exitCode }) => {
+    exiting.delete(id);
     session.exited = true;
     if (session.wc && safeSend(session.wc, "pty:exit", { id, exitCode })) {
       sessions.delete(id);
@@ -320,9 +321,15 @@ function resize(id, cols, rows) {
   } catch {
   }
 }
+// Shells killed whose exit event has not arrived yet: quitting waits for them (see before-quit).
+const exiting = new Set();
+function exitsPending() {
+  return exiting.size;
+}
 function kill(id) {
   const s = sessions.get(id);
   if (!s) return;
+  if (!s.exited) exiting.add(id);
   if (s.closeTimer) clearTimeout(s.closeTimer);
   try {
     s.proc.kill();
@@ -1099,4 +1106,4 @@ function atShellPrompt(id) {
   return !!s && !s.exited && isBareShell(foregroundProcess(id));
 }
 
-export { createSession, list, attach, detachAll, write, written, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, setQuestion, questionOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };
+export { exitsPending, createSession, list, attach, detachAll, write, written, resize, kill, closeSession, uncloseSession, killAll, foregroundProcess, usedClaude, statusOf, setQuestion, questionOf, cwdOf, claudeSessionOf, claudeSessionExists, recentClaudeSessions, liveIds, agentOf, resumeCommandFor, launchCommandFor, execWhenReady, pidOf, sizeOf, bufferOf, workspaceKeyOf, atShellPrompt };

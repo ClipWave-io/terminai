@@ -32,3 +32,4 @@ export function bufferOf(id: string): string;
 export function launchCommandFor(desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string>;
 export function workspaceKeyOf(id: string): string;
 export function atShellPrompt(id: string): boolean;
+export function exitsPending(): number;
