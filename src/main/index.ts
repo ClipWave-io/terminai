@@ -1,3 +1,4 @@
+import { readdir } from 'node:fs/promises'
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync } from 'node:fs'
@@ -273,7 +274,7 @@ app.whenReady().then(() => {
       { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
-  startUpdates(() => win)
+  startUpdates(() => win, { night: () => store.load().nightUpdates, busy: () => ptys.liveIds().some(id => ['working', 'question'].includes(ptys.statusOf(id))) })
   // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
   const legacyMarker = join(app.getPath('userData'), 'alive')
   crashedLastRun = existsSync(aliveMarker()) || existsSync(legacyMarker)
@@ -414,6 +415,9 @@ function registerIpc(): void {
     n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
     n.show(); return true
   })
+  // Reading each folder once makes macOS ask for it (Files and Folders); true where TerminAI may read it.
+  appIpc.handle('app:ask-folders', async () => Object.fromEntries(await Promise.all(['Downloads', 'Documents', 'Desktop'].map(async name => {
+    try { await readdir(join(homedir(), name)); return [name, true] } catch { return [name, false] } }))))
   appIpc.handle('app:notification-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'))
   appIpc.handle('team:pick', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:pick-files', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])

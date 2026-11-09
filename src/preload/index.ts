@@ -143,6 +143,7 @@ const api = {
     pick: (): Promise<string[]> => ipcRenderer.invoke('team:pick'),
     notify: (title: string, body: string): Promise<boolean> => ipcRenderer.invoke('team:notify', title, body),
     notificationSettings: (): Promise<void> => ipcRenderer.invoke('app:notification-settings'),
+    askFolders: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('app:ask-folders'),
     onOpen: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('teamchat:open', h); return () => { ipcRenderer.removeListener('teamchat:open', h) } },
     pathOf: (file: File): string => webUtils.getPathForFile(file),
   },

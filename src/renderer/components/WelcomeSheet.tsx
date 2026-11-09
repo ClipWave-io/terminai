@@ -1,3 +1,4 @@
+import { PermissionsSetup } from './PermissionsSetup'
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import './welcome.css'
@@ -18,7 +19,7 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
   const [typed, setTyped] = useState(0)
   useEffect(() => { if (step !== 0) return; const t = window.setInterval(() => setTyped(n => n >= LINES.length ? n : n + 1), 650); return () => window.clearInterval(t) }, [step])
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); if (e.key === 'Enter' && step < 2) setStep(s => s + 1) }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); if (e.key === 'Enter' && step < 3) setStep(s => s + 1) }
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
   }, [step, onDismiss])
   return <div className="onb" role="dialog" aria-modal="true" aria-label="Welcome to TerminAI">
@@ -36,6 +37,12 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
         <button className="onb-primary" onClick={() => setStep(1)}>Get started</button>
       </>}
       {step === 1 && <>
+        <h1>Two quick permissions</h1>
+        <p className="onb-lead">macOS asks for each one once. Both can be changed later in Settings.</p>
+        <PermissionsSetup />
+        <button className="onb-primary" onClick={() => setStep(2)}>Continue</button>
+      </>}
+      {step === 2 && <>
         <div className="onb-icons" aria-hidden="true"><span>✓</span><span>✎</span><span>◷</span></div>
         <h1>Notes, tasks and agent logs</h1>
         <p className="onb-lead">A To-do and notes next to your sessions, and a daily log of what your agents finished. On your Mac they work right away; sign in to have them on your iPhone and the web, and to share them with your team.</p>
@@ -46,11 +53,11 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
         </ul>
         <div className="onb-row">
           <button className="onb-primary" onClick={() => { onDismiss(); onSignIn() }}>Set up sync</button>
-          <button className="onb-ghost" onClick={() => setStep(2)}>Skip for now</button>
+          <button className="onb-ghost" onClick={() => setStep(3)}>Skip for now</button>
         </div>
         <small className="onb-foot">Free. You can sign in any time from the people icon.</small>
       </>}
-      {step === 2 && <>
+      {step === 3 && <>
         <div className="onb-wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ animationDelay: `${i * 90}ms` }} />)}</div>
         <h1>Talk instead of typing</h1>
         <p className="onb-lead">TerminAI reads each finished step aloud. To speak your prompts, add LocalFlow: hold fn, talk, and your words appear in any app. On your Mac, offline and completely free.</p>
@@ -59,7 +66,7 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
           <a className="onb-ghost" href="https://terminai.xyz/localflow" target="_blank" rel="noreferrer">Get LocalFlow</a>
         </div>
       </>}
-      <div className="onb-dots" aria-hidden="true">{[0, 1, 2].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
+      <div className="onb-dots" aria-hidden="true">{[0, 1, 2, 3].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
     </div>
     <button className="onb-skip" onClick={onDismiss}>Skip</button>
   </div>

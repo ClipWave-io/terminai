@@ -1273,3 +1273,15 @@ textarea.card-notes.editing {
 .mem-row { grid-template-columns: minmax(0, 1fr) 120px 64px auto; } .mem-acts { display: flex; gap: 8px; } .mem-tag { color: var(--dim); font-style: normal; font-size: 11px; }
 .mem > .hint b { color: var(--fg); font-weight: 600; }
 .files-perm { display: grid; gap: 8px; justify-items: start; line-height: 1.45; }
+/* Memory: the whole Mac as one bar, then each session on one shared grid so the bars start at the same place. */
+.mem-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); gap: 1px; background: var(--pane); }
+.mem-bar i { min-width: 2px; }
+.mem-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--dim); } .mem-legend b { color: var(--fg); font-weight: 600; margin-left: 2px; }
+.mem-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.mem-sleep { justify-self: start; flex: none; }
+.mem-list { display: grid; grid-template-columns: minmax(0, 1fr) 140px 64px 150px; column-gap: 12px; row-gap: 6px; align-items: center; margin-top: 4px; }
+.mem-list .mem-row { display: contents; font-size: 12.5px; }
+.mem-track { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+.mem-track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.mem-list em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
+.mem-list .mem-acts { display: grid; grid-template-columns: 44px 40px 44px; gap: 8px; justify-items: start; }

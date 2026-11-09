@@ -19,6 +19,8 @@ const LOCAL_VOICES = [
   { id: 'bm_george', label: 'George — British male' },
 ]
 import { THEMES } from '../../shared/themes'
+import { PermissionsSetup } from './PermissionsSetup'
+import './welcome.css'
 import type { JSX } from 'react'
 
 interface Props {
@@ -144,7 +146,12 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
             <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select>
         </div>
-        <NotifyTest />
+        <div className="row">
+          <label>Install updates at night<span className="hint">Between 3 and 6, when no tab is working: TerminAI restarts into the new version and your conversations come back.</span></label>
+          <input type="checkbox" checked={prefs.nightUpdates} onChange={e => onChange({ nightUpdates: e.target.checked })} />
+        </div>
+        <div className="row"><label>Permissions<span className="hint">What macOS lets TerminAI do.</span></label></div>
+        <PermissionsSetup compact />
         <div className="row">
           <label>Browser (beta)<span className="hint">The built-in browser pane. Off until it is finished.</span></label>
           <input type="checkbox" checked={prefs.browserBeta} onChange={e => onChange({ browserBeta: e.target.checked })} />
@@ -436,17 +443,27 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
   const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
   const max = Math.max(1, ...r.tabs.map(t => t.mb)), idle = r.tabs.filter(t => t.idle)
   const sleep = (ids: string[]) => void window.term.window.sleep(ids).then(() => window.setTimeout(load, 2500))
+  const other = Math.max(0, r.usedMb - r.tabsMb - r.appMb - r.macosMb - r.compressedMb), free = Math.max(0, r.totalMb - r.usedMb)
+  const parts: [string, number, string][] = [['TerminAI sessions', r.tabsMb, 'var(--accent)'], ['TerminAI app', r.appMb, 'color-mix(in srgb, var(--accent) 55%, var(--pane))'],
+    ['Other apps', other, 'hsl(265 40% 62%)'], ['macOS', r.macosMb, 'var(--dim)'], ['Compressed', r.compressedMb, 'var(--warn)'], ['Free', free, 'transparent']]
+  const why = r.pressure === 'normal' ? `${gb(free)} free` : `${gb(r.compressedMb)} squeezed by macOS${r.swapMb ? ` and ${gb(r.swapMb)} written to disk` : ''}`
   return <section className="mem" id="memory">
     <div className="mem-head"><strong>Memory</strong>
-      <span className={`mem-level ${r.pressure}`}>{r.pressure === 'normal' ? 'Mac memory OK' : r.pressure === 'warning' ? 'Memory is tight' : 'Out of memory'}</span></div>
-    <p className="hint">A session keeps Claude Code or Codex open while it waits for you, and that holds memory even when nothing runs. <b>Sleep</b> closes it; opening the tab brings the conversation back where it was.</p>
-    <div className="mem-sum"><span>Sessions <b>{gb(r.tabsMb)}</b></span><span>TerminAI <b>{gb(r.appMb)}</b></span><span>Mac <b>{gb(r.totalMb)}</b></span>
-      {idle.length > 0 && <button className="btn" onClick={() => sleep(idle.map(t => t.id))}>Sleep {idle.length} idle {idle.length === 1 ? 'session' : 'sessions'} · frees ~{gb(idle.reduce((n, t) => n + t.mb, 0))}</button>}</div>
-    {(all ? r.tabs : r.tabs.slice(0, 6)).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
-      <span className="mem-name">{tab?.label ?? 'Session'}{t.asleep && <em className="mem-tag"> asleep</em>}</span><i style={{ width: `${(t.mb / max) * 100}%` }} /><em>{gb(t.mb)}</em>
-      {tab && <span className="mem-acts">{t.idle && <button className="todo-link" onClick={() => sleep([t.id])}>Sleep</button>}<button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></span>}
-    </div> })}
-    {r.tabs.length > 6 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${r.tabs.length}`}</button>}
+      <span className={`mem-level ${r.pressure}`} title={why}>{r.pressure === 'normal' ? 'Mac memory OK' : r.pressure === 'warning' ? 'Memory is tight' : 'Out of memory'}</span></div>
+    <div className="mem-bar" role="img" aria-label={`Memory: ${gb(r.usedMb)} of ${gb(r.totalMb)} in use`}>
+      {parts.map(([n, mb, c]) => mb > 0 && <i key={n} title={`${n} · ${gb(mb)}`} style={{ flexGrow: mb, background: c }} />)}</div>
+    <div className="mem-legend">
+      {parts.map(([n, mb, c]) => <span key={n}><i style={{ background: c, outline: c === 'transparent' ? '1px solid var(--border)' : undefined }} />{n} <b>{gb(mb)}</b></span>)}</div>
+    <p className="hint">{r.pressure === 'normal' ? `${gb(r.usedMb)} of ${gb(r.totalMb)} in use.` : `${gb(r.usedMb)} of ${gb(r.totalMb)} in use: ${why}. `}
+      {r.pressure !== 'normal' && <>Biggest other apps: {r.apps.slice(0, 3).map(a => `${a.name} ${gb(a.mb)}`).join(', ')}. </>}
+      Idle sessions hold memory too, and the numbers below leave out the part macOS compressed. <b>Sleep</b> closes one; opening the tab brings it back.</p>
+    {idle.length > 0 && <button className="btn mem-sleep" onClick={() => sleep(idle.map(t => t.id))}>Sleep {idle.length} idle {idle.length === 1 ? 'session' : 'sessions'} · frees ~{gb(idle.reduce((n, t) => n + t.mb, 0))}</button>}
+    <div className="mem-list">{(all ? r.tabs : r.tabs.slice(0, 8)).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
+      <span className="mem-name" title={tab?.label}>{tab?.label ?? 'Session'}{t.asleep && <em className="mem-tag"> · asleep</em>}</span>
+      <span className="mem-track"><i style={{ width: `${Math.max(2, (t.mb / max) * 100)}%` }} /></span><em>{gb(t.mb)}</em>
+      <span className="mem-acts">{tab && <>{t.idle ? <button className="todo-link" onClick={() => sleep([t.id])}>Sleep</button> : <span />}<button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
+    </div> })}</div>
+    {r.tabs.length > 8 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${r.tabs.length}`}</button>}
   </section>
 }
 
@@ -460,13 +477,3 @@ function Feedback(): JSX.Element {
   </div>
 }
 
-/** Sends a notification now, so it is clear whether macOS shows TerminAI's (they can be off per app, or hidden by Focus). */
-function NotifyTest(): JSX.Element {
-  const [sent, setSent] = useState('')
-  return <div className="row">
-    <label>Notifications<span className="hint">{sent || 'Chat messages, requests and To-do changes. Not showing? Send a test.'}</span></label>
-    <span style={{ display: 'flex', gap: 6 }}>
-      <button className="btn" onClick={() => void window.term.teamchat.notify('TerminAI', 'Notifications work.').then(ok => setSent(ok ? 'Sent. If nothing appeared, turn TerminAI on in macOS Notifications, and check Focus.' : 'macOS does not allow notifications here.'))}>Send a test</button>
-      <button className="btn" onClick={() => void window.term.teamchat.notificationSettings()}>macOS settings</button></span>
-  </div>
-}

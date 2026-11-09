@@ -30,6 +30,7 @@ function hydrate(raw: unknown): Prefs {
     // an upgrade from a prefs file that predates this field shows it once.
     seenWelcome: p.seenWelcome === true,
     browserBeta: p.browserBeta === true,
+    nightUpdates: p.nightUpdates !== false,
     newTabAgent: p.newTabAgent === 'codex' || p.newTabAgent === 'none' ? p.newTabAgent : 'claude',
     doneNotices: p.doneNotices !== false,
     // Off the record unless chosen: a Mac that never said so shares nothing.

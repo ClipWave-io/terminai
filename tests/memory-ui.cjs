@@ -9,7 +9,7 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
     await delay(2500); win.setSize(1300, 900)
     await js(`document.querySelector('[aria-label="Settings"]').click()`); await delay(2500)
     const text = await js(`document.querySelector('.mem')?.innerText || ''`)
-    assert.match(text, /Memory[\s\S]*Sessions[\s\S]*TerminAI/)
+    assert.match(text, /Memory[\s\S]*TerminAI sessions[\s\S]*Other apps[\s\S]*Free/)
     fs.writeFileSync(path.join(os.tmpdir(), 'terminai-memory.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
     console.log('PASS memory panel: ' + text.split('\n').slice(0, 3).join(' | ')); app.exit(0)
   } catch (e) { console.error(e); app.exit(1) }

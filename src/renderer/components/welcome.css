@@ -27,3 +27,13 @@
 @keyframes onb-blink { 50% { opacity: 0 } } @keyframes onb-wave { to { height: 46px } }
 @keyframes onb-float { to { transform: translate(60px, -40px) scale(1.08) } }
 @media (prefers-reduced-motion: reduce) { .onb *, .onb { animation: none !important; } }
+.ps { display: grid; gap: 10px; width: 100%; text-align: left; }
+.ps-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--pane) 70%, transparent); }
+.ps-card.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.ps-icon { width: 38px; height: 38px; flex: none; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ps-card.ok .ps-icon { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.ps-text { flex: 1; min-width: 0; display: grid; gap: 2px; } .ps-text strong { font-size: 13.5px; } .ps-text small { font-size: 12px; color: var(--dim); line-height: 1.4; }
+.ps-btn { flex: none; height: 30px; padding: 0 14px; border-radius: 9px; border: 0; background: var(--accent); color: #fff; font: inherit; font-size: 12.5px; font-weight: 600; }
+.ps-card.off .ps-btn { background: none; border: 1px solid var(--border); color: var(--fg); }
+.ps-done { flex: none; display: flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--ok); font-weight: 600; }
+.ps.compact .ps-card { padding: 10px 12px; }

@@ -358,6 +358,8 @@ export interface Prefs {
   newTabAgent: 'claude' | 'codex' | 'none'
   /** the built-in browser pane, still in beta: hidden unless turned on in Settings */
   browserBeta: boolean
+  /** install a downloaded update by itself at night, when nothing is running */
+  nightUpdates: boolean
   /** a notice when a tab's conversation finishes a turn; a click opens that tab */
   doneNotices: boolean
   /** folders whose conversations stay out of the shared work log */
@@ -417,6 +419,7 @@ export const DEFAULT_PREFS: Prefs = {
   seenWelcome: false,
   newTabAgent: 'claude',
   browserBeta: false,
+  nightUpdates: true,
   doneNotices: true,
   worklogSkip: [],
   shareConversations: false,
