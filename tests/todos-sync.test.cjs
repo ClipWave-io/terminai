@@ -494,3 +494,20 @@ test('the server copy: Mac tasks go up, phone edits and deletes come down as com
   const head=git(t.bare,'rev-parse','main');await app.sync();assert.equal(git(t.bare,'rev-parse','main'),head);
  }finally{fs.rmSync(t.root,{recursive:true,force:true})}
 });
+
+test('a request: in the other one\'s column, pending, notified there; accepted with a message, notified back',async()=>{
+ const t=setup();try{
+  const seen={livio:[],ilai:[]};
+  const mk=(name)=>{const dir=path.join(t.root,name+'-req');fs.mkdirSync(dir,{recursive:true});return createTodos(dir,{remote:'file://'+t.bare,user:()=>name,changed:()=>{},notify:c=>seen[name].push(c)})};
+  const ilai=mk('ilai'),matteo=mk('livio');await ilai.sync();await matteo.sync();
+  const req=await ilai.request('Review the NDA asap','v2 in Downloads',true);
+  assert.equal(req.assignee,'livio');assert.equal(req.request.status,'pending');assert.equal(req.request.urgent,true);
+  await matteo.sync();
+  assert.ok(seen.livio.some(c=>c.requests?.some(x=>x.id===req.id)),'Matteo is told');
+  await assert.rejects(ilai.answer(req.id,true),/not for you/);
+  const done=await matteo.answer(req.id,true,'On it');
+  assert.equal(done.request.status,'accepted');assert.equal(done.request.reply,'On it');assert.equal(done.status,'doing');
+  await ilai.sync();
+  assert.ok(seen.ilai.some(c=>c.answered?.some(x=>x.id===req.id)),'Ilai is told');
+ }finally{fs.rmSync(t.root,{recursive:true,force:true})}
+});

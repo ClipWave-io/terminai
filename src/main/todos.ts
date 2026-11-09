@@ -209,10 +209,12 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if (input.assignee !== undefined && input.assignee !== null && !ASSIGNEES.includes(input.assignee)) throw Error('Invalid assignee')
     if (input.order !== undefined && !Number.isFinite(input.order)) throw Error('Invalid order')
     if (input.list !== undefined && !validId(input.list)) throw Error('Invalid list')
+    const r = input.request
+    if (r !== undefined && (!r || typeof r !== 'object' || !['ilai', 'livio'].includes(r.from) || !['pending', 'accepted', 'declined'].includes(r.status) || (r.reply !== undefined && (typeof r.reply !== 'string' || r.reply.length > 2000)))) throw Error('Invalid request')
   }
   /** The fields of a task in the order the files have them; `order` only when it is set. */
-  const clean = ({ id, title, notes, images, status, assignee, product, order, list, createdAt, createdBy, updatedAt, updatedBy, updatedVia }: Task): Task =>
-    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(order === undefined ? {} : { order }), ...(list && list !== DEFAULT_LIST ? { list } : {}), createdAt, createdBy, updatedAt, updatedBy, ...(updatedVia === 'ai' ? { updatedVia } : {}) })
+  const clean = ({ id, title, notes, images, status, assignee, product, order, list, request, createdAt, createdBy, updatedAt, updatedBy, updatedVia }: Task): Task =>
+    ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(request ? { request } : {}), ...(order === undefined ? {} : { order }), ...(list && list !== DEFAULT_LIST ? { list } : {}), createdAt, createdBy, updatedAt, updatedBy, ...(updatedVia === 'ai' ? { updatedVia } : {}) })
   /** `via`: 'ai' when an agent in a tab made the change (`terminai todo`), so both people can tell it from their own. */
   function build(input: TaskInput, old: Task | undefined, user: TasksUser, via?: 'ai'): Task {
     const now = romeIso()
@@ -228,6 +230,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       product: input.product?.trim() ?? old?.product ?? '',
       order: input.order ?? old?.order,
       list: input.list ?? old?.list,
+      request: input.request ?? old?.request,
       createdAt: old?.createdAt ?? now, createdBy: old?.createdBy ?? user, updatedAt: kept?.updatedAt ?? now, updatedBy: kept?.updatedBy ?? user,
       updatedVia: kept ? kept.updatedVia : via,
     })
@@ -495,7 +498,10 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         // Tagged: @me is in the title or note now and was not in the copy before the pull.
         const tags = (task?: Task) => task ? mentionsOf(`${task.title}\n${task.notes}`).includes(user) : false
         const mentioned = changed.filter(task => tags(task) && !tags(before.find(t => t.id === task.id)))
-        if (changed.length || removed.length) opts.notify?.({ by: user === 'livio' ? 'ilai' : 'livio', changed, removed, ...(mentioned.length ? { mentioned } : {}) })
+        const prior = (t: Task) => before.find(b => b.id === t.id)?.request
+        const requests = changed.filter(t => t.request?.status === 'pending' && t.assignee === user && prior(t)?.status !== 'pending')
+        const answered = changed.filter(t => t.request && t.request.from === user && t.request.status !== 'pending' && prior(t)?.status === 'pending')
+        if (changed.length || removed.length) opts.notify?.({ by: user === 'livio' ? 'ilai' : 'livio', changed, removed, ...(mentioned.length ? { mentioned } : {}), ...(requests.length ? { requests } : {}), ...(answered.length ? { answered } : {}) })
       }).catch(() => {}).then(list)
     },
 
@@ -635,6 +641,27 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
      * `terminai todo add <title> --to <page>` from a tab: a new task at the end of a shared column or of a private
      * list. There is no default page: a task in the wrong place is worse than a question.
      */
+    /** A request to the partner (`terminai todo request`): a task in their column that asks them to accept or decline it. */
+    async request(title: unknown, notes?: unknown, urgent?: boolean): Promise<Task> {
+      const user = who(), other: TasksUser = user === 'livio' ? 'ilai' : 'livio'
+      if (typeof title !== 'string' || !title.trim() || (notes !== undefined && typeof notes !== 'string')) throw Error('usage: terminai todo request <title> [--note <text>] [--urgent]')
+      const known = new Set(list().shared.map(t => t.id))
+      const value = await saveMany('shared', [{ title, ...(notes ? { notes } : {}), assignee: other, request: { from: user, ...(urgent ? { urgent: true } : {}), status: 'pending', at: romeIso() } }], 'ai')
+      const task = value.shared.find(t => !known.has(t.id) && t.title === title.trim())
+      if (!task) throw Error('The request was not saved.')
+      return task
+    },
+    /** Accept (it becomes in progress) or decline a request, with an optional message for the one who asked. */
+    async answer(query: unknown, accept: boolean, reply?: unknown, via?: 'ai'): Promise<Task> {
+      const user = who(), all = list().shared
+      const q = typeof query === 'string' ? query.trim() : ''
+      const task = all.find(t => t.id === q) ?? all.find(t => t.request && t.title.toLowerCase() === q.toLowerCase())
+      if (!task?.request) throw Error('No such request.')
+      if (task.assignee !== user) throw Error('That request is not for you.')
+      const request = { ...task.request, status: accept ? 'accepted' as const : 'declined' as const, answeredAt: romeIso(), ...(typeof reply === 'string' && reply.trim() ? { reply: reply.trim().slice(0, 2000) } : {}) }
+      const value = await saveMany('shared', [{ id: task.id, request, ...(accept && task.status === 'open' ? { status: 'doing' as const } : {}) }], via)
+      return value.shared.find(t => t.id === task.id)!
+    },
     async addTo(to: unknown, title: unknown, notes?: unknown): Promise<{ scope: TaskScope; page: string; task: Task }> {
       const user = who(), where = typeof to === 'string' ? to.trim().toLowerCase() : ''
       if (!where) throw Error('Where? --to matteo, together, ilai, unassigned or the name of a private list.')

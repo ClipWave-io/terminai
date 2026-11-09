@@ -14,7 +14,8 @@ import type {SavedTab,Task,TaskListPage} from '../shared/types'
  */
 type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
   todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
-    add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
+    add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;
+    request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
   log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>{context:string}|{}}
   team:(args:any)=>Promise<unknown>}
 const COMMANDS=['list','open','send','read','close','focus','show','task','log','team']
@@ -114,6 +115,8 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
     case 'team':return d.team(a)
     case 'log':return a.action==='hook'?d.log.hook(a.session):d.log.day(a.day)
     case 'task':{
+      if(a.action==='request'){const t=await d.todo.request(a.title,a.note,a.urgent===true);return {id:t.id,title:t.title,to:t.assignee,request:t.request}}
+      if(a.action==='accept'||a.action==='decline'){const t=await d.todo.answer(a.task,a.action==='accept',a.note);return {id:t.id,title:t.title,status:t.status,request:t.request}}
       if(a.action==='add'){const {scope,page,task}=await d.todo.add(a.to,a.title,a.note);return {id:task.id,title:task.title,status:task.status,scope,page}}
       if(a.action==='about')return {lists:d.todo.about(a.list,a.text).lists}
       const s=typeof a.tab==='string'?ptys.list().find(t=>t.id===a.tab):undefined,tab=s&&store.load().tabs.find(t=>t.ptyId===s.id),meta=s&&opened.get(s.id)

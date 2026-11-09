@@ -287,7 +287,7 @@ app.whenReady().then(() => {
           + `skip turns that did no work (questions, status). Say in one line what you changed.\n${items.join('\n')}` }
       },
     },
-    todo: { track: (action, query, session) => todos.track(action, query, session), add: (to, title, note) => todos.addTo(to, title, note), about: (list, text) => todos.describeList(list, text, true) } })
+    todo: { track: (action, query, session) => todos.track(action, query, session), add: (to, title, note) => todos.addTo(to, title, note), request: (title, note, urgent) => todos.request(title, note, urgent), answer: (q, ok, reply) => todos.answer(q, ok, reply, 'ai'), about: (list, text) => todos.describeList(list, text, true) } })
     .then((control) => app.once('before-quit', control.close))
     .catch((err) => console.error('[control] could not start:', err))
   void (async()=>{
@@ -529,8 +529,25 @@ function registerIpc(): void {
     listsChanged: writeGuides,
     server: workspaceTasks,
     // The other Mac's edits, pulled by a sync: one notice per sync, a click opens the To-do sheet.
-    notify: ({ by, changed, removed, mentioned }) => {
+    notify: ({ by, changed, removed, mentioned, requests, answered }) => {
       const name = by === 'ilai' ? 'Ilai' : 'Matteo', count = changed.length + removed.length
+      // A request from the partner: its own notice, answered from the notice (Accept, or Reply to add a message).
+      for (const t of requests ?? []) {
+        if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: `${name} asks${t.request?.urgent ? ' (urgent)' : ''}: ${t.title}`, mention: true })
+        if (!Notification.isSupported()) continue
+        const n = new Notification({ title: `${t.request?.urgent ? 'Urgent request' : 'Request'} from ${name}`, body: t.title + (t.notes ? `\n${t.notes.slice(0, 140)}` : ''),
+          actions: [{ type: 'button', text: 'Accept' }, { type: 'button', text: 'Decline' }], hasReply: true, replyPlaceholder: 'Accept with a message', closeButtonText: 'Later' })
+        n.on('action', (_e, i) => void todos.answer(t.id, i === 0).catch(() => {}))
+        n.on('reply', (_e, reply) => void todos.answer(t.id, true, reply).catch(() => {}))
+        n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
+        n.show()
+      }
+      for (const t of answered ?? []) {
+        if (!Notification.isSupported()) continue
+        const ok = t.request?.status === 'accepted'
+        new Notification({ title: `${name} ${ok ? 'accepted' : 'declined'} your request`, body: `${t.title}${t.request?.reply ? `\n“${t.request.reply}”` : ''}` }).show()
+      }
+      if ((requests?.length || answered?.length) && count === (requests?.length ?? 0) + (answered?.length ?? 0)) return
       const ai = changed.length > 0 && changed.every(task => task.updatedVia === 'ai') ? `${name}’s AI` : name
       const body = mentioned?.length ? `${ai} tagged you in “${mentioned[0].title}”${mentioned.length > 1 ? ` and ${mentioned.length - 1} more` : ''}`
         : changed.length === 1 && !removed.length ? `${ai} changed “${changed[0].title}”` : removed.length === 1 && !changed.length ? `${name} deleted “${removed[0]}”` : `${ai} changed ${count} shared tasks`
@@ -559,6 +576,8 @@ function registerIpc(): void {
   appIpc.handle('todos:restoreList', (_e, id: unknown) => todos.restoreList(id))
   appIpc.handle('todos:describeList', (_e, id: unknown, about: unknown) => todos.describeList(id, about))
   appIpc.handle('todos:sync', () => todos.sync())
+  appIpc.handle('todos:answer', async (_e, id: unknown, accept: unknown, reply: unknown) => { await todos.answer(id, accept === true, reply); return todos.list() })
+  appIpc.handle('todos:request', async (_e, title: unknown, note: unknown, urgent: unknown) => { await todos.request(title, note, urgent === true); return todos.list() })
   appIpc.handle('todos:markSeen', (_e, ids: unknown) => todos.markSeen(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
   appIpc.handle('todos:history', (_e, id: unknown) => todos.history(String(id)))
   appIpc.handle('todos:activity', () => todos.activity())

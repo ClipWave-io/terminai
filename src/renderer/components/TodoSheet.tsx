@@ -743,6 +743,7 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
             else if (event.key === 'Backspace' && !title) { event.preventDefault(); onDelete() }
           }} />
         {titleTag.list}
+        {task.request && <RequestTag task={task} me={me} />}
         {task.status === 'doing' && <span className="todo-tag doing">in progress</span>}
         {session && <button className="todo-tag todo-session" disabled={!session.open} title={session.open ? 'Go to the tab working on it' : 'That tab is closed'} onClick={session.open}><TabIcon />{session.name}</button>}
         {task.product && product && <button className={`todo-tag todo-product${product.on ? ' on' : ''}`} title={product.on ? 'Show every product again' : `Show only ${task.product}`} onClick={product.toggle}>{task.product}</button>}
@@ -1033,4 +1034,20 @@ function MenuInput({ value, placeholder, onDone }: { value: string; placeholder:
   const [text, setText] = useState(value)
   return <input className="todo-menu-input" aria-label="Product" placeholder={placeholder} value={text} maxLength={100} spellCheck={false}
     onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); onDone(text) } }} />
+}
+
+/** A request between the partners: to you it offers Accept / Decline (with a message); yours shows how it was answered. */
+function RequestTag({ task, me }: { task: Task; me: unknown }): JSX.Element {
+  const r = task.request!, from = r.from === 'livio' ? 'Matteo' : 'Ilai', mine = r.from === me
+  const [replying, setReplying] = useState(false), [text, setText] = useState('')
+  const answer = (ok: boolean) => void window.term.todos.answer(task.id, ok, text).then(() => { setReplying(false); setText('') })
+  if (r.status !== 'pending') return <span className={`todo-tag todo-req ${r.status}`} title={r.reply ? `“${r.reply}”` : undefined}>
+    {mine ? `${r.status === 'accepted' ? 'Accepted' : 'Declined'} by ${task.assignee === 'livio' ? 'Matteo' : 'Ilai'}` : `${r.status === 'accepted' ? 'You accepted' : 'You declined'}`}{r.reply ? ' · 💬' : ''}</span>
+  if (mine) return <span className={`todo-tag todo-req${r.urgent ? ' urgent' : ''}`}>Asked {task.assignee === 'livio' ? 'Matteo' : 'Ilai'}{r.urgent ? ' · urgent' : ''} · waiting</span>
+  return <span className={`todo-req-ask${r.urgent ? ' urgent' : ''}`}>
+    <b>{r.urgent ? 'Urgent · ' : ''}{from} asks</b>
+    {replying ? <><input autoFocus placeholder="Message (optional)" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') answer(true); if (e.key === 'Escape') setReplying(false) }} />
+      <button onClick={() => answer(true)}>Accept</button><button onClick={() => answer(false)}>Decline</button></>
+      : <><button onClick={() => answer(true)}>Accept</button><button onClick={() => setReplying(true)}>Reply…</button><button className="no" onClick={() => answer(false)}>Decline</button></>}
+  </span>
 }

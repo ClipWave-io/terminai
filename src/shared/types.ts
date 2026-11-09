@@ -85,6 +85,8 @@ export interface Task {
   createdBy: string
   updatedAt: string
   updatedBy: string
+  /** A request from one partner to the other: they accept or decline it, with a message. */
+  request?: TaskRequest
   /** 'ai': the last change came from an agent in a tab (`terminai todo`), not from the person in the app */
   updatedVia?: 'ai'
 }
@@ -141,6 +143,9 @@ export interface TasksChange {
   by: string
   changed: Task[]
   removed: string[]
+  /** new requests to this person, and answers to their requests */
+  requests?: Task[]
+  answered?: Task[]
   /** changed tasks whose title or note tags this person (@Ilai, @Matteo) and did not before */
   mentioned?: Task[]
 }
@@ -167,7 +172,8 @@ export function mentionsOf(text: string): TasksUser[] {
 }
 
 /** What the To-do sheet sends; the main process stamps the dates and authors. */
-export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product' | 'order' | 'list'>>
+export type TaskInput = Partial<Pick<Task, 'id' | 'title' | 'notes' | 'status' | 'assignee' | 'product' | 'order' | 'list' | 'request'>>
+export interface TaskRequest { from: TasksUser; urgent?: boolean; status: 'pending' | 'accepted' | 'declined'; reply?: string; at: string; answeredAt?: string }
 
 /** Assigned to me or to both, or unassigned and created by me. resources/terminai.cjs repeats it for --mine. */
 export function isMine(task: Task, user: string): boolean {

@@ -11,6 +11,8 @@
 //   terminai todo map                                      every page: shared columns, private lists with what each is for, open tasks
 //   terminai todo start|done|reopen <task id or title>     through the app, which commits it; start links the task to this tab
 //   terminai todo add <title> --to <page> [--note <text>]  page: matteo, together, ilai, unassigned or a private list's name
+//   terminai todo request <title> [--note <text>] [--urgent]  a request to the partner: a task in their column, they accept or decline it
+//   terminai todo accept|decline <id or title> [--note <message>]  answer a request made to you
 //   terminai todo about <list> <text>                      what a private list is for (empty text clears it)
 //   terminai log [YYYY-MM-DD]                              the work log of a day (yours and the partner's): conversations, hours, finished work
 //   terminai team list                                     every shared session of the workspace (the partner's too): id, owner, title, folder, status, live
@@ -21,7 +23,7 @@
 //   terminai log hook                                      Claude Code's UserPromptSubmit hook: hands finished work of other tabs to this one for the To-do
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus','show','todo','log','team'],WRITES=['start','done','reopen','add','about'],SWITCHES=['foreground','no-enter','shared','personal','open','mine'];
+const COMMANDS=['list','open','send','read','close','focus','show','todo','log','team'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','no-enter','shared','personal','open','mine','urgent'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -82,6 +84,8 @@ function request(command,flags,words){
  if(command==='task'){
   const action=words[0];
   if(action==='add')return {action,title:words.slice(1).join(' '),to:flags.to,note:flags.note};
+  if(action==='request')return {action,title:words.slice(1).join(' '),note:flags.note,urgent:!!flags.urgent};
+  if(action==='accept'||action==='decline')return {action,task:words.slice(1).join(' '),note:flags.note};
   if(action==='about')return {action,list:words[1],text:words.slice(2).join(' ')};
   return {action,task:words.slice(1).join(' '),tab:process.env.TERMINAI_TAB_ID};
  }

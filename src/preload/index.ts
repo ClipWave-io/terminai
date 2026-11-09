@@ -132,6 +132,8 @@ const api = {
   /** Personal and shared to-dos; src/main/todos.ts does the files and the git sync. */
   todos: {
     list: (): Promise<TaskList> => ipcRenderer.invoke('todos:list'),
+    answer: (id: string, accept: boolean, reply?: string): Promise<TaskList> => ipcRenderer.invoke('todos:answer', id, accept, reply),
+    request: (title: string, note: string, urgent: boolean): Promise<TaskList> => ipcRenderer.invoke('todos:request', title, note, urgent),
     save: (scope: TaskScope, input: TaskInput): Promise<TaskList> => ipcRenderer.invoke('todos:save', scope, input),
     /** Several at once: one commit for the shared ones. */
     saveMany: (scope: TaskScope, inputs: TaskInput[]): Promise<TaskList> => ipcRenderer.invoke('todos:saveMany', scope, inputs),
