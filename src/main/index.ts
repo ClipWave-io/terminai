@@ -251,6 +251,18 @@ function trustFolder(cwd: string): void {
 }
 
 /** A conversation finished a turn: a notice naming its tab with the one-line summary; a click opens that tab. */
+/** macOS's notification permission for TerminAI (resources/notify.node): Electron itself never asks for it. */
+type NotifyPermission = 'authorized' | 'denied' | 'provisional' | 'notDetermined' | 'other' | 'unavailable'
+let notifyModule: { status: () => Promise<NotifyPermission>; ask: () => Promise<NotifyPermission> } | null | undefined
+function notifyPermission(ask = false): Promise<NotifyPermission> {
+  if (notifyModule === undefined) {
+    try { notifyModule = require(app.isPackaged ? join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'notify.node') : join(__dirname, '../../resources/notify.node')) }
+    catch (e) { console.warn('[notify]', e instanceof Error ? e.message : e); notifyModule = null }
+  }
+  if (!notifyModule) return Promise.resolve('unavailable')
+  return Promise.race([ask ? notifyModule.ask() : notifyModule.status(), new Promise<NotifyPermission>(r => setTimeout(() => r('other'), 120_000))])
+}
+
 function tabDone(tabId: string, text: string): void {
   if (!win || win.isDestroyed() || !Notification.isSupported() || !store.load().doneNotices) return
   // Already in front of it: nothing to tell.
@@ -276,6 +288,8 @@ app.whenReady().then(() => {
       { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
+  // The first launch after installing: macOS shows its Allow question for TerminAI's notifications once.
+  if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void notifyPermission().then(p => { if (p === 'notDetermined') void notifyPermission(true) }), 8000)
   startUpdates(() => win, { night: () => store.load().nightUpdates, busy: () => ptys.liveIds().some(id => ['working', 'question'].includes(ptys.statusOf(id))) })
   // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
   const legacyMarker = join(app.getPath('userData'), 'alive')
@@ -415,8 +429,9 @@ function registerIpc(): void {
   appIpc.handle('team:image', (_e, company, id, name) => teamImage(company, id, name))
   appIpc.handle('team:open', async (_e, company, id, name, how) => { const path = await teamFetch(company, id, name); if (how === 'reveal') shell.showItemInFolder(path); else if (how === 'pane') queueOpenFile(path); else await shell.openPath(path) })
   // A chat message as a Mac notification; clicking it opens the chat. Returns false when macOS has them off.
-  appIpc.handle('team:notify', (_e, title: unknown, body: unknown) => {
-    if (!Notification.isSupported()) return false
+  appIpc.handle('notify:permission', (_e, ask: unknown) => notifyPermission(ask === true))
+  appIpc.handle('team:notify', async (_e, title: unknown, body: unknown) => {
+    if (!Notification.isSupported() || !['authorized', 'provisional'].includes(await notifyPermission())) return false
     const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
     n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
     n.show(); return true
@@ -510,9 +525,14 @@ function registerIpc(): void {
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
   // macOS keeps Downloads, Documents and Desktop behind a permission; this opens the page where TerminAI is allowed in.
   appIpc.handle('app:privacy-files', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'))
-  appIpc.handle('app:feedback', (_e, text: unknown) => {
+  // Feedback goes to TerminAI's server (we read it there); if the server cannot be reached, an email in Mail instead.
+  appIpc.handle('app:feedback', async (_e, text: unknown, email: unknown) => {
     const body = `${typeof text === 'string' ? text.slice(0, 4000) : ''}\n\n—\nTerminAI ${app.getVersion()} · macOS ${process.getSystemVersion()} · ${process.arch}`
-    return shell.openExternal(`mailto:info@maracuyalabs.com?subject=${encodeURIComponent(`TerminAI feedback (${app.getVersion()})`)}&body=${encodeURIComponent(body)}`)
+    const sent = await fetch(`${DEFAULT_WORKSPACE_URL}/api/feedback`, { method: 'POST', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json', 'X-TerminAI-Version': app.getVersion() },
+      body: JSON.stringify({ message: body, email: typeof email === 'string' ? email : undefined }) }).then(r => r.ok).catch(() => false)
+    if (sent) return 'sent'
+    await shell.openExternal(`mailto:info@maracuyalabs.com?subject=${encodeURIComponent(`TerminAI feedback (${app.getVersion()})`)}&body=${encodeURIComponent(body)}`)
+    return 'mail'
   })
   // macOS says memory is tight: name the tabs using most, before something is killed. A click opens Settings › Memory.
   watchMemory(r => {

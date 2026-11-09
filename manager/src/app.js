@@ -192,6 +192,17 @@ export function createApp(pool, config) {
         return res.end();
       }
       // Operator view (us, with the server's setup secret): every account, its workspaces and the newest app it signed in with.
+      if (req.method === 'POST' && path === '/api/feedback') {
+        const input = await body(req);
+        await limit(pool, `feedback:${req.socket.remoteAddress}`, 20, 3600);
+        const message = text(input.message, 'Message', 8000), email = typeof input.email === 'string' && /^[^\s@]{1,100}@[^\s@]{1,200}$/.test(input.email.trim()) ? input.email.trim() : null;
+        await pool.query('INSERT INTO manager_feedback(id,email,message,app_version) VALUES($1,$2,$3,$4)', [randomUUID(), email, message, String(req.headers['x-terminai-version'] || input.version || '').slice(0, 40) || null]);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && path === '/api/operator/feedback') {
+        requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
+        return json(res, 200, { feedback: (await pool.query('SELECT email,message,app_version,created_at FROM manager_feedback ORDER BY created_at DESC LIMIT 500')).rows });
+      }
       if (req.method === 'GET' && path === '/api/operator/users') {
         requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
         const { rows } = await pool.query(`SELECT u.name,u.email,u.created_at,

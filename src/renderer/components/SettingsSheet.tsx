@@ -156,10 +156,10 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
             <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select></Row>
         <Row label="Install updates at night" hint="Between 3 and 6, when no tab is working: TerminAI restarts into the new version and your conversations come back."><Toggle on={prefs.nightUpdates} set={v => onChange({ nightUpdates: v })} /></Row>
+        <Row label="Team chat button" hint="The round chat button at the bottom right."><Toggle on={prefs.chatButton} set={v => onChange({ chatButton: v })} /></Row>
         <Row label="Browser (beta)" hint="The built-in browser pane. Off until it is finished."><Toggle on={prefs.browserBeta} set={v => onChange({ browserBeta: v })} /></Row>
         <Row label="Customise the design" hint="Opens Claude Code in this app's own source, then rebuilds and relaunches."><button className="btn" onClick={onCustomize}>Open Claude Code</button></Row>
       </div>
-      <Feedback />
     </>),
     appearance: () => page('Appearance', 'Theme, sidebar and text size.', <div className="st-card">
       <Row label="Theme" hint={<>Cycle all {Object.keys(THEMES).length} with <span className="kbd">⇧⌘L</span></>}>
@@ -334,13 +334,4 @@ function StoragePanel(): JSX.Element {
   </section>
 }
 
-/** Feedback to Maracuya Labs: opens an email in the Mail app with the version filled in. */
-function Feedback(): JSX.Element {
-  const [text, setText] = useState('')
-  return <div className="row feedback">
-    <label>Feedback<span className="hint">A bug, an idea, an error you saw: it goes to info@maracuyalabs.com.</span></label>
-    <span className="feedback-box"><textarea rows={2} placeholder="What happened, or what you'd like" value={text} onChange={e => setText(e.target.value)} />
-      <button className="btn" onClick={() => { void window.term.window.feedback(text); setText('') }}>Send feedback</button></span>
-  </div>
-}
 

@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 /**
  * The macOS permissions TerminAI needs, as cards with one button each: notifications (finished conversations, chat,
@@ -11,10 +11,14 @@ const Bell = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" s
 const Folder = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 19V6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" /></svg>
 export function PermissionsSetup({ compact = false }: { compact?: boolean }): JSX.Element {
   const [notify, setNotify] = useState<State>('ask'), [folders, setFolders] = useState<State>('ask'), [missing, setMissing] = useState<string[]>([])
+  // macOS's own answer: allowed, refused (only System Settings can change it), or not asked yet.
+  const fromMac = (p: string): State => p === 'authorized' || p === 'provisional' ? 'ok' : p === 'denied' ? 'off' : 'ask'
+  useEffect(() => { void window.term.teamchat.notifyPermission().then(p => setNotify(fromMac(p))) }, [])
   const askNotify = async () => {
     if (notify === 'off') return void window.term.teamchat.notificationSettings()
-    const ok = await window.term.teamchat.notify('TerminAI', 'Notifications are on: you will hear when a conversation finishes.')
-    setNotify(ok ? 'ok' : 'off')
+    const p = await window.term.teamchat.notifyPermission(true)
+    setNotify(fromMac(p))
+    if (fromMac(p) === 'ok') void window.term.teamchat.notify('TerminAI', 'Notifications are on: you will hear when a conversation finishes.')
   }
   const askFolders = async () => {
     if (folders === 'off') return void window.term.project.privacy()
@@ -29,7 +33,7 @@ export function PermissionsSetup({ compact = false }: { compact?: boolean }): JS
         : <button className="ps-btn" onClick={() => void ask()}>{state === 'off' ? 'Open Settings' : label}</button>}
     </div>
   return <div className={`ps${compact ? ' compact' : ''}`}>
-    {card(<Bell />, 'Notifications', notify === 'ok' ? 'If no banner appeared, turn TerminAI on in Notifications.' : notify === 'off' ? 'Turned off for TerminAI in macOS.' : 'Know when a conversation finishes, and get team messages and requests.', notify, askNotify, 'Turn on')}
+    {card(<Bell />, 'Notifications', notify === 'ok' ? 'On: finished conversations, team messages and requests.' : notify === 'off' ? 'Turned off for TerminAI in macOS: Open Settings and allow it.' : 'Know when a conversation finishes, and get team messages and requests.', notify, askNotify, 'Turn on')}
     {card(<Folder />, 'Your folders', folders === 'off' ? `Not allowed yet: ${missing.join(', ')}. Turn TerminAI on under Files and Folders.` : 'Downloads, Documents and Desktop, for the Files pane and the agents in your tabs.', folders, askFolders, 'Allow')}
   </div>
 }

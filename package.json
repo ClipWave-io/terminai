@@ -1,6 +1,6 @@
 {
   "name": "clipwave-term",
-  "version": "0.3.33",
+  "version": "0.3.34",
   "description": "A terminal that is easier on the eyes, and talks back.",
   "main": "out/main/index.js",
   "author": "Maracuya Labs UG",
@@ -49,7 +49,14 @@
       "out/**/*",
       "resources/**/*"
     ],
-    "protocols": [{ "name": "TerminAI", "schemes": ["terminai"] }],
+    "protocols": [
+      {
+        "name": "TerminAI",
+        "schemes": [
+          "terminai"
+        ]
+      }
+    ],
     "mac": {
       "target": [
         {
@@ -114,7 +121,7 @@
         "rank": "Alternate"
       }
     ],
-    "copyright": "Copyright © 2026 Maracuya Labs UG",
+    "copyright": "Copyright \u00a9 2026 Maracuya Labs UG",
     "publish": [
       {
         "provider": "github",
@@ -125,7 +132,10 @@
     ],
     "dmg": {
       "title": "TerminAI ${version}"
-    }
+    },
+    "asarUnpack": [
+      "resources/notify.node"
+    ]
   },
   "allowScripts": {
     "electron@44.4.4": true,

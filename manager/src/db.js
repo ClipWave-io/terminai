@@ -145,6 +145,8 @@ export async function migrate(pool) {
       );
       ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot text;
       ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS app_version text;
+      -- Feedback from the app (Settings or the sidebar's feedback button), read by us on the operator page.
+      CREATE TABLE IF NOT EXISTS manager_feedback (id uuid PRIMARY KEY, email text, message text NOT NULL, app_version text, created_at timestamptz NOT NULL DEFAULT now());
       -- Team files: one shared space, each file with who may see it (everyone, admins, or members of some products).
       CREATE TABLE IF NOT EXISTS manager_team_files (
         id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,

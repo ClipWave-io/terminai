@@ -1,3 +1,4 @@
+import { FeedbackButton } from './FeedbackButton'
 import { useRef, useState } from 'react'
 import { groupOf, tabLabel, type TabInfo, type TabStatus } from '../../shared/types'
 import type { JSX } from 'react'
@@ -239,6 +240,7 @@ export function TabRail({
             />
           </svg>
         </button>
+        <FeedbackButton />
       </div>
     </aside>
   )

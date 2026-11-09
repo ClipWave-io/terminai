@@ -1,5 +1,5 @@
 import { PaneResizeHandle } from './components/PaneResizeHandle'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { ProjectFilesPane } from './components/ProjectFilesPane'
 import { TeamChat } from './components/TeamChat'
 import { BrowserPane } from './components/BrowserPane'
@@ -127,6 +127,45 @@ export function App(): JSX.Element {
   const toggleBrowser = () => {
     setShowBrowser(!browserVisible); setBrowserOnly(false)
     setCompactPane(browserVisible ? showTerminal ? 'terminal' : showFiles ? 'files' : 'browser' : 'browser')
+  }
+  /** A top-bar icon moved to a side, before `before` or at the end. */
+  const moveTool = (id: string, side: 'left' | 'right', before?: string) => {
+    if (id === before) return
+    const order = prefs.toolbarOrder.filter(x => x !== id), at = before ? order.indexOf(before) : -1
+    if (at >= 0) order.splice(at, 0, id); else {
+      // At the end of that side: after its last icon.
+      const last = order.map((x, i) => [x, i] as const).filter(([x]) => (side === 'right') === prefs.toolbarRight.includes(x)).pop()
+      order.splice(last ? last[1] + 1 : side === 'right' ? order.length : 0, 0, id)
+    }
+    patchPrefs({ toolbarOrder: order, toolbarRight: side === 'right' ? [...new Set([...prefs.toolbarRight, id])] : prefs.toolbarRight.filter(x => x !== id) })
+  }
+  const toolDrag = (id: string, side: 'left' | 'right') => ({
+    draggable: true,
+    onDragStart: (event: React.DragEvent) => { event.dataTransfer.setData('application/x-terminai-tool', id); if (['terminal', 'browser', 'files'].includes(id)) event.dataTransfer.setData('application/x-terminai-pane', id); event.dataTransfer.effectAllowed = 'move' },
+    onDragOver: (event: React.DragEvent) => { if (event.dataTransfer.types.includes('application/x-terminai-tool')) event.preventDefault() },
+    onDrop: (event: React.DragEvent) => { const from = event.dataTransfer.getData('application/x-terminai-tool'); if (!from) return; event.preventDefault(); event.stopPropagation(); moveTool(from, side, id)
+      if (['terminal', 'browser', 'files'].includes(from) && ['terminal', 'browser', 'files'].includes(id) && paneOrder.includes(from as WorkspacePane)) movePane(from as WorkspacePane, id as WorkspacePane) },
+  })
+  const renderTool = (id: string, side: 'left' | 'right'): React.ReactNode => {
+    if (prefs.hiddenToolbarItems.includes(id)) return null
+    const drag = toolDrag(id, side)
+    if (id === 'terminal' || id === 'browser' || id === 'files') {
+      if (id === 'browser' && !prefs.browserBeta) return null
+      const pane = id as WorkspacePane
+      return <button key={id} className="btn icon no-drag" {...drag}
+        aria-label={pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'}
+        aria-pressed={({ terminal: terminalVisible, browser: browserVisible, files: filesVisible })[pane]}
+        title={`${pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'} · click to show/hide · drag to move`}
+        onClick={({ terminal: toggleTerminal, browser: toggleBrowser, files: toggleFiles })[pane]}
+        onKeyDown={event => { if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); stepPane(pane, event.key === 'ArrowLeft' ? -1 : 1) } }}><PaneIcon kind={pane} /></button>
+    }
+    if (id === 'team') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
+    if (id === 'settings') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
+    if (id === 'todo') return <button key={id} className="btn icon no-drag todo-button" {...drag} aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>
+    if (id === 'maximize') return <button key={id} className="btn icon no-drag" {...drag} title="Maximise or restore window" aria-label="Maximise or restore window" onClick={() => void window.term.window.toggleMaximize()}>↗</button>
+    if (id === 'sessions') return <button key={id} className="btn icon no-drag" {...drag} aria-label="All sessions" title="All sessions  ⌘G" onClick={() => setShowGrid(g => !g)}>⊞</button>
+    if (id === 'sidebar') return <button key={id} className="btn icon no-drag" {...drag} aria-label={prefs.railHidden ? 'Show sidebar' : 'Hide sidebar'} title={`${prefs.railHidden ? 'Show' : 'Hide'} sidebar  ⌘S`} onClick={() => patchPrefs({ railHidden: !prefs.railHidden })}>{prefs.railHidden ? '⇤' : '⇥'}</button>
+    return null
   }
   const toggleFiles = () => {
     if (filesVisible && filesDirty && !window.confirm('Discard unsaved file changes?')) return
@@ -804,41 +843,16 @@ export function App(): JSX.Element {
           {/* Only reserve traffic-light room when they actually land on the
               stage — with the rail visible on the left, it holds them instead. */}
           <span className="topbar-gap" />
-          <div className="workspace-tabs" role="group" aria-label="Workspace panes">
-            {paneOrder.filter(pane => !prefs.hiddenToolbarItems.includes(pane) && (pane !== 'browser' || prefs.browserBeta)).map(pane => <button key={pane} className="btn icon no-drag" draggable
-              aria-label={pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'}
-              aria-pressed={({ terminal: terminalVisible, browser: browserVisible, files: filesVisible })[pane]}
-              title={`${pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'} · click to show/hide · drag to reorder · ⌥←/→ to move`}
-              onClick={({ terminal: toggleTerminal, browser: toggleBrowser, files: toggleFiles })[pane]}
-              onDragStart={event => { event.dataTransfer.setData('application/x-terminai-pane', pane); event.dataTransfer.effectAllowed = 'move'; setResizingPane(true) }}
-              onDragEnd={() => setResizingPane(false)}
-              onDragOver={event => { if (event.dataTransfer.types.includes('application/x-terminai-pane')) event.preventDefault() }}
-              onDrop={event => { event.preventDefault(); const from = event.dataTransfer.getData('application/x-terminai-pane') as WorkspacePane; if (paneOrder.includes(from)) movePane(from, pane); setResizingPane(false) }}
-              onKeyDown={event => { if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); stepPane(pane, event.key === 'ArrowLeft' ? -1 : 1) } }}
-            ><PaneIcon kind={pane} /></button>)}
-          </div>
-          {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
-          <button className="btn icon no-drag" style={{ position: 'relative' }} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}><PaneIcon kind="chat" />{chatUnread > 0 && <span className="tc-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>
-          <button className="btn icon no-drag" aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
-          <span className="topbar-spacer" />
-          {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
-          {<span className="topbar-title centered">{(() => { const tab = tabs.find(t => t.id === activeId); return tab ? tabLabel(tab) : '' })()}</span>}
-          {!prefs.hiddenToolbarItems.includes('todo') && <button className="btn icon no-drag todo-button" aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>}
-          {!prefs.hiddenToolbarItems.includes('maximize') && <button className="btn icon no-drag" title="Maximise or restore window" aria-label="Maximise or restore window" onClick={()=>void window.term.window.toggleMaximize()}>↗</button>}
-          {!prefs.hiddenToolbarItems.includes('sessions') && <button
-            className="btn icon"
-            onClick={() => setShowGrid((g) => !g)}
-            title="All sessions  ⌘G"
-          >
-            ⊞
-          </button>}
-          {!prefs.hiddenToolbarItems.includes('sidebar') && <button
-            className="btn icon"
-            onClick={() => patchPrefs({ railHidden: !prefs.railHidden })}
-            title={`${prefs.railHidden ? 'Show' : 'Hide'} sidebar  ⌘S`}
-          >
-            {prefs.railHidden ? '⇤' : '⇥'}
-          </button>}
+          {/* Every icon can sit on either side: drag it onto another icon or into the empty part of a side (or use ⋯). */}
+          {(['left', 'right'] as const).map(side => <Fragment key={side}>
+            {side === 'right' && <span className="topbar-spacer" />}
+            {side === 'right' && <span className="topbar-title centered">{(() => { const tab = tabs.find(t => t.id === activeId); return tab ? tabLabel(tab) : '' })()}</span>}
+            <div className={`topbar-side ${side}`} role="group" aria-label={side === 'left' ? 'Toolbar, left' : 'Toolbar, right'}
+              onDragOver={event => { if (event.dataTransfer.types.includes('application/x-terminai-tool')) event.preventDefault() }}
+              onDrop={event => { const id = event.dataTransfer.getData('application/x-terminai-tool'); if (id) { event.preventDefault(); moveTool(id, side) } }}>
+              {prefs.toolbarOrder.filter(id => (side === 'right') === prefs.toolbarRight.includes(id)).map(id => renderTool(id, side))}
+            </div>
+          </Fragment>)}
           <button className="btn icon no-drag" title="Customize toolbar" aria-label="Customize toolbar" aria-expanded={showToolbar} onClick={() => setShowToolbar(value => !value)}>⋯</button>
         </div>
 
@@ -899,9 +913,10 @@ export function App(): JSX.Element {
 
       {showToolbar && <div className="toolbar-customize-backdrop" onClick={() => setShowToolbar(false)}>
         <section className="toolbar-customize" role="dialog" aria-label="Customize toolbar" onClick={event => event.stopPropagation()}>
-          <strong>Customize toolbar</strong><p>Choose icons to show. Drag the pane icons to reorder them.</p>
-          {(['terminal','browser','files','team','todo','sessions','maximize','sidebar'] as const).map(item => <label key={item}><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>)}
-          <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [] })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
+          <strong>Customize toolbar</strong><p>Choose the icons to show and the side each sits on. You can also drag any icon to the other side.</p>
+          {prefs.toolbarOrder.map(item => <div key={item} className="tb-item"><label><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>
+            <span className="tb-seg">{(['left', 'right'] as const).map(side => <button key={side} className={(side === 'right') === prefs.toolbarRight.includes(item) ? 'on' : ''} onClick={() => moveTool(item, side)}>{side === 'left' ? 'Left' : 'Right'}</button>)}</span></div>)}
+          <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [], toolbarOrder: DEFAULT_PREFS.toolbarOrder, toolbarRight: DEFAULT_PREFS.toolbarRight })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
         </section>
       </div>}
 
@@ -946,6 +961,8 @@ export function App(): JSX.Element {
       })()}
 
       <TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} />
+      {prefs.chatButton && <button className={`tc-fab${showChat ? ' on' : ''}`} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
+        <PaneIcon kind="chat" />{chatUnread > 0 && <span className="tc-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>}
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
       {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}

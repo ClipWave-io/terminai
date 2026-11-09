@@ -10,7 +10,10 @@ export APPLE_API_KEY_ID="${ASC_KEY_ID:-R6T7FDVQB8}" APPLE_API_ISSUER="$ASC_ISSUE
 export APPLE_API_KEY="${ASC_KEY_PATH:-$HOME/Private/Developer Credentials/AuthKey_$APPLE_API_KEY_ID.p8}"
 version=$(node -p "require('./package.json').version")
 gh release view "v$version" --repo ClipWave-io/terminai >/dev/null 2>&1 && { echo "v$version is already released: bump the version."; exit 1; }
+./scripts/build-notify.sh
 rm -rf release && npm run dist:dmg
+# The notification module must be in the signed app, outside the asar.
+[ -f release/mac-arm64/TerminAI.app/Contents/Resources/app.asar.unpacked/resources/notify.node ] || { echo "notify.node missing from the app"; exit 1; }
 spctl -a -t exec release/mac-arm64/TerminAI.app
 gh release create "v$version" --repo ClipWave-io/terminai --target "$(git rev-parse HEAD)" --title "TerminAI $version" --generate-notes \
   release/TerminAI-$version-arm64.dmg release/TerminAI-$version-arm64-mac.zip release/*.blockmap release/latest-mac.yml

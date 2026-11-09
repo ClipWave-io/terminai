@@ -338,6 +338,11 @@ export interface VoicePrefs {
 
 export interface Prefs {
   hiddenToolbarItems: string[]
+  /** every top-bar icon in order, and which of them sit on the right */
+  toolbarOrder: string[]
+  toolbarRight: string[]
+  /** the team chat's floating button, bottom right */
+  chatButton: boolean
   paneOrder: WorkspacePane[]
   /** once: files moved to the right for everyone who had them on the left by default */
   filesRightV1?: boolean
@@ -398,6 +403,9 @@ export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
   hiddenToolbarItems: [],
+  toolbarOrder: ['terminal', 'browser', 'files', 'team', 'settings', 'todo', 'maximize', 'sessions', 'sidebar'],
+  toolbarRight: ['todo', 'maximize', 'sessions', 'sidebar'],
+  chatButton: true,
   paneOrder: ['terminal', 'browser', 'files'],
   theme: 'midnight',
   fontSize: 13,
