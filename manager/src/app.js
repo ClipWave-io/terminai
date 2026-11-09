@@ -91,6 +91,15 @@ export function createApp(pool, config) {
     return { status: 200, value: { user: publicUser(user), expiresAt: session.expiresAt, ...(client === 'desktop' ? { token: session.token } : {}) }, headers: client === 'browser' ? { 'Set-Cookie': cookie(session.token) } : {} };
   }
   let updatesCache = null;
+  /** The newest TerminAI release from its latest-mac.yml: version, file names and the yml itself; stale on errors. */
+  async function newestRelease() {
+    if (updatesCache && Date.now() - updatesCache.at < 120000) return updatesCache;
+    const r = await fetch('https://github.com/ClipWave-io/terminai/releases/latest/download/latest-mac.yml', { headers: { 'User-Agent': 'terminai-manager' }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+    const yml = r?.ok ? await r.text().catch(() => '') : '', version = /^version:\s*(\S+)/m.exec(yml)?.[1];
+    if (!version) return updatesCache;
+    updatesCache = { at: Date.now(), yml, version, files: [...yml.matchAll(/(?:url|path):\s*(\S+)/g)].map(m => m[1]) };
+    return updatesCache;
+  }
   return async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -112,20 +121,21 @@ export function createApp(pool, config) {
         const [file, type] = staticFiles[path]; res.setHeader('Content-Type', `${type}; charset=utf-8`); return res.end(await readFile(new URL(`../public/${file}`, import.meta.url)));
       }
       // The newest signed Mac app, straight from GitHub's latest release: the website's Download button.
-      // App updates, served here so a GitHub download outage never blocks them: /updates/<file of the newest TerminAI release>,
-      // fetched through GitHub's API (its asset host), the release list cached a few minutes.
+      // App updates, served here: /updates/<file of the newest TerminAI release>. No GitHub API (60 calls an hour per IP,
+      // shared on Railway, so it ran out and answered 502): the public release files themselves. The newest version comes
+      // from releases/latest/download/latest-mac.yml, cached two minutes, and the last good one is kept if GitHub hiccups.
       const upd = path.match(/^\/updates\/([A-Za-z0-9._-]{1,120})$/);
       if (req.method === 'GET' && upd) {
-        if (!updatesCache || Date.now() - updatesCache.at > 300000) {
-          const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases?per_page=20', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json', ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) }, signal: AbortSignal.timeout(10000) });
-          requireThat(r.ok, 502, 'Updates are not reachable right now.');
-          updatesCache = { at: Date.now(), release: (await r.json()).find(x => /^v\d/.test(x.tag_name) && !x.draft && !x.prerelease) };
-        }
-        const asset = updatesCache.release?.assets?.find(a => a.name === upd[1]);
-        requireThat(asset, 404, 'Not found.');
-        const file = await fetch(asset.url, { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/octet-stream' }, signal: AbortSignal.timeout(600000) });
-        requireThat(file.ok && file.body, 502, 'Updates are not reachable right now.');
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream', ...(file.headers.get('content-length') ? { 'Content-Length': file.headers.get('content-length') } : {}), 'Cache-Control': 'no-store' });
+        const latest = await newestRelease();
+        requireThat(latest, 502, 'Updates are not reachable right now.');
+        if (upd[1] === 'latest-mac.yml') { res.writeHead(200, { 'Content-Type': 'text/yaml', 'Cache-Control': 'no-store' }); return res.end(latest.yml); }
+        requireThat(latest.files.includes(upd[1]) || /\.blockmap$/.test(upd[1]) && latest.files.includes(upd[1].replace(/\.blockmap$/, '')), 404, 'Not found.');
+        // A Range (the updater fetching only the changed blocks) goes through, and so does the 206 answer.
+        const range = /^bytes=[\d,\s-]{1,200}$/.test(String(req.headers.range || '')) ? { Range: String(req.headers.range) } : {};
+        const file = await fetch(`https://github.com/ClipWave-io/terminai/releases/download/v${latest.version}/${upd[1]}`, { headers: { 'User-Agent': 'terminai-manager', ...range }, signal: AbortSignal.timeout(600000) }).catch(() => null);
+        requireThat(file?.ok && file.body, 502, 'Updates are not reachable right now.');
+        const pass = ['content-length', 'content-range', 'content-type', 'accept-ranges'].flatMap(h => file.headers.get(h) ? [[h, file.headers.get(h)]] : []);
+        res.writeHead(file.status, { 'Content-Type': 'application/octet-stream', ...Object.fromEntries(pass), 'Cache-Control': 'no-store' });
         const { Readable } = await import('node:stream');
         Readable.fromWeb(file.body).pipe(res);
         return;
@@ -138,9 +148,8 @@ export function createApp(pool, config) {
         return res.end();
       }
       if (req.method === 'GET' && path === '/download/mac') {
-        const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases/latest', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);
-        const release = r?.ok ? await r.json() : null, dmg = release?.assets?.find(a => /\.dmg$/.test(a.name));
-        res.writeHead(302, { Location: dmg?.browser_download_url ?? 'https://github.com/ClipWave-io/terminai/releases/latest', 'Cache-Control': 'no-store' });
+        const latest = await newestRelease(), dmg = latest?.files.find(f => /\.dmg$/.test(f));
+        res.writeHead(302, { Location: dmg ? `https://github.com/ClipWave-io/terminai/releases/download/v${latest.version}/${dmg}` : 'https://github.com/ClipWave-io/terminai/releases/latest', 'Cache-Control': 'no-store' });
         return res.end();
       }
       requireThat(path.startsWith('/api/'), 404, 'Not found.');
