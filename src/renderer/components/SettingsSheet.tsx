@@ -415,22 +415,29 @@ function AppVersion(): JSX.Element {
   </div>
 }
 
-/** Memory: the Mac's pressure, TerminAI's own use, and each session's, biggest first, with Open and Close (memory.ts). */
+/** Memory: the Mac's pressure, TerminAI's own use, and each session's, biggest first (memory.ts). An idle Claude Code or
+ *  Codex still holds its memory while it waits; Sleep closes it and opening the tab brings the conversation back. */
 function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; label: string }[]; onCloseTab: (id: string) => void; onOpenTab: (id: string) => void }): JSX.Element {
   const [r, setR] = useState<Awaited<ReturnType<typeof window.term.window.memory>> | null>(null)
-  useEffect(() => { const load = () => void window.term.window.memory().then(setR); load(); const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [])
+  const [all, setAll] = useState(false)
+  const load = () => void window.term.window.memory().then(setR)
+  useEffect(() => { load(); const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [])
   if (!r) return <></>
   const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
-  const max = Math.max(1, ...r.tabs.map(t => t.mb))
-  return <div className="mem" id="memory">
+  const max = Math.max(1, ...r.tabs.map(t => t.mb)), idle = r.tabs.filter(t => t.idle)
+  const sleep = (ids: string[]) => void window.term.window.sleep(ids).then(() => window.setTimeout(load, 2500))
+  return <section className="mem" id="memory">
     <div className="mem-head"><strong>Memory</strong>
-      <span className={`mem-level ${r.pressure}`}>{r.pressure === 'normal' ? 'Mac memory OK' : r.pressure === 'warning' ? 'Memory is tight: close some sessions' : 'Out of memory: close sessions now'}</span></div>
-    <p className="hint">Sessions {gb(r.tabsMb)} · TerminAI itself {gb(r.appMb)} · Mac {gb(r.totalMb)}. You get a notice when memory gets tight.</p>
-    {r.tabs.slice(0, 8).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
-      <span className="mem-name">{tab?.label ?? 'Session'}</span><i style={{ width: `${(t.mb / max) * 100}%` }} /><em>{gb(t.mb)}</em>
-      {tab && <><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}
+      <span className={`mem-level ${r.pressure}`}>{r.pressure === 'normal' ? 'Mac memory OK' : r.pressure === 'warning' ? 'Memory is tight' : 'Out of memory'}</span></div>
+    <p className="hint">A session keeps Claude Code or Codex open while it waits for you, and that holds memory even when nothing runs. <b>Sleep</b> closes it; opening the tab brings the conversation back where it was.</p>
+    <div className="mem-sum"><span>Sessions <b>{gb(r.tabsMb)}</b></span><span>TerminAI <b>{gb(r.appMb)}</b></span><span>Mac <b>{gb(r.totalMb)}</b></span>
+      {idle.length > 0 && <button className="btn" onClick={() => sleep(idle.map(t => t.id))}>Sleep {idle.length} idle {idle.length === 1 ? 'session' : 'sessions'} · frees ~{gb(idle.reduce((n, t) => n + t.mb, 0))}</button>}</div>
+    {(all ? r.tabs : r.tabs.slice(0, 6)).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
+      <span className="mem-name">{tab?.label ?? 'Session'}{t.asleep && <em className="mem-tag"> asleep</em>}</span><i style={{ width: `${(t.mb / max) * 100}%` }} /><em>{gb(t.mb)}</em>
+      {tab && <span className="mem-acts">{t.idle && <button className="todo-link" onClick={() => sleep([t.id])}>Sleep</button>}<button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></span>}
     </div> })}
-  </div>
+    {r.tabs.length > 6 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${r.tabs.length}`}</button>}
+  </section>
 }
 
 /** Feedback to Maracuya Labs: opens an email in the Mail app with the version filled in. */

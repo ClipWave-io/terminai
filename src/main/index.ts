@@ -17,7 +17,7 @@ import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
-import { memoryReport, watchMemory } from './memory'
+import { memoryReport, watchMemory, sleep as sleepTabs, wake as wakeTab } from './memory'
 import { tabMode, defaultMode, repoOf } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
@@ -429,6 +429,8 @@ function registerIpc(): void {
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())
+  appIpc.handle('memory:sleep', (_e, ids: unknown) => sleepTabs(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []))
+  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? wakeTab(id) : false)
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
   appIpc.handle('app:feedback', (_e, text: unknown) => {
     const body = `${typeof text === 'string' ? text.slice(0, 4000) : ''}\n\n—\nTerminAI ${app.getVersion()} · macOS ${process.getSystemVersion()} · ${process.arch}`

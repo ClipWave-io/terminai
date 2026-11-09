@@ -19,6 +19,8 @@ const api = {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     feedback: (text: string): Promise<void> => ipcRenderer.invoke('app:feedback', text),
     memory: (): Promise<import('../main/memory').MemoryReport> => ipcRenderer.invoke('memory:report'),
+    sleep: (ids: string[]): Promise<number> => ipcRenderer.invoke('memory:sleep', ids),
+    wake: (id: string): Promise<boolean> => ipcRenderer.invoke('memory:wake', id),
     onOpenSettings: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
     checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
   team: {

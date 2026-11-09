@@ -562,7 +562,7 @@ export function createApp(pool, config) {
           const name=text(input.name,'Name',60),days=Number.isInteger(input.days)&&input.days>0?Math.min(input.days,365):null,token=opaqueToken(),id=randomUUID();
           await db.query(`INSERT INTO manager_bot_keys(id,company_id,user_id,name,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,${days?"now()+make_interval(days=>$6)":"NULL"})`,days?[id,companyId,user.id,name,digest(token),days]:[id,companyId,user.id,name,digest(token)]);
           await audit(db,companyId,user.id,'bot.created',id);
-          return {id,name,key:`tbot_${token}`,api:`${config.apiOrigin||origin}/api/companies/${companyId}`};
+          return {id,name,key:`tbot_${token}`,api:`${origin}/api/companies/${companyId}`};
         }
         const botMatch=tail.match(/^\/bots\/([0-9a-f-]{36})$/);
         if(botMatch&&req.method==='DELETE'){await db.query('UPDATE manager_bot_keys SET revoked_at=now() WHERE id=$1 AND company_id=$2 AND user_id=$3',[botMatch[1],companyId,user.id]);return {ok:true};}

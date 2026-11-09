@@ -758,7 +758,7 @@ export function App(): JSX.Element {
             speakingId={speakingId}
             incoming={incoming}
             width={railWidth}
-            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal')}}
+            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal');void window.term.window.wake(id)}}
             onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd)}
