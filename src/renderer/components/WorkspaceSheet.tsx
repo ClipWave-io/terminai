@@ -315,32 +315,45 @@ export function AccountGate({ onDone, onSkip }: { onDone: () => void; onSkip: ()
 const MODES: [string, string, string][] = [['shared', 'Shared', 'your partner and their agents can read and message it'], ['private', 'Only me', 'your iPhone can reach it; its conversation never leaves this Mac'], ['off', 'Off the record', 'nothing leaves this Mac']]
 function SessionSharing(): JSX.Element {
   const [state, setState] = useState<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
+  const [query, setQuery] = useState(''), [all, setAll] = useState(false)
   const load = () => void window.term.team.tabs().then(setState)
   useEffect(() => { load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t) }, [])
   const set = (key: string | null, shared: boolean) => void window.term.team.share(key, shared).then(load)
   const folder = (path: string | null, mode: 'shared' | 'private' | 'off' | null) => void window.term.team.folder(path, mode).then(load)
   if (!state) return <></>
   const home = (p: string) => p.replace(/^\/Users\/[^/]+/, '~')
-  return <section className="share-box">
-    <p className="share-note">This decides only what your partner and their agents can see and reach. Your own sessions work the same whatever is set here.</p>
-    <label className="share-default"><select value={state.agentMessages} onChange={e => void window.term.team.agentMessages(e.target.value as 'ask').then(load)}>
-        <option value="ask">Ask me</option><option value="allow">Allow all</option></select>
-      <span><strong>Messages from others’ agents and bots</strong><small>Ask me: you allow each one before it is typed into a session. Replies to your own messages always come in.</small></span></label>
-    <label className="share-default"><input type="checkbox" checked={state.byDefault} onChange={e => set(null, e.target.checked)} />
-      <span><strong>Share sessions by default</strong><small>For folders and repos without a rule below. Off (the default): nothing leaves this Mac.</small></span></label>
-    <div className="share-folders">
-      <strong>Folders</strong>
-      {Object.entries(state.folders).map(([path, mode]) => <div key={path} className="share-folder">
-        <span title={path}>{path.startsWith('git:') ? `repo ${path.slice(4).replace(/^https:\/\/(github\.com\/)?/, '')}` : home(path)}</span>
-        <select value={mode} aria-label={`Sharing for ${path}`} onChange={e => folder(path, e.target.value as 'shared')}>{MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        <button className="todo-icon" aria-label={`Remove the rule for ${path}`} onClick={() => folder(path, null)}>×</button>
-      </div>)}
-      <span className="share-add"><button className="btn" onClick={() => folder(null, 'shared')}>Add folder…</button>
-        <button className="btn" title="Covers every clone and worktree of the repo" onClick={() => folder('git:', 'shared')}>Add git repo…</button></span>
-      <small>{MODES.map(([, l, d]) => `${l}: ${d}.`).join(' ')} A folder rule covers everything inside it (the deepest wins), a repo rule every clone and worktree of it; a tab set below goes over both.</small>
+  const q = query.trim().toLowerCase(), shown = state.tabs.filter(t => !q || t.name.toLowerCase().includes(q))
+  const sharedCount = state.tabs.filter(t => t.shared).length
+  const Seg = ({ value, options, onPick }: { value: string; options: [string, string][]; onPick: (v: string) => void }) =>
+    <span className="sh-seg">{options.map(([v, l]) => <button key={v} className={value === v ? 'on' : ''} onClick={() => onPick(v)}>{l}</button>)}</span>
+  return <section className="sh">
+    <p className="sh-note">Only what your partner and their agents can see and reach. Your own sessions work the same whatever is set here.</p>
+    <div className="sh-card">
+      <div className="sh-row"><div><strong>New sessions</strong><small>For folders and repos without a rule.</small></div>
+        <Seg value={state.byDefault ? 'shared' : 'off'} options={[['shared', 'Shared'], ['off', 'Off the record']]} onPick={v => set(null, v === 'shared')} /></div>
+      <div className="sh-row"><div><strong>Messages from others’ agents and bots</strong><small>Ask me shows each one before it is typed in. Replies to your own messages always come in.</small></div>
+        <Seg value={state.agentMessages} options={[['ask', 'Ask me'], ['allow', 'Allow all']]} onPick={v => void window.term.team.agentMessages(v as 'ask').then(load)} /></div>
     </div>
-    {state.tabs.length > 0 && <div className="share-tabs">{state.tabs.map(t => <button key={t.key} className={`share-tab${t.shared ? ' on' : ''}`} title={t.shared ? 'Shared: click to make it only yours' : 'Only you: click to share'} onClick={() => set(t.key, !t.shared)}>
-      <i aria-hidden="true" />{t.name}<em>{t.mode === 'off' ? 'Off the record' : t.shared ? 'Shared' : 'Only me'}</em></button>)}</div>}
+    <div className="sh-card">
+      <div className="sh-head"><strong>Folders and repos</strong>
+        <span className="sh-actions"><button className="btn" onClick={() => folder(null, 'shared')}>Add folder…</button><button className="btn" title="Covers every clone and worktree of the repo" onClick={() => folder('git:', 'shared')}>Add repo…</button></span></div>
+      {Object.keys(state.folders).length === 0 && <small className="sh-empty">No rules yet. A folder rule covers everything inside it; a repo rule every clone and worktree.</small>}
+      {Object.entries(state.folders).map(([path, mode]) => <div key={path} className="sh-row">
+        <div><strong title={path}>{path.startsWith('git:') ? path.slice(4).replace(/^https:\/\/(github\.com\/)?/, '') : home(path)}</strong><small>{path.startsWith('git:') ? 'Git repo' : 'Folder'}</small></div>
+        <span className="sh-end"><Seg value={mode} options={MODES.map(([v, l]) => [v, l])} onPick={v => folder(path, v as 'shared')} />
+          <button className="todo-icon" aria-label={`Remove the rule for ${path}`} onClick={() => folder(path, null)}>×</button></span>
+      </div>)}
+    </div>
+    {state.tabs.length > 0 && <div className="sh-card">
+      <div className="sh-head"><strong>Open sessions</strong><small>{sharedCount} of {state.tabs.length} shared</small>
+        <input className="sh-search" placeholder="Search" value={query} onChange={e => setQuery(e.target.value)} /></div>
+      <div className="sh-list">{(all ? shown : shown.slice(0, 8)).map(t => <div key={t.key} className="sh-row">
+        <div><strong>{t.name.replace(/^[✳◐◑◒◓⠂⠐·*]\s*/u, '')}</strong></div>
+        {t.mode === 'off' ? <small className="sh-off">Off the record (folder rule)</small>
+          : <Seg value={t.shared ? 'shared' : 'private'} options={[['shared', 'Shared'], ['private', 'Only me']]} onPick={v => set(t.key, v === 'shared')} />}
+      </div>)}</div>
+      {shown.length > 8 && <button className="todo-link sh-more" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${shown.length}`}</button>}
+    </div>}
   </section>
 }
 

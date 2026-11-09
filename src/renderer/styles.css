@@ -647,7 +647,7 @@ body {
 }
 
 .sheet {
-  width: 440px;
+  width: min(680px, calc(100vw - 48px));
   max-height: 78vh;
   overflow-y: auto;
   border-radius: 16px;
@@ -1269,5 +1269,5 @@ textarea.card-notes.editing {
 .feedback-box{display:grid;gap:6px;justify-items:end}.feedback-box textarea{width:240px;font:inherit;font-size:12.5px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--pane);color:var(--fg);resize:vertical}
 .mem { margin: 4px 0 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--pane) 60%, transparent); }
 .mem-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12.5px; color: var(--dim); margin: 4px 0; } .mem-sum b { color: var(--fg); font-weight: 600; } .mem-sum .btn { margin-left: auto; }
-.mem-row { grid-template-columns: minmax(0, 1fr) 80px 56px auto; } .mem-acts { display: flex; gap: 8px; } .mem-tag { color: var(--dim); font-style: normal; font-size: 11px; }
+.mem-row { grid-template-columns: minmax(0, 1fr) 120px 64px auto; } .mem-acts { display: flex; gap: 8px; } .mem-tag { color: var(--dim); font-style: normal; font-size: 11px; }
 .mem > .hint b { color: var(--fg); font-weight: 600; }

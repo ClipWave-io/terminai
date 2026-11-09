@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
-import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
@@ -197,24 +197,37 @@ function createWindow(): void {
  */
 function afterResume(id: string, carryOn: boolean): void {
   const started = Date.now()
-  let trusted = false, nudged = false, quietSince = 0
-  const plain = () => ptys.bufferOf(id).slice(-6000).replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')
+  let nudged = false, quietSince = 0
   const tick = () => {
-    if (Date.now() - started > 120_000 || !ptys.liveIds().includes(id)) return
-    const screen = plain()
-    if (!trusted && /Yes, I trust this folder/.test(screen) && /trust/i.test(screen.slice(-1500))) { trusted = true; ptys.write(id, '\r') }
+    if (nudged || Date.now() - started > 120_000 || !ptys.liveIds().includes(id)) return
     const agent = ptys.agentOf(id), status = ptys.statusOf(id)
-    if (carryOn && !nudged && agent.alive && status === 'waiting' && Date.now() - started > 6000) {
+    if (carryOn && agent.alive && status === 'waiting' && Date.now() - started > 6000) {
       if (!quietSince) quietSince = Date.now()
       if (Date.now() - quietSince > 3000) {
         nudged = true
         ptys.write(id, '\x1b[200~TerminAI restarted while you were working: continue where you left off.\x1b[201~')
         setTimeout(() => ptys.write(id, '\r'), 400)
+        return
       }
     } else quietSince = 0
-    if (!nudged || !trusted) setTimeout(tick, 700)
+    setTimeout(tick, 700)
   }
-  setTimeout(tick, 1500)
+  if (carryOn) setTimeout(tick, 1500)
+}
+/**
+ * Claude Code asks "do you trust this folder?" the first time it runs in one; a tab coming back after a restart was
+ * already working there, so the folder is marked trusted in ~/.claude.json before it starts (never by pressing keys:
+ * the menu's highlighted answer is not always Yes).
+ */
+function trustFolder(cwd: string): void {
+  const file = join(homedir(), '.claude.json')
+  try {
+    const d = JSON.parse(readFileSync(file, 'utf8'))
+    const p = (d.projects ??= {})[cwd] ??= {}
+    if (p.hasTrustDialogAccepted === true) return
+    p.hasTrustDialogAccepted = true
+    writeFileSync(`${file}.terminai-tmp`, JSON.stringify(d, null, 2), { mode: 0o600 }); renameSync(`${file}.terminai-tmp`, file)
+  } catch (e) { console.warn('[resume] could not mark the folder trusted:', e instanceof Error ? e.message : e) }
 }
 
 /** A conversation finished a turn: a notice naming its tab with the one-line summary; a click opens that tab. */
@@ -465,7 +478,10 @@ function registerIpc(): void {
   appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
   appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))
   appIpc.on('pty:exec', (_event, { id, cmd, resume }: {id: string; cmd: string; resume?: { continue?: boolean }}) => {
-    ptys.execWhenReady(id, String(cmd || ''))
+    const line = String(cmd || '')
+    if (resume && /(^\S*claude\b|--(resume|continue)\b)/.test(line)) trustFolder(ptys.cwdOf(id))
+    // A restored tab starts on a clean screen, not on the shell line that brought it back.
+    ptys.execWhenReady(id, resume && line ? `clear; ${line}` : line)
     if (resume) afterResume(id, resume.continue === true)
   })
   appIpc.handle('pty:size', (_event, { id }: {id: string}) => ptys.sizeOf(id))

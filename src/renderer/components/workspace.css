@@ -151,3 +151,19 @@
 .m-form > .btn.primary { height: 34px; }
 .account-gate-skip{flex:0 0 auto !important;align-self:center;height:auto !important;min-height:0 !important;max-height:36px;margin:-14px auto 36px;padding:8px 18px;-webkit-app-region:no-drag}
 .m-bot{display:flex;justify-content:space-between;align-items:center;font-size:13px}.m-bot small{color:var(--muted,#9aa3b2)}.share-default select{height:28px;border-radius:7px;border:1px solid var(--border,#2a3140);background:var(--pane,#0f1420);color:inherit;font:inherit}
+/* Sharing in Sync › Conversations: three cards of rows, each with a segmented choice. */
+.sh { display: grid; gap: 12px; margin-bottom: 18px; }
+.sh-note { margin: 0; font-size: 12.5px; color: var(--muted, #9aa3b2); }
+.sh-card { border: 1px solid var(--border, #2a3140); border-radius: 12px; padding: 4px 14px; background: color-mix(in srgb, var(--surface, #1a2030) 55%, transparent); }
+.sh-head { display: flex; align-items: center; gap: 10px; padding: 10px 0 6px; } .sh-head small { color: var(--muted, #9aa3b2); font-size: 12px; }
+.sh-actions { margin-left: auto; display: flex; gap: 6px; } .sh-actions .btn { padding: 4px 12px; font-size: 12.5px; }
+.sh-search { margin-left: auto; width: 180px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border, #2a3140); background: var(--pane, #0f1420); color: inherit; font: inherit; font-size: 12.5px; }
+.sh-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; border-top: 1px solid color-mix(in srgb, var(--border, #2a3140) 55%, transparent); }
+.sh-card > .sh-row:first-child, .sh-list > .sh-row:first-child { border-top: 0; }
+.sh-row > div { min-width: 0; display: grid; gap: 2px; } .sh-row strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-row small { color: var(--muted, #9aa3b2); font-size: 11.5px; }
+.sh-seg { flex: none; display: inline-flex; padding: 2px; border-radius: 8px; background: color-mix(in srgb, var(--border, #2a3140) 60%, transparent); }
+.sh-seg button { border: 0; background: none; color: var(--muted, #9aa3b2); font: inherit; font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.sh-seg button.on { background: var(--pane, #0f1420); color: var(--fg, #e6e9ef); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.sh-end { display: flex; align-items: center; gap: 6px; } .sh-empty { display: block; padding: 4px 0 12px; color: var(--muted, #9aa3b2); font-size: 12px; }
+.sh-off { color: var(--muted, #9aa3b2); font-size: 12px; } .sh-more { padding: 6px 0 10px; }
