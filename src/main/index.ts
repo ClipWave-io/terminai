@@ -407,6 +407,14 @@ function registerIpc(): void {
   appIpc.handle('team:upload', (_e, company, path, access, products, chat) => teamUpload(company, path, access, products, chat === true))
   appIpc.handle('team:image', (_e, company, id, name) => teamImage(company, id, name))
   appIpc.handle('team:open', async (_e, company, id, name, how) => { const path = await teamFetch(company, id, name); if (how === 'reveal') shell.showItemInFolder(path); else if (how === 'pane') queueOpenFile(path); else await shell.openPath(path) })
+  // A chat message as a Mac notification; clicking it opens the chat. Returns false when macOS has them off.
+  appIpc.handle('team:notify', (_e, title: unknown, body: unknown) => {
+    if (!Notification.isSupported()) return false
+    const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
+    n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
+    n.show(); return true
+  })
+  appIpc.handle('app:notification-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'))
   appIpc.handle('team:pick', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:pick-files', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:open-file', async (_event, note, fileId, name, reveal) => {

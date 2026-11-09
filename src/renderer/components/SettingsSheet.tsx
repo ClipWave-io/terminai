@@ -144,6 +144,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
             <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select>
         </div>
+        <NotifyTest />
         <div className="row">
           <label>Browser (beta)<span className="hint">The built-in browser pane. Off until it is finished.</span></label>
           <input type="checkbox" checked={prefs.browserBeta} onChange={e => onChange({ browserBeta: e.target.checked })} />
@@ -456,5 +457,16 @@ function Feedback(): JSX.Element {
     <label>Feedback<span className="hint">A bug, an idea, an error you saw: it goes to info@maracuyalabs.com.</span></label>
     <span className="feedback-box"><textarea rows={2} placeholder="What happened, or what you'd like" value={text} onChange={e => setText(e.target.value)} />
       <button className="btn" onClick={() => { void window.term.window.feedback(text); setText('') }}>Send feedback</button></span>
+  </div>
+}
+
+/** Sends a notification now, so it is clear whether macOS shows TerminAI's (they can be off per app, or hidden by Focus). */
+function NotifyTest(): JSX.Element {
+  const [sent, setSent] = useState('')
+  return <div className="row">
+    <label>Notifications<span className="hint">{sent || 'Chat messages, requests and To-do changes. Not showing? Send a test.'}</span></label>
+    <span style={{ display: 'flex', gap: 6 }}>
+      <button className="btn" onClick={() => void window.term.teamchat.notify('TerminAI', 'Notifications work.').then(ok => setSent(ok ? 'Sent. If nothing appeared, turn TerminAI on in macOS Notifications, and check Focus.' : 'macOS does not allow notifications here.'))}>Send a test</button>
+      <button className="btn" onClick={() => void window.term.teamchat.notificationSettings()}>macOS settings</button></span>
   </div>
 }

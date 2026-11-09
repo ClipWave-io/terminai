@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import './teamchat.css'
+import { AccessPicker, Avatar, PeoplePanel, useProducts, type Access } from './Permissions'
 
 /**
  * Team chat and team files, a drawer on the right. It stays mounted while signed in so the long poll keeps the
@@ -28,7 +29,6 @@ const dayLabel = (iso: string) => { const d = new Date(iso), t = new Date(); con
   return d.toDateString() === t.toDateString() ? 'Today' : d.toDateString() === y.toDateString() ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }) }
 const lastSeen = (p: Person) => p.typing ? 'typing…' : p.online ? 'online' : p.seenAt ? `last seen ${dayLabel(p.seenAt) === 'Today' ? 'today' : dayLabel(p.seenAt) === 'Yesterday' ? 'yesterday' : dayLabel(p.seenAt)} at ${clock(p.seenAt)}` : 'not on TerminAI yet'
 const isImage = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name)
-const initials = (name: string) => name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
 export function TeamChat({ open, onClose, onUnread }: { open: boolean; onClose: () => void; onUnread: (n: number) => void }): JSX.Element | null {
   const [company, setCompany] = useState<{ id: string; role: string } | null>(null)
@@ -42,7 +42,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const [messages, setMessages] = useState<Message[]>(() => cache.get(`${key}:m`, []))
   const [people, setPeople] = useState<Person[]>(() => cache.get(`${key}:p`, []))
   const [me, setMe] = useState<string>(() => cache.get(`${key}:me`, ''))
-  const [view, setView] = useState<'chat' | 'files'>('chat')
+  const [view, setView] = useState<'chat' | 'files' | 'people'>('chat')
   const [lastRead, setLastRead] = useState<string>(() => cache.get(`${key}:read`, ''))
   const [offline, setOffline] = useState(false)
   const openRef = useRef(open); openRef.current = open
@@ -62,8 +62,8 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
             after = r.messages.at(-1).at
             setMessages(prev => { const seen = new Set(prev.filter(m => !m.pending).map(m => m.id)); const next = [...prev.filter(m => !m.pending), ...r.messages.filter((m: Message) => !seen.has(m.id))].slice(-500); cache.set(`${key}:m`, next); return next })
             const fresh = r.messages.filter((m: Message) => m.from !== r.me)
-            if (fresh.length && (!openRef.current || !document.hasFocus()) && 'Notification' in window) {
-              const m = fresh.at(-1); const n = new Notification(m.fromName, { body: m.body || (m.file ? 'Sent a file' : ''), silent: false }); n.onclick = () => window.dispatchEvent(new Event('teamchat:open'))
+            if (fresh.length && (!openRef.current || !document.hasFocus())) {
+              const m = fresh.at(-1); void window.term.teamchat.notify(m.fromName, m.body || (m.file ? 'Sent a file' : ''))
             }
           }
         } catch { if (stop) return; setOffline(true); await new Promise(r => setTimeout(r, 4000)) }
@@ -92,18 +92,19 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   if (!open) return null
   const others = people.filter(p => p.id !== me)
   const typingNow = others.filter(p => p.typing)
-  const title = others.length === 1 ? others[0].name : 'Team'
-  const sub = offline ? 'connecting…' : typingNow.length ? `${typingNow.map(p => p.name.split(' ')[0]).join(', ')} ${typingNow.length > 1 ? 'are' : 'is'} typing…` : others.length === 1 ? lastSeen(others[0]) : others.map(p => p.name.split(' ')[0] + (p.online ? ' ●' : '')).join(', ')
+  const title = others.length === 1 ? others[0].name : others.length ? others.map(p => p.name.split(' ')[0]).join(', ') : 'Team'
+  const sub = offline ? 'connecting…' : typingNow.length ? `${typingNow.map(p => p.name.split(' ')[0]).join(', ')} ${typingNow.length > 1 ? 'are' : 'is'} typing…` : others.length === 1 ? lastSeen(others[0]) : others.length ? `${others.filter(p => p.online).length} of ${others.length} online` : 'Invite someone from Sync › Members'
   return <aside className="tc" aria-label="Team chat">
     <header className="tc-head">
-      <span className="tc-avatar">{others.length === 1 ? initials(others[0].name) : <Ico n="group" s={18} />}</span>
+      <span className="tc-faces" aria-hidden="true">{(others.length ? others : people).slice(0, 4).map(p => <Avatar key={p.id} id={p.id} name={p.name} size={30} online={p.online} />)}</span>
       <div className="tc-who"><strong>{title}</strong><small className={typingNow.length ? 'typing' : ''}>{sub}</small></div>
-      <div className="tc-tabs" role="tablist">{(['chat', 'files'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : 'Files'}</button>)}</div>
+      <div className="tc-tabs" role="tablist">{(['chat', 'files', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : v === 'files' ? 'Files' : 'People'}</button>)}</div>
       <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
     {notice && <div className="tc-notice">{notice}</div>}
     {view === 'chat' ? <Chat company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
-      : <Files company={company} admin={admin} me={me} onError={alertLine} />}
+      : view === 'files' ? <Files company={company} admin={admin} me={me} onError={alertLine} />
+      : <PeoplePanel company={company} me={me} onError={e => alertLine(String((e as Error).message ?? e))} online={id => people.find(p => p.id === id)?.online} />}
   </aside>
 }
 
@@ -171,39 +172,36 @@ const ACCESS: Record<TeamFile['access'], string> = { all: 'Everyone', admins: 'A
 function Files({ company, admin, me, onError }: { company: string; admin: boolean; me: string; onError: (t: string) => void }): JSX.Element {
   const key = `tc:${company}:f`
   const [files, setFiles] = useState<TeamFile[]>(() => cache.get(key, []))
-  const [q, setQ] = useState(''), [access, setAccess] = useState<TeamFile['access']>('all'), [products, setProducts] = useState('')
-  const [busy, setBusy] = useState(0), [editing, setEditing] = useState<string | null>(null), [showChat, setShowChat] = useState(false)
+  const [q, setQ] = useState(''), [access, setAccess] = useState<Access>({ access: 'all', products: [] })
+  const [busy, setBusy] = useState(0), [editing, setEditing] = useState<string | null>(null), [showChat, setShowChat] = useState(false), [choosing, setChoosing] = useState(false)
+  const options = useProducts(files.flatMap(f => f.products ?? []))
   const load = () => void window.term.teamchat.files(company).then(r => { setFiles(r.files); cache.set(key, r.files) }).catch(e => onError(String(e.message ?? e)))
   useEffect(load, [company]) // eslint-disable-line react-hooks/exhaustive-deps
   const upload = async (paths: string[]) => {
     setBusy(n => n + paths.length)
-    for (const p of paths) { try { await window.term.teamchat.upload(company, p, access, products.split(',').map(x => x.trim()).filter(Boolean)) } catch (e) { onError(String((e as Error).message ?? e)) } finally { setBusy(n => n - 1) } }
+    for (const p of paths) { try { await window.term.teamchat.upload(company, p, access.access, access.products) } catch (e) { onError(String((e as Error).message ?? e)) } finally { setBusy(n => n - 1) } }
     load()
   }
   const change = (f: TeamFile, c: object | null) => void window.term.teamchat.change(company, f.id, c).then(load).catch(e => onError(String(e.message ?? e)))
   const shown = useMemo(() => files.filter(f => (showChat || !f.fromChat) && (!q || f.name.toLowerCase().includes(q.toLowerCase()))), [files, q, showChat])
   return <div className="tc-files" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void upload([...e.dataTransfer.files].map(f => window.term.teamchat.pathOf(f)).filter(Boolean)) }}>
     <div className="tc-up">
-      <select value={access} onChange={e => setAccess(e.target.value as TeamFile['access'])} title="Who can see what you upload">
-        <option value="all">Everyone in the team</option>{admin && <option value="admins">Admins only</option>}<option value="products">Members of products…</option></select>
-      {access === 'products' && <input placeholder="mm.org, ManyMotions" value={products} onChange={e => setProducts(e.target.value)} />}
+      <button className="tc-access-btn" onClick={() => setChoosing(v => !v)} title="Who can see what you upload">
+        <Ico n="lock" s={14} />{access.access === 'all' ? 'Everyone' : access.access === 'admins' ? 'Admins only' : access.products.length ? access.products.join(', ') : 'Choose products'}</button>
       <button className="tc-btn" onClick={() => void window.term.teamchat.pick().then(p => { if (p.length) void upload(p) })}>{busy ? `Uploading ${busy}…` : 'Upload'}</button>
     </div>
+    {choosing && <div className="tc-access-pop"><small>New uploads can be seen by</small><AccessPicker value={access} onChange={setAccess} admin={admin} options={options} /></div>}
     <div className="tc-search"><input placeholder="Search files" value={q} onChange={e => setQ(e.target.value)} />
       <label><input type="checkbox" checked={showChat} onChange={e => setShowChat(e.target.checked)} /> From chat</label></div>
     <div className="tc-flist">
       {!shown.length && <p className="tc-empty">{files.length ? 'Nothing matches.' : 'No team files yet. Drop files here or press Upload.'}</p>}
       {shown.map(f => {
         const mine = admin || f.by === me
-        return <div className="tc-frow" key={f.id}>
+        return <div key={f.id}><div className="tc-frow">
           <button className="tc-fmain" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'pane').catch(e => onError(String(e.message ?? e)))} title="Open (downloads it the first time)">
             <span className="tc-file-ico">{isImage(f.name) ? <Ico n="image" /> : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
             <span className="tc-file-name">{f.name}<small>{size(f.size)} · {f.byName ?? 'someone'} · {dayLabel(f.createdAt)}</small></span></button>
-          {editing === f.id ? <span className="tc-acc-edit">
-              <select defaultValue={f.access} onChange={e => change(f, { access: e.target.value, products: e.target.value === 'products' ? (f.products ?? []) : undefined })}>
-                <option value="all">Everyone</option><option value="admins">Admins only</option><option value="products">Products</option></select>
-              {f.access === 'products' && <input defaultValue={(f.products ?? []).join(', ')} placeholder="mm.org" onKeyDown={e => { if (e.key === 'Enter') { change(f, { access: 'products', products: e.currentTarget.value.split(',').map(x => x.trim()).filter(Boolean) }); setEditing(null) } }} />}
-              <button className="tc-link" onClick={() => setEditing(null)}>Done</button></span>
+          {editing === f.id ? null
             : <span className={`tc-acc ${f.access}`} title="Who can see it">{f.access === 'products' ? (f.products ?? []).join(', ') || 'No one' : ACCESS[f.access]}</span>}
           <span className="tc-factions">
             <button className="tc-link" title="Show in Finder" aria-label="Show in Finder" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'reveal')}><Ico n="reveal" s={15} /></button>
@@ -211,6 +209,9 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
             {mine && <button className="tc-link" title="Delete" aria-label="Delete" onClick={() => change(f, null)}><Ico n="trash" s={15} /></button>}
           </span>
         </div>
+        {editing === f.id && <div className="tc-access-pop inline"><AccessPicker value={{ access: f.access, products: f.products ?? [] }} admin={admin} options={options}
+          onChange={v => change(f, { access: v.access, products: v.access === 'products' ? v.products : undefined })} /><button className="tc-link" onClick={() => setEditing(null)}>Done</button></div>}
+      </div>
       })}
     </div>
   </div>

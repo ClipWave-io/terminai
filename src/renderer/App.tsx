@@ -65,7 +65,7 @@ export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const prefsRef = useRef(prefs); prefsRef.current = prefs
   const [showChat, setShowChat] = useState(false), [chatUnread, setChatUnread] = useState(0)
-  useEffect(() => { const open = () => setShowChat(true); window.addEventListener('teamchat:open', open); return () => window.removeEventListener('teamchat:open', open) }, [])
+  useEffect(() => window.term.teamchat.onOpen(() => setShowChat(true)), [])
   const [ready, setReady] = useState(false)
   useEffect(() => window.term.window.onOpenSettings(() => setShowSettings(true)), [])
   // Signed in from the website's Open TerminAI: open Sync, which now shows the account.

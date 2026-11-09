@@ -141,6 +141,9 @@ const api = {
     image: (company: string, id: string, name: string): Promise<string> => ipcRenderer.invoke('team:image', company, id, name),
     open: (company: string, id: string, name: string, how: 'app' | 'pane' | 'reveal' = 'app'): Promise<void> => ipcRenderer.invoke('team:open', company, id, name, how),
     pick: (): Promise<string[]> => ipcRenderer.invoke('team:pick'),
+    notify: (title: string, body: string): Promise<boolean> => ipcRenderer.invoke('team:notify', title, body),
+    notificationSettings: (): Promise<void> => ipcRenderer.invoke('app:notification-settings'),
+    onOpen: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('teamchat:open', h); return () => { ipcRenderer.removeListener('teamchat:open', h) } },
     pathOf: (file: File): string => webUtils.getPathForFile(file),
   },
   todos: {

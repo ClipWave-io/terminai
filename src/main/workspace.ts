@@ -14,6 +14,8 @@ const file = () => join(app.getPath('userData'), 'workspace-session.enc')
 export function managerOrigin(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Enter your workspace manager URL.')
   const url = new URL(value)
+  // Test builds may use a manager on this Mac (UI tests); the installed app never does.
+  if (process.env.TERMINAI_TEST_BUILD && url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.pathname === '/') return url.origin
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)
     throw new Error('Use the HTTPS address of your workspace manager, without a path.')
   return url.origin
