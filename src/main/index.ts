@@ -439,6 +439,8 @@ function registerIpc(): void {
   })
   appIpc.handle('project:rename', (_event, path: string, to: string) => projectFiles.renameEntry(path, to))
   appIpc.handle('project:create', (_event, folder: string, name: string, directory: boolean) => projectFiles.create(folder, name, directory))
+  // The folder the Files pane shows, opened in Finder.
+  appIpc.handle('project:openFolder', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(typeof path === 'string' ? path : '')); if (error) throw new Error(error) })
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())

@@ -9,7 +9,7 @@ import './workspace.css'
 // The team workspace: the same server, account and data as the website and the iPhone app.
 type Conversation = { id: string; title: string; visibility: string; ownerId?: string; owner_id?: string; updatedAt?: string }
 type Message = { id: string; content: string; kind: string; authorName?: string; author_name?: string; createdAt?: string }
-type Member = { id: string; name: string; email: string; role: string; app_version?: string | null; app_seen?: string | null }
+type Member = { id: string; name: string; email: string; role: string; products?: string[] | null; app_version?: string | null; app_seen?: string | null }
 type Tab = { id: string; title: string; customTitle?: string }
 type Section = 'people' | 'conversations' | 'tools'
 const items = <T,>(value: any): T[] => Array.isArray(value) ? value : value?.items ?? value?.conversations ?? value?.messages ?? value?.catalog ?? []
@@ -159,14 +159,16 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
   }
   return <div className="team-page members">
     <header><div><h2>Members</h2><p>Everyone here shares the To-do, the notes and the conversations you share.</p></div></header>
-    <section className="m-card">
+    {admin && <Permissions base={base} members={members} me={me.id} owner={state.identity!.companies.find(c => base.endsWith(c.id))?.role === 'owner'}
+      sessionVisibility={(state.identity!.companies.find(c => base.endsWith(c.id)) as { sessionVisibility?: string } | undefined)?.sessionVisibility ?? 'admins'} onChanged={onInvited} onError={onError} />}
+    {!admin && <section className="m-card">
       {members.map(m => <div className="m-person" key={m.id}>
         <span className="team-avatar">{initials(m.name)}</span>
         <div><strong>{m.name}{m.id === me.id && <em> · you</em>}</strong><small>{m.email}{m.app_version ? ` · TerminAI ${m.app_version}` : ' · TerminAI not signed in yet'}{m.app_seen ? `, seen ${new Date(m.app_seen).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</small></div>
         <span className="m-role">{m.role}</span>
       </div>)}
       {members.length < 2 && <p className="m-hint">Only you so far. Invite Matteo below: you then share the To-do and notes, on the Mac, the web and the iPhone.</p>}
-    </section>
+    </section>}
     <div className="m-grid">
       {<form className="m-card m-form" onSubmit={e => { e.preventDefault(); void invite() }}>
         <h3>Invite someone</h3>
@@ -389,4 +391,41 @@ function Password({ onError }: { onError: (e: unknown) => void }): JSX.Element {
     <p>Only for signing in with email on the web. TerminAI makes a strong one, saves it to your account and puts it on your clipboard: paste it into your password manager.</p>
     <button type="button" className="btn" onClick={() => void make()}>{done ? 'New password copied ✓' : 'Make a password'}</button>
   </div>
+}
+
+/**
+ * Permissions (admins): each person's role and which products they see. Admins see every product and every shared
+ * session; a member limited to products sees only those products' tasks and notes. The workspace decides whether
+ * members also see each other's shared sessions.
+ */
+function Permissions({ base, members, me, owner, sessionVisibility, onChanged, onError }: { base: string; members: Member[]; me: string; owner: boolean; sessionVisibility: string; onChanged: () => void; onError: (e: unknown) => void }): JSX.Element {
+  const [vis, setVis] = useState(sessionVisibility)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const patch = (id: string, body: object) => void window.term.workspace.request(`${base}/members/${id}`, 'PATCH', body).then(onChanged).catch(onError)
+  const setSessions = (v: string) => { setVis(v); void window.term.workspace.request(base, 'PATCH', { sessionVisibility: v }).catch(e => { setVis(sessionVisibility); onError(e) }) }
+  const ROLE: Record<string, string> = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' }
+  return <section className="m-card perm">
+    <div className="perm-head"><h3>People and permissions</h3>
+      <span className="sh-seg" title="Who sees the shared sessions of others">{[['admins', 'Sessions: admins only'], ['all', 'Sessions: everyone']].map(([v, l]) =>
+        <button key={v} className={vis === v ? 'on' : ''} disabled={!owner} onClick={() => setSessions(v)}>{l}</button>)}</span></div>
+    <p className="perm-note">Owners and admins see every product and every shared session. Limit a member to some products, e.g. mm.org: they see only those tasks and notes.</p>
+    {members.map(m => {
+      const limited = Array.isArray(m.products), self = m.id === me, fixed = self || m.role === 'owner' || (m.role === 'admin' && !owner)
+      return <div className="perm-row" key={m.id}>
+        <span className="team-avatar">{initials(m.name)}</span>
+        <div className="perm-who"><strong>{m.name}{self && <em> · you</em>}</strong>
+          <small>{m.email}{m.app_version ? ` · TerminAI ${m.app_version}` : ' · TerminAI not signed in'}</small></div>
+        {fixed ? <span className="m-role">{ROLE[m.role]}</span>
+          : <select className="perm-role" value={m.role} onChange={e => patch(m.id, { role: e.target.value })}>
+            {(owner ? ['admin', 'member', 'viewer'] : ['member', 'viewer']).map(r => <option key={r} value={r}>{ROLE[r]}</option>)}</select>}
+        {m.role === 'owner' || m.role === 'admin' ? <span className="perm-scope">All products</span>
+          : editing === m.id ? <form className="perm-edit" onSubmit={e => { e.preventDefault(); patch(m.id, { products: draft.split(',').map(x => x.trim()).filter(Boolean) }); setEditing(null) }}>
+              <input autoFocus placeholder="mm.org, ManyMotions" value={draft} onChange={e => setDraft(e.target.value)} /><button className="btn" type="submit">Save</button></form>
+          : <span className="perm-scope">{limited ? (m.products!.length ? m.products!.join(', ') : 'No products') : 'All products'}
+              <button className="todo-link" onClick={() => { setEditing(m.id); setDraft((m.products ?? []).join(', ')) }}>Change</button>
+              {limited && <button className="todo-link" onClick={() => patch(m.id, { products: null })}>All</button>}</span>}
+      </div>
+    })}
+  </section>
 }

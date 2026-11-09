@@ -6,7 +6,7 @@ import { ROLES, CLASSIFICATIONS, HttpError, requireThat, opaqueToken, digest, sa
 
 const unsafe = method => !['GET', 'HEAD', 'OPTIONS'].includes(method);
 const publicUser = user => ({ id: user.id, email: user.email, name: user.name });
-const publicCompany = row => ({ id: row.id, name: row.name, role: row.role, classification: row.classification, defaultVisibility: row.default_visibility, allowCompanySharing: row.allow_company_sharing });
+const publicCompany = row => ({ id: row.id, name: row.name, sessionVisibility: row.session_visibility || 'admins', products: row.products ?? null, role: row.role, classification: row.classification, defaultVisibility: row.default_visibility, allowCompanySharing: row.allow_company_sharing });
 const publicConversation = row => ({ id: row.id, companyId: row.company_id, ownerId: row.owner_id, ownerName: row.owner_name, title: row.title, visibility: row.visibility, allowedRoles: row.allowed_roles, createdAt: row.created_at, updatedAt: row.updated_at,
   ...(row.source_key ? { tab: true, place: row.place, status: row.tab_status, live: !!row.seen_at && Date.now() - new Date(row.seen_at).getTime() < 120000 } : {}) });
 const publicNote = row => ({ id: row.id, kind: row.kind || 'card', product: row.product || '', files: row.files || [], ownerId: row.owner_id, visibility: row.visibility, title: row.title, body: row.body, status: row.status, assigneeId: row.assignee_id, position: row.position, updatedBy: row.updated_by, updatedByName: row.updated_by_name, createdAt: row.created_at, updatedAt: row.updated_at });
@@ -434,6 +434,10 @@ export function createApp(pool, config) {
         const { rows:[member] }=await db.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
         requireThat(company&&member,404,'Company not found.');
         const admin=()=>requireThat(isAdmin(member),403,'Administrator access required.');
+        // Product access: admins and members without a list see every product; a list limits tasks and notes to it.
+        const sees=product=>isAdmin(member)||!member.products||member.products.includes(product||'');
+        // Someone else's shared session: admins always; everyone only when the workspace says so.
+        const seesSession=c=>c.owner_id===user.id||!c.source_key||isAdmin(member)||company.session_visibility==='all';
         const owner=()=>requireThat(member.role==='owner',403,'Owner access required.');
         if(!tail && req.method==='GET') return {company:publicCompany({...company,...member,id:company.id})};
         if(!tail && req.method==='PATCH') {
@@ -442,13 +446,14 @@ export function createApp(pool, config) {
           requireThat(input.allowCompanySharing===undefined||typeof input.allowCompanySharing==='boolean',400,'Invalid sharing policy.');
           const sharing=input.allowCompanySharing??company.allow_company_sharing;
           requireThat(sharing||visibility==='owner',400,'Default visibility must be owner when sharing is disabled.');
-          await db.query('UPDATE manager_companies SET name=$1,default_visibility=$2,allow_company_sharing=$3 WHERE id=$4',[name,visibility,sharing,companyId]);
+          const sessionVisibility=input.sessionVisibility===undefined?company.session_visibility:enumValue(input.sessionVisibility,['admins','all'],'session visibility');
+          await db.query('UPDATE manager_companies SET name=$1,default_visibility=$2,allow_company_sharing=$3,session_visibility=$5 WHERE id=$4',[name,visibility,sharing,companyId,sessionVisibility]);
           // Turning sharing off immediately makes existing conversations private, including desktop reads.
           if(!sharing) await db.query("UPDATE manager_conversations SET visibility='owner',updated_at=now() WHERE company_id=$1 AND visibility='company'",[companyId]);
           await audit(db,companyId,user.id,'company.updated',companyId);return {ok:true};
         }
         if(tail==='/members'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT u.id,u.name,u.email,m.role,m.classification,(SELECT s.app_version FROM manager_sessions s WHERE s.user_id=u.id AND s.app_version IS NOT NULL ORDER BY s.seen_at DESC NULLS LAST LIMIT 1) AS app_version,
+          const {rows}=await db.query(`SELECT u.id,u.name,u.email,m.role,m.classification,m.products,(SELECT s.app_version FROM manager_sessions s WHERE s.user_id=u.id AND s.app_version IS NOT NULL ORDER BY s.seen_at DESC NULLS LAST LIMIT 1) AS app_version,
             (SELECT max(s.seen_at) FROM manager_sessions s WHERE s.user_id=u.id) AS app_seen FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1 ORDER BY u.name`,[companyId]);
           return {members:rows};
         }
@@ -467,7 +472,10 @@ export function createApp(pool, config) {
             await db.query('DELETE FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[companyId,targetId]);
             await db.query('UPDATE manager_invites SET revoked_at=now() WHERE company_id=$1 AND email=(SELECT email FROM manager_users WHERE id=$2) AND accepted_at IS NULL AND revoked_at IS NULL',[companyId,targetId]);
           }
-          else await db.query('UPDATE manager_memberships SET role=$1,classification=$2 WHERE company_id=$3 AND user_id=$4',[role,enumValue(input.classification??target.classification,CLASSIFICATIONS,'classification'),companyId,targetId]);
+          else {
+            const products=input.products===undefined?target.products:input.products===null?null:(requireThat(Array.isArray(input.products)&&input.products.length<=50&&input.products.every(x=>typeof x==='string'&&x.length<=100),400,'Invalid products.'),input.products.map(x=>x.trim()).filter(Boolean));
+            await db.query('UPDATE manager_memberships SET role=$1,classification=$2,products=$5 WHERE company_id=$3 AND user_id=$4',[role,enumValue(input.classification??target.classification,CLASSIFICATIONS,'classification'),companyId,targetId,products]);
+          }
           if(['owner','admin'].includes(target.role)&&!['owner','admin'].includes(role))await db.query('UPDATE manager_invites SET revoked_at=now() WHERE company_id=$1 AND created_by=$2 AND accepted_at IS NULL AND revoked_at IS NULL',[companyId,targetId]);
           await audit(db,companyId,user.id,req.method==='DELETE'?'member.removed':'member.updated',targetId);return {ok:true};
         }
@@ -520,7 +528,7 @@ export function createApp(pool, config) {
         if(tail==='/conversations'&&req.method==='GET') {
           const before=url.searchParams.get('before');if(before)requireThat(Number.isFinite(Date.parse(before)),400,'Invalid before cursor.');
           const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
-          return {conversations:rows.filter(r=>!user.bot_id||r.visibility==='company').map(publicConversation)};
+          return {conversations:rows.filter(r=>(!user.bot_id||r.visibility==='company')&&seesSession(r)).map(publicConversation)};
         }
         if(tail==='/conversations'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot create conversations.');
@@ -547,7 +555,7 @@ export function createApp(pool, config) {
           requireThat(member.role!=='viewer',403,'Viewers cannot message sessions.');
           const to=uuid(input.to),content=text(input.content,'Message',20000),from=input.from?uuid(input.from):null,replyTo=input.replyTo?uuid(input.replyTo):null;
           const {rows:[target]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2 AND source_key IS NOT NULL',[to,companyId]);
-          requireThat(target&&canReadConversation(target,member,user.id)&&(!user.bot_id||target.visibility==='company'),404,'That session is not shared with you.');
+          requireThat(target&&canReadConversation(target,member,user.id)&&seesSession(target)&&(!user.bot_id||target.visibility==='company'),404,'That session is not shared with you.');
           if(from){const {rowCount}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND owner_id=$2',[from,user.id]);requireThat(rowCount,400,'Not your session.');}
           if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2',[replyTo,user.id]);requireThat(rowCount,404,'No such message to answer.');}
           await limit(pool,`agent:${user.id}`,120,3600);
@@ -587,7 +595,7 @@ export function createApp(pool, config) {
         if(conv) {
           const conversationId=uuid(conv[1]);
           const {rows:[conversation]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2',[conversationId,companyId]);
-          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&(!user.bot_id||conversation.visibility==='company'),404,'Conversation not found.');
+          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company'),404,'Conversation not found.');
           if(!conv[2]&&req.method==='GET')return {conversation:publicConversation(conversation)};
           // Its owner deletes it for good: its messages, and the agent messages to and from it, go with it.
           if(!conv[2]&&req.method==='DELETE'){requireThat(conversation.owner_id===user.id,403,'Only its owner can delete it.');await db.query('DELETE FROM manager_conversations WHERE id=$1',[conversationId]);return {ok:true};}
@@ -621,7 +629,7 @@ export function createApp(pool, config) {
           const {rows}=await db.query(`SELECT n.*,u.name AS updated_by_name,(SELECT coalesce(json_agg(json_build_object('id',f.id,'name',f.name,'mime',f.mime,'size',f.size,'createdAt',f.created_at) ORDER BY f.created_at),'[]')
               FROM manager_note_files f WHERE f.note_id=n.id) AS files FROM manager_notes n LEFT JOIN manager_users u ON u.id=n.updated_by
             WHERE n.company_id=$1 AND (n.visibility='company' OR n.owner_id=$2) ORDER BY n.position,n.created_at LIMIT 2000`,[companyId,user.id]);
-          return {notes:rows.map(publicNote)};
+          return {notes:rows.filter(n=>n.visibility==='private'||sees(n.product)).map(publicNote)};
         }
         const assignee=async value=>{
           if(value===null||value===undefined||value==='')return null;
@@ -691,7 +699,7 @@ export function createApp(pool, config) {
         if(tail==='/tasks'&&req.method==='GET') {
           const {rows:people}=await db.query('SELECT p.key,u.id,u.name FROM manager_task_people p JOIN manager_users u ON u.id=p.user_id WHERE p.company_id=$1',[companyId]);
           const {rows}=await db.query('SELECT id,data,updated_at,deleted_at,changed_by FROM manager_tasks WHERE company_id=$1 ORDER BY updated_at LIMIT 5000',[companyId]);
-          return { tasks:rows.filter(r=>!r.deleted_at).map(r=>r.data), deleted:rows.filter(r=>r.deleted_at).map(r=>({id:r.id,deletedAt:r.deleted_at,by:people.find(p=>p.id===r.changed_by)?.key??null})),
+          return { tasks:rows.filter(r=>!r.deleted_at&&sees(r.data.product)).map(r=>r.data), deleted:rows.filter(r=>r.deleted_at).map(r=>({id:r.id,deletedAt:r.deleted_at,by:people.find(p=>p.id===r.changed_by)?.key??null})),
             people:Object.fromEntries(people.map(p=>[p.key,{id:p.id,name:p.name}])), me:people.find(p=>p.id===user.id)?.key??null };
         }
         if(tail==='/tasks/people'&&req.method==='PUT') {
@@ -703,6 +711,7 @@ export function createApp(pool, config) {
         const taskMatch=tail.match(/^\/tasks\/([A-Za-z0-9_-]{1,80})$/);
         if(taskMatch&&['PUT','DELETE'].includes(req.method)) {
           requireThat(member.role!=='viewer',403,'Viewers cannot change the To-do.');
+          if(req.method==='PUT')requireThat(sees(input.task?.product),403,'You have no access to that product.');
           const id=taskMatch[1];
           if(req.method==='DELETE'){await db.query('UPDATE manager_tasks SET deleted_at=now(),updated_at=now(),changed_by=$3 WHERE company_id=$1 AND id=$2',[companyId,id,user.id]);return {ok:true};}
           const task=input.task;

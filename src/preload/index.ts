@@ -52,6 +52,7 @@ const api = {
     list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),
     save: (path: string, content: string, version: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:save', path, content, version),
     preview: (path: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:preview', path),
+    openFolder: (path: string): Promise<void> => ipcRenderer.invoke('project:openFolder', path),
     openExternal: (path: string): Promise<void> => ipcRenderer.invoke('project:openExternal', path),
     menu: (path: string, directory: boolean, background = false): Promise<{ action: string; path?: string } | null> => ipcRenderer.invoke('project:menu', path, directory, background),
     rename: (path: string, to: string): Promise<string> => ipcRenderer.invoke('project:rename', path, to),

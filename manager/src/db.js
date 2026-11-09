@@ -145,6 +145,9 @@ export async function migrate(pool) {
       );
       ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot text;
       ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS app_version text;
+      -- Permissions: a member limited to some products sees only their tasks and notes (NULL: all); who sees others' shared sessions.
+      ALTER TABLE manager_memberships ADD COLUMN IF NOT EXISTS products text[];
+      ALTER TABLE manager_companies ADD COLUMN IF NOT EXISTS session_visibility text NOT NULL DEFAULT 'admins';
       ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS seen_at timestamptz;
       CREATE TABLE IF NOT EXISTS manager_audit (
         id uuid PRIMARY KEY, company_id uuid REFERENCES manager_companies ON DELETE CASCADE,

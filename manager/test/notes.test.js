@@ -141,6 +141,7 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal(tabA.tab,true);assert.equal(tabA.live,true);assert.equal(tabA.visibility,'company');
   assert.equal((await request(`/api/companies/${alpha.id}/conversations/tab/key-a`,{token:a.body.token,method:'PUT',data:{title:'Fix login 2'}})).body.conversation.id,tabA.id,'same tab, same conversation');
   const tabMo=(await request(`/api/companies/${alpha.id}/conversations/tab/key-m`,{token:mo.body.token,method:'PUT',data:{title:'Mo tab'}})).body.conversation;
+  await request(`/api/companies/${alpha.id}`,{token:a.body.token,method:'PATCH',data:{sessionVisibility:'all'}});
   const shownRes=await request(`/api/companies/${alpha.id}/conversations`,{token:mo.body.token});assert.equal(shownRes.status,200,JSON.stringify(shownRes.body));const shown=shownRes.body.conversations;
   assert.ok(shown.some(c=>c.id===tabA.id&&c.ownerName==='Ada'));
   const sent=(await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{to:tabA.id,from:tabMo.id,content:'Which branch has the fix?'}})).body;
@@ -207,6 +208,20 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   // A password set from the app keeps its devices signed in.
   assert.equal((await request('/api/auth/password',{token:a.body.token,method:'POST',data:{password:'set from the app 12'}})).status,200);
   assert.equal((await request('/api/me',{token:a.body.token})).status,200);
+
+  // Permissions: a member limited to one product sees only its tasks and notes; others' sessions only when the workspace allows.
+  const pia=(await request(`/api/companies/${alpha.id}/members`,{token:a.body.token})).body.members.find(m=>m.email==='pia@example.test');
+  assert.equal((await request(`/api/companies/${alpha.id}/members/${pia.id}`,{token:a.body.token,method:'PATCH',data:{products:['mm.org']}})).status,200);
+  await request(`/api/companies/${alpha.id}/tasks/t9`,{token:a.body.token,method:'PUT',data:{task:{...task,id:'t9',product:'mm.org'}}});
+  await request(`/api/companies/${alpha.id}/tasks/t8`,{token:a.body.token,method:'PUT',data:{task:{...task,id:'t8',product:'ManyMotions'}}});
+  const piaTasks=(await request(`/api/companies/${alpha.id}/tasks`,{token:p1.body.token})).body.tasks.map(t=>t.id);
+  assert.ok(piaTasks.includes('t9')&&!piaTasks.includes('t8'),'only her product');
+  assert.equal((await request(`/api/companies/${alpha.id}/tasks/t7`,{token:p1.body.token,method:'PUT',data:{task:{...task,id:'t7',product:'ManyMotions'}}})).status,403);
+  const tabX=(await request(`/api/companies/${alpha.id}/conversations/tab/key-x`,{token:a.body.token,method:'PUT',data:{title:'Owner tab',visibility:'company'}})).body.conversation;
+  await request(`/api/companies/${alpha.id}`,{token:a.body.token,method:'PATCH',data:{sessionVisibility:'admins'}});
+  assert.ok(!(await request(`/api/companies/${alpha.id}/conversations`,{token:p1.body.token})).body.conversations.some(c=>c.id===tabX.id),'admins only');
+  await request(`/api/companies/${alpha.id}`,{token:a.body.token,method:'PATCH',data:{sessionVisibility:'all'}});
+  assert.ok((await request(`/api/companies/${alpha.id}/conversations`,{token:p1.body.token})).body.conversations.some(c=>c.id===tabX.id));
 
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
