@@ -73,6 +73,9 @@ export function App(): JSX.Element {
   const [restored, setRestored] = useState(false)
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
+  // The tab you are on starts its conversation if it was waiting (asleep, or not started since a restart).
+  const restoring = useRef(false)
+  useEffect(() => { if (activeId && !restoring.current) void window.term.window.wake(activeId) }, [activeId])
   const [clips, setClips] = useState<VoiceClip[]>([])
   const [playToken, setPlayToken] = useState(0)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
@@ -255,7 +258,7 @@ export function App(): JSX.Element {
       const sessionId = restore.agentSession || restore.claudeSession || ''
       const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs, cwd: realCwd })
       setTabs(prev => prev.map(t=>t.id===id?{...t, agent:kind, agentSession:sessionId, agentArgs:restore.agentArgs||[]}:t))
-      window.term.pty.exec(id, cmd, { continue: restore.wasWorking === true })
+      window.term.pty.exec(id, cmd, { continue: restore.wasWorking === true, later: restore.later === true })
     } else if (start) {
       // A tab you open starts the agent chosen in Settings, by default Claude Code with permissions skipped.
       const agent = prefsRef.current.newTabAgent
@@ -346,8 +349,10 @@ export function App(): JSX.Element {
       forCwd.forEach((t, i) => ids[i] && dealt.set(t, ids[i]))
     }
 
-    for (const raw of savedTabs) {
-      const t = dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw
+    restoring.current = true
+    try { for (const [i, raw] of savedTabs.entries()) {
+      // Only the last one (it ends up open) and the ones that were working start now; the rest when opened.
+      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: i < savedTabs.length - 1 && !raw.wasWorking }
       const running = t.ptyId ? live.get(t.ptyId) : undefined
       if (running) {
         taken.add(running.id)
@@ -355,7 +360,7 @@ export function App(): JSX.Element {
       } else {
         await newTab(t.cwd, t)
       }
-    }
+    } } finally { restoring.current = false }
 
     // A session with no saved tab: opened and then closed out of prefs, or
     // prefs lost. Still a running shell, so surface it rather than orphan it.
@@ -767,7 +772,7 @@ export function App(): JSX.Element {
             speakingId={speakingId}
             incoming={incoming}
             width={railWidth}
-            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal');void window.term.window.wake(id)}}
+            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal')}}
             onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd, undefined, true)}

@@ -12,7 +12,7 @@ import type {SavedTab,Task,TaskListPage} from '../shared/types'
  * and `terminai todo start|done|reopen` (resources/terminai.cjs). Same boundary as the browser bridge: loopback only, a random token
  * in a 0600 file next to prefs, the file gone on quit. Every PTY gets its path as TERMINAI_CONTROL.
  */
-type Deps={window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
+type Deps={wake?:(id:string)=>Promise<boolean>|boolean;window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
   todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
     add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;
     request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
@@ -76,6 +76,8 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       const s=liveTab(a.id)
       if(s.exited)throw Error('The tab has exited')
       if(typeof a.text!=='string'||a.text.length>100000)throw Error('Invalid text')
+      // A tab whose conversation waits (asleep, or not started since a restart) is started first, then it gets the text.
+      if(await d.wake?.(s.id)){for(let i=0;i<120&&!(ptys.agentOf(s.id).alive&&ptys.statusOf(s.id)==='waiting');i++)await new Promise(r=>setTimeout(r,500));await new Promise(r=>setTimeout(r,1500))}
       if(a.text)ptys.write(s.id,a.text)
       // A TUI takes an Enter glued to the text as part of a paste; on its own it submits. Long text goes
       // in as the program reads it, so the Enter waits for that (within the CLI's 30 s).

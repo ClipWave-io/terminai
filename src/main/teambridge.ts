@@ -73,7 +73,7 @@ function fakeUuid(seed: string): string {
 
 export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void
   /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. */
-  approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean> }) {
+  approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean>; wake?: (tabId: string) => unknown }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
   const received = new Map<string, { from: string | null; fromName: string }>() // agent message id -> who sent it
@@ -146,6 +146,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         continue
       }
       const agent = ptys.agentOf(tab), status = ptys.statusOf(tab)
+      if (!agent.alive) opts.wake?.(tab)
       if (!agent.alive || status === 'working' || status === 'question') { pending = true; continue }
       received.set(m.id, { from: m.from, fromName: m.fromName })
       const who = m.bot ? m.fromName : `${m.fromName}'s agent${m.fromTitle ? ` (tab "${m.fromTitle}")` : ''}`

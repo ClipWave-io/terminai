@@ -283,6 +283,8 @@ export interface SavedTab {
   agentArgs?: string[]
   /** its agent was mid-turn when TerminAI quit: told to continue after the resume */
   wasWorking?: boolean
+  /** restore only: start the conversation when the tab is opened, not at launch */
+  later?: boolean
   title: string
   notes: string
   focusedMs: number

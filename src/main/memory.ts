@@ -48,6 +48,11 @@ export function sleep(ids: string[]): number {
     const a = ptys.agentOf(id), st = ptys.statusOf(id)
     if (!a.alive || st === 'working' || st === 'question') continue
     ptys.write(id, '\x15'); ptys.write(id, a.kind === 'codex' ? '/quit\r' : '/exit\r'); asleep.add(id); n++
+    // Once it has quit: a clean screen saying so, not the terminal replies the agent left behind.
+    const note = `clear; printf '\\n  \\033[2mAsleep to save memory. It comes back when you open this tab.\\033[0m\\n\\n'`
+    let tries = 0
+    const check = () => { if (!asleep.has(id) || ++tries > 40) return; if (!ptys.agentOf(id).alive && ptys.atShellPrompt(id)) ptys.execWhenReady(id, note); else setTimeout(check, 750) }
+    setTimeout(check, 1500)
   }
   return n
 }

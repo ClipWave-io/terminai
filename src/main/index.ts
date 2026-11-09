@@ -195,11 +195,28 @@ function createWindow(): void {
  * After a restart brings a conversation back: Claude Code's "trust this folder?" screen is answered Yes (the folder
  * was already worked in), and a conversation that was mid-turn when TerminAI quit is told to carry on.
  */
+const laterResume = new Map<string, { line: string; carryOn: boolean }>()
+const claudeLine = (line: string) => /(^\S*claude\b|--(resume|continue)\b)/.test(line)
+function startAgent(id: string, line: string, resume?: { carryOn: boolean }): void {
+  if (claudeLine(line)) trustFolder(ptys.cwdOf(id))
+  // A restored tab starts on a clean screen with a line saying it is coming back, not blank.
+  ptys.execWhenReady(id, resume && line ? `clear; printf '\\n  \\033[2mResuming conversation…\\033[0m\\n'; ${line}` : line)
+  if (resume || claudeLine(line)) afterResume(id, resume?.carryOn === true)
+}
+/** Opening a tab whose conversation waits since the restart starts it. */
+function resumeLater(id: string): boolean {
+  const job = laterResume.get(id)
+  if (!job) return false
+  laterResume.delete(id); startAgent(id, job.line, { carryOn: job.carryOn }); return true
+}
 function afterResume(id: string, carryOn: boolean): void {
   const started = Date.now()
-  let nudged = false, quietSince = 0
+  let nudged = false, quietSince = 0, trusted = false
   const tick = () => {
     if (nudged || Date.now() - started > 120_000 || !ptys.liveIds().includes(id)) return
+    // Claude Code asks again in the home folder whatever its settings say. Choose option 1 by its number, so a
+    // highlight resting on "No, exit" cannot pick the wrong one; only when option 1 is the trust answer.
+    if (!trusted && /1\.\s*Yes, I trust this folder/.test(ptys.bufferOf(id).slice(-3000))) { trusted = true; ptys.write(id, '1'); setTimeout(tick, 1500); return }
     const agent = ptys.agentOf(id), status = ptys.statusOf(id)
     if (carryOn && agent.alive && status === 'waiting' && Date.now() - started > 6000) {
       if (!quietSince) quietSince = Date.now()
@@ -268,7 +285,7 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
-  void startControl(app.getPath('userData'), { window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
+  void startControl(app.getPath('userData'), { wake: id => resumeLater(id) || wakeTab(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     log: {
       day: async (day) => {
@@ -454,7 +471,7 @@ function registerIpc(): void {
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())
   appIpc.handle('memory:sleep', (_e, ids: unknown) => sleepTabs(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []))
-  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? wakeTab(id) : false)
+  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? resumeLater(id) || wakeTab(id) : false)
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
   // macOS keeps Downloads, Documents and Desktop behind a permission; this opens the page where TerminAI is allowed in.
   appIpc.handle('app:privacy-files', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'))
@@ -490,12 +507,16 @@ function registerIpc(): void {
   appIpc.handle('pty:unclose', (_event, { id }: {id: string}) => ptys.uncloseSession(id))
   appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
   appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))
-  appIpc.on('pty:exec', (_event, { id, cmd, resume }: {id: string; cmd: string; resume?: { continue?: boolean }}) => {
+  appIpc.on('pty:exec', (_event, { id, cmd, resume }: {id: string; cmd: string; resume?: { continue?: boolean; later?: boolean }}) => {
     const line = String(cmd || '')
-    if (resume && /(^\S*claude\b|--(resume|continue)\b)/.test(line)) trustFolder(ptys.cwdOf(id))
-    // A restored tab starts on a clean screen, not on the shell line that brought it back.
-    ptys.execWhenReady(id, resume && line ? `clear; ${line}` : line)
-    if (resume) afterResume(id, resume.continue === true)
+    // After a restart only the open tab and the ones that were working start at once; forty Claude Codes starting
+    // together leave every tab blank for a long time. The others resume when they are opened (memory:wake).
+    if (resume?.later && line) {
+      laterResume.set(id, { line, carryOn: resume.continue === true })
+      ptys.execWhenReady(id, `clear; printf '\\n  \\033[2mThis conversation resumes when you open the tab.\\033[0m\\n\\n'`)
+      return
+    }
+    startAgent(id, line, resume ? { carryOn: resume.continue === true } : undefined)
   })
   appIpc.handle('pty:size', (_event, { id }: {id: string}) => ptys.sizeOf(id))
   appIpc.on('tab:reply', (_event, reply) => controlReply(reply))
@@ -642,6 +663,7 @@ function registerIpc(): void {
   bridge = createBridge({
     team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
     tabName,
+    wake: (tabId: string) => resumeLater(tabId) || wakeTab(tabId),
     approve: async (from, tab, text, tabId) => {
       if (store.load().agentMessages === 'allow' || !win || win.isDestroyed()) return true
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
