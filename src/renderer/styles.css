@@ -1299,3 +1299,10 @@ textarea.card-notes.editing {
 .gk-fields input:first-child { grid-column: 1 / -1; }
 .gk-acts { display: flex; gap: 8px; align-items: center; } .gk-btn { flex: none; background: var(--accent); color: #fff; border-color: transparent; } .gk-btn:hover { background: var(--accent); filter: brightness(1.08); }
 .gk-copy .btn, .gk-prompt .btn { flex: none; } .gk-err { color: var(--danger); font-size: 12px; }
+
+.mem-procs { grid-column: 1 / -1; display: grid; gap: 4px; margin: 2px 0 6px 14px; }
+.mem-proc { display: grid; grid-template-columns: minmax(0, 1fr) 64px 48px 40px; gap: 10px; align-items: center; font-size: 12px; }
+.mem-info { display: grid; gap: 4px; font-size: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }
+.mem-info code { white-space: pre-wrap; word-break: break-all; font-size: 11px; color: var(--dim); }
+.mem-info .mem-acts { display: flex; gap: 8px; align-items: center; margin-top: 4px; } .mem-msg { color: var(--fg); }
+.btn.danger { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }

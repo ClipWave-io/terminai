@@ -21,6 +21,10 @@ const api = {
     memory: (): Promise<import('../main/memory').MemoryReport> => ipcRenderer.invoke('memory:report'),
     sleep: (ids: string[]): Promise<number> => ipcRenderer.invoke('memory:sleep', ids),
     wake: (id: string): Promise<boolean> => ipcRenderer.invoke('memory:wake', id),
+    memoryDetail: (): Promise<import('../main/memoryDetail').MemoryDetail> => ipcRenderer.invoke('memory:detail'),
+    processInfo: (pid: number): Promise<import('../main/memoryDetail').ProcInfo> => ipcRenderer.invoke('memory:process', pid),
+    stopProcess: (pid: number, force: boolean): Promise<string> => ipcRenderer.invoke('memory:stop', pid, force),
+    storage: (): Promise<import('../main/memoryDetail').StorageReport> => ipcRenderer.invoke('memory:storage'),
     onOpenSettings: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
     checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
   team: {

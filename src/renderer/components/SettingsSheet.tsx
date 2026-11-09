@@ -142,6 +142,8 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
         <h2>Settings</h2>
         <AppVersion />
         <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} />
+        <MemoryDetailPanel />
+        <StoragePanel />
         <div className="row">
           <label>New tabs start<span className="hint">Opens a new conversation right away, with permissions skipped.</span></label>
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
@@ -467,6 +469,65 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
       <span className="mem-acts">{tab && <>{t.idle ? <button className="todo-link" onClick={() => sleep([t.id])}>Sleep</button> : <span />}<button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
     </div> })}</div>
     {r.tabs.length > 8 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${r.tabs.length}`}</button>}
+  </section>
+}
+
+/** What uses the memory: every app and macOS itself by real footprint (compressed and swapped parts included), each one
+ *  opened into its biggest processes; Details says what a process is and Stop / Force stop ends it (memoryDetail.ts). */
+function MemoryDetailPanel(): JSX.Element {
+  type D = Awaited<ReturnType<typeof window.term.window.memoryDetail>>; type P = Awaited<ReturnType<typeof window.term.window.processInfo>>
+  const [d, setD] = useState<D | null>(null), [busy, setBusy] = useState(false), [open, setOpen] = useState<string | null>(null)
+  const [info, setInfo] = useState<P | null>(null), [msg, setMsg] = useState('')
+  const load = () => { setBusy(true); void window.term.window.memoryDetail().then(setD).finally(() => setBusy(false)) }
+  const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+  const look = (pid: number) => { setMsg(''); void window.term.window.processInfo(pid).then(setInfo) }
+  const stop = (pid: number, force: boolean) => void window.term.window.stopProcess(pid, force).then(m => { setMsg(m); setInfo(null); window.setTimeout(load, 800) })
+  if (!d) return <section className="mem"><div className="mem-head"><strong>What uses memory</strong>
+    <button className="btn" disabled={busy} onClick={load}>{busy ? 'Measuring…' : 'Show breakdown'}</button></div>
+    <p className="hint">Every app and macOS itself, with what each really holds, and a way to look inside or stop a process.</p></section>
+  const total = d.groups.reduce((n, g) => n + g.mb, 0), max = Math.max(1, ...d.groups.map(g => g.mb))
+  return <section className="mem" id="memory-detail">
+    <div className="mem-head"><strong>What uses memory</strong><button className="btn" disabled={busy} onClick={load}>{busy ? 'Measuring…' : 'Refresh'}</button></div>
+    <p className="hint">Apps together want {gb(total)}; the part beyond the Mac's memory is compressed or written to disk. macOS's own share includes {gb(d.wiredMb)} it keeps fixed (kernel and graphics).</p>
+    {msg && <p className="hint mem-msg">{msg}</p>}
+    <div className="mem-list">{d.groups.slice(0, 14).map(g => <div key={g.name} className="mem-row">
+      <span className="mem-name">{g.name}<em className="mem-tag"> · {g.count} {g.count === 1 ? 'process' : 'processes'}{g.kind === 'macos' ? ' · macOS' : ''}</em></span>
+      <span className="mem-track"><i style={{ width: `${Math.max(2, (g.mb / max) * 100)}%` }} /></span><em>{gb(g.mb)}</em>
+      <span className="mem-acts"><button className="todo-link" onClick={() => setOpen(open === g.name ? null : g.name)}>{open === g.name ? 'Hide' : 'Processes'}</button></span>
+      {open === g.name && <div className="mem-procs">{g.procs.slice(0, 12).map(p => <div key={p.pid} className="mem-proc">
+        <span className="mem-name" title={`pid ${p.pid}`}>{p.name} <em className="mem-tag">pid {p.pid}</em></span><em>{gb(p.mb)}</em>
+        <button className="todo-link" onClick={() => look(p.pid)}>Details</button>
+        {g.kind !== 'macos' && <button className="todo-link" onClick={() => stop(p.pid, false)}>Stop</button>}</div>)}</div>}
+    </div>)}</div>
+    {info && <div className="mem-info">{info.ok ? <>
+      <div><b>pid {info.pid}</b> · {info.user} · started {info.started} · CPU {info.cpu}% · {gb(info.mb)} in memory now</div>
+      <code>{info.command}</code>
+      {info.parents.length > 0 && <div>Started by: {info.parents.join(' ← ')}</div>}
+      {info.cwd && <div>Folder: {info.cwd}</div>}
+      {info.ports.length > 0 && <div>Listening on: {info.ports.join(', ')}</div>}
+      <div className="mem-acts">{info.stoppable ? <><button className="btn" onClick={() => stop(info.pid, false)}>Stop</button>
+        <button className="btn danger" onClick={() => stop(info.pid, true)}>Force stop</button></> : <span className="hint">{info.why}</span>}
+        <button className="todo-link" onClick={() => setInfo(null)}>Close</button></div></> : <span className="hint">{info.why}</span>}</div>}
+  </section>
+}
+
+/** Storage: used and free on the disk, and which folders hold it; measuring the folders takes up to a minute. */
+function StoragePanel(): JSX.Element {
+  const [s, setS] = useState<Awaited<ReturnType<typeof window.term.window.storage>> | null>(null), [busy, setBusy] = useState(false)
+  const load = () => { setBusy(true); void window.term.window.storage().then(setS).finally(() => setBusy(false)) }
+  const g = (n: number) => n >= 1 ? `${n.toFixed(1)} GB` : `${Math.round(n * 1024)} MB`
+  const max = Math.max(0.01, ...(s?.folders ?? []).map(f => f.gb))
+  return <section className="mem" id="storage">
+    <div className="mem-head"><strong>Storage</strong><button className="btn" disabled={busy} onClick={load}>{busy ? 'Measuring folders… (up to a minute)' : s ? 'Measure again' : 'Measure storage'}</button></div>
+    {!s ? <p className="hint">The disk's used and free space, and which folders hold the most.</p> : <>
+      <div className="mem-bar" role="img" aria-label={`Disk: ${g(s.usedGb)} of ${g(s.totalGb)} used`}>
+        <i style={{ flexGrow: s.usedGb, background: 'var(--accent)' }} /><i style={{ flexGrow: s.freeGb, background: 'transparent' }} /></div>
+      <p className="hint">{g(s.usedGb)} of {g(s.totalGb)} used, {g(s.freeGb)} free.</p>
+      <div className="mem-list">{s.folders.map(f => <div key={f.path} className="mem-row">
+        <span className="mem-name" title={f.path}>{f.name}</span>
+        <span className="mem-track"><i style={{ width: `${Math.max(2, (f.gb / max) * 100)}%` }} /></span><em>{g(f.gb)}</em>
+        <span className="mem-acts"><button className="todo-link" onClick={() => void window.term.project.openFolder(f.path)}>Open</button></span>
+      </div>)}</div></>}
   </section>
 }
 

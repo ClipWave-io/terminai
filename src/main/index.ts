@@ -20,6 +20,7 @@ import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory, sleep as sleepTabs, wake as wakeTab } from './memory'
+import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
@@ -502,6 +503,10 @@ function registerIpc(): void {
   appIpc.handle('memory:report', () => memoryReport())
   appIpc.handle('memory:sleep', (_e, ids: unknown) => sleepTabs(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []))
   appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? resumeLater(id) || wakeTab(id) : false)
+  appIpc.handle('memory:detail', () => memoryDetail())
+  appIpc.handle('memory:process', (_e, pid: unknown) => processInfo(Number(pid)))
+  appIpc.handle('memory:stop', (_e, pid: unknown, force: unknown) => Number.isInteger(pid) && Number(pid) > 1 ? stopProcess(Number(pid), force === true) : 'Not a process.')
+  appIpc.handle('memory:storage', () => storageReport())
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
   // macOS keeps Downloads, Documents and Desktop behind a permission; this opens the page where TerminAI is allowed in.
   appIpc.handle('app:privacy-files', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'))
