@@ -223,6 +223,32 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   await request(`/api/companies/${alpha.id}`,{token:a.body.token,method:'PATCH',data:{sessionVisibility:'all'}});
   assert.ok((await request(`/api/companies/${alpha.id}/conversations`,{token:p1.body.token})).body.conversations.some(c=>c.id===tabX.id));
 
+  // Team files: per-file access; chat with presence, typing, read receipts and a long poll.
+  const base=`http://127.0.0.1:${server.address().port}/api/companies/${alpha.id}`;
+  const put=async(token,name,q='')=>{const r=await fetch(`${base}/files?name=${name}&type=text/plain${q}`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/octet-stream'},body:Buffer.from('hi '+name)});return {status:r.status,body:await r.json()}};
+  const fAll=(await put(a.body.token,'all.txt')).body.file, fAdm=(await put(a.body.token,'adm.txt','&access=admins')).body.file;
+  const fMm=(await put(a.body.token,'mm.txt','&access=products&products=mm.org')).body.file, fMany=(await put(a.body.token,'many.txt','&access=products&products=ManyMotions')).body.file;
+  const piaFiles=(await request(`/api/companies/${alpha.id}/files`,{token:p1.body.token})).body.files.map(f=>f.id);
+  assert.deepEqual([fAll.id,fMm.id].every(id=>piaFiles.includes(id)),true); assert.ok(!piaFiles.includes(fAdm.id)&&!piaFiles.includes(fMany.id),'per-file access');
+  assert.equal((await fetch(`${base}/files/${fAdm.id}`,{headers:{Authorization:`Bearer ${p1.body.token}`}})).status,404);
+  assert.equal(await (await fetch(`${base}/files/${fMm.id}`,{headers:{Authorization:`Bearer ${p1.body.token}`}})).text(),'hi mm.txt');
+  assert.equal((await request(`/api/companies/${alpha.id}/files/${fAll.id}`,{token:p1.body.token,method:'DELETE'})).status,403,'not hers');
+  assert.equal((await request(`/api/companies/${alpha.id}/files/${fMany.id}`,{token:a.body.token,method:'PATCH',data:{access:'all'}})).status,200);
+  assert.ok((await request(`/api/companies/${alpha.id}/files`,{token:p1.body.token})).body.files.some(f=>f.id===fMany.id));
+  await request(`/api/companies/${alpha.id}/chat/typing`,{token:a.body.token,method:'POST',data:{}});
+  const c0=(await request(`/api/companies/${alpha.id}/chat`,{token:p1.body.token})).body;
+  assert.ok(c0.people.find(x=>x.id===c0.people.find(y=>y.name==='Ada')?.id)?.typing,'Ada is typing');
+  const waiting=request(`/api/companies/${alpha.id}/chat?after=${encodeURIComponent(new Date().toISOString())}&wait=10&typing=${encodeURIComponent(c0.people.filter(x=>x.typing).map(x=>x.id).join(','))}`,{token:p1.body.token});
+  await new Promise(r=>setTimeout(r,700));
+  assert.equal((await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'Review the NDA asap please'}})).status,200);
+  await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'',fileId:fAdm.id}});
+  const woke=(await waiting).body; assert.ok(woke.messages.some(m=>m.body==='Review the NDA asap please'),'long poll wakes up');
+  const chatAll=(await request(`/api/companies/${alpha.id}/chat`,{token:p1.body.token})).body.messages;
+  assert.ok(chatAll.find(m=>m.file)?.file.hidden,'a file she may not see stays hidden in the chat');
+  await request(`/api/companies/${alpha.id}/chat/read`,{token:p1.body.token,method:'POST',data:{}});
+  const seenBy=(await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token})).body.people.find(x=>x.name!=='Ada'&&x.readAt);
+  assert.ok(seenBy&&seenBy.online,'read receipt and online');
+
   // An operator can close sign-up; then it is invitation only.
   closed=createServer(createApp(pool,{publicOrigin:'http://localhost:8080',trustProxyHops:0,signupOpen:false}));await new Promise(r=>closed.listen(0,'127.0.0.1',r));
   assert.equal((await request('/api/setup',{at:closed})).body.signupOpen,false);

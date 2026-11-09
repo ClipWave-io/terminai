@@ -1,6 +1,7 @@
 import { PaneResizeHandle } from './components/PaneResizeHandle'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ProjectFilesPane } from './components/ProjectFilesPane'
+import { TeamChat } from './components/TeamChat'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
@@ -63,6 +64,8 @@ function applyThemeVars(prefs: Prefs): void {
 export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const prefsRef = useRef(prefs); prefsRef.current = prefs
+  const [showChat, setShowChat] = useState(false), [chatUnread, setChatUnread] = useState(0)
+  useEffect(() => { const open = () => setShowChat(true); window.addEventListener('teamchat:open', open); return () => window.removeEventListener('teamchat:open', open) }, [])
   const [ready, setReady] = useState(false)
   useEffect(() => window.term.window.onOpenSettings(() => setShowSettings(true)), [])
   // Signed in from the website's Open TerminAI: open Sync, which now shows the account.
@@ -810,6 +813,7 @@ export function App(): JSX.Element {
             ><PaneIcon kind={pane} /></button>)}
           </div>
           {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
+          <button className="btn icon no-drag" style={{ position: 'relative' }} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>💬{chatUnread > 0 && <span className="tc-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>
           <button className="btn icon no-drag" aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
           <span className="topbar-spacer" />
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
@@ -861,7 +865,7 @@ export function App(): JSX.Element {
           {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 
@@ -936,6 +940,7 @@ export function App(): JSX.Element {
         )
       })()}
 
+      <TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} />
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
       {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}

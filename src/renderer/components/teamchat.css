@@ -1,0 +1,40 @@
+.tc { position: fixed; top: 44px; right: 8px; bottom: 8px; width: min(400px, calc(100vw - 16px)); z-index: 60; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
+  background: var(--pane, #0f1420); border: 1px solid var(--border, #2a3140); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.tc-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface, #161c29); border-bottom: 1px solid var(--border, #2a3140); }
+.tc-avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: #25d366; color: #fff; flex: none; }
+.tc-who { min-width: 0; flex: 1; display: grid; } .tc-who strong { font-size: 14px; } .tc-who small { font-size: 11.5px; color: var(--muted, #9aa3b2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .tc-who small.typing { color: #25d366; }
+.tc-tabs { display: flex; background: var(--pane, #0f1420); border-radius: 8px; padding: 2px; } .tc-tabs button { border: 0; background: none; color: var(--muted, #9aa3b2); font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; } .tc-tabs button.on { background: var(--surface, #161c29); color: var(--fg, #e6e9ef); }
+.tc-x { border: 0; background: none; color: var(--muted, #9aa3b2); cursor: pointer; font-size: 14px; }
+.tc-notice { padding: 6px 12px; font-size: 12px; background: color-mix(in srgb, #e5534b 18%, transparent); }
+.tc-empty { color: var(--muted, #9aa3b2); font-size: 12.5px; text-align: center; padding: 24px 16px; }
+.tc-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; background: color-mix(in srgb, var(--pane, #0f1420) 92%, #25d366); } .tc-chat.drag { outline: 2px dashed #25d366; outline-offset: -6px; }
+.tc-list { flex: 1; overflow-y: auto; padding: 8px 10px 4px; contain: strict; }
+.tc-day { text-align: center; margin: 10px 0 6px; } .tc-day span { font-size: 11px; padding: 3px 10px; border-radius: 8px; background: var(--surface, #161c29); color: var(--muted, #9aa3b2); }
+.tc-msg { display: flex; margin-top: 2px; } .tc-msg.first { margin-top: 8px; } .tc-msg.mine { justify-content: flex-end; }
+.tc-bubble { max-width: 82%; padding: 6px 8px 4px 9px; border-radius: 10px; background: var(--surface, #1f2633); font-size: 13.5px; line-height: 1.35; display: flex; flex-direction: column; gap: 3px; }
+.tc-msg.mine .tc-bubble { background: #005c4b; color: #e9edef; } .tc-msg.first:not(.mine) .tc-bubble { border-top-left-radius: 3px; } .tc-msg.first.mine .tc-bubble { border-top-right-radius: 3px; }
+.tc-from { font-size: 12px; color: #53bdeb; } .tc-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.tc-meta { align-self: flex-end; font-size: 10.5px; opacity: .7; display: flex; gap: 4px; } .tc-ticks.read { color: #53bdeb; opacity: 1; }
+.tc-file { display: flex; gap: 8px; align-items: center; border: 0; text-align: left; padding: 6px; border-radius: 8px; background: rgba(0,0,0,.18); color: inherit; font: inherit; cursor: pointer; } .tc-file.hidden { cursor: default; font-size: 12px; opacity: .8; }
+.tc-file-ico { width: 34px; height: 34px; border-radius: 6px; flex: none; display: grid; place-items: center; font-size: 10px; font-weight: 700; background: rgba(255,255,255,.1); }
+.tc-file-name { min-width: 0; display: grid; font-size: 12.5px; overflow-wrap: anywhere; } .tc-file-name small { font-size: 11px; opacity: .7; }
+.tc-img { border: 0; padding: 0; background: rgba(0,0,0,.2); border-radius: 8px; overflow: hidden; cursor: zoom-in; min-width: 180px; min-height: 120px; display: grid; place-items: center; }
+.tc-img img { display: block; max-width: 260px; max-height: 300px; } .tc-img-wait { font-size: 11px; opacity: .6; }
+.tc-compose { display: flex; gap: 6px; align-items: flex-end; padding: 8px; background: var(--surface, #161c29); }
+.tc-compose textarea { flex: 1; resize: none; max-height: 120px; field-sizing: content; border: 0; border-radius: 18px; padding: 8px 12px; background: var(--pane, #0f1420); color: var(--fg, #e6e9ef); font: inherit; font-size: 13.5px; outline: none; }
+.tc-clip { border: 0; background: none; font-size: 17px; cursor: pointer; padding: 6px; }
+.tc-send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: #00a884; color: #fff; cursor: pointer; flex: none; } .tc-send:disabled { opacity: .45; cursor: default; }
+.tc-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tc-up, .tc-search { display: flex; gap: 6px; padding: 8px 10px; align-items: center; } .tc-up { border-bottom: 1px solid var(--border, #2a3140); }
+.tc-up select, .tc-up input, .tc-search input, .tc-acc-edit select, .tc-acc-edit input { height: 28px; border-radius: 7px; border: 1px solid var(--border, #2a3140); background: var(--pane, #0f1420); color: inherit; font: inherit; font-size: 12px; padding: 0 6px; min-width: 0; }
+.tc-search input { flex: 1; } .tc-search label { font-size: 11.5px; color: var(--muted, #9aa3b2); white-space: nowrap; display: flex; gap: 4px; align-items: center; }
+.tc-btn { height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: #00a884; color: #fff; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; margin-left: auto; white-space: nowrap; }
+.tc-flist { flex: 1; overflow-y: auto; padding: 0 6px 8px; }
+.tc-frow { display: flex; align-items: center; gap: 6px; padding: 5px 4px; border-radius: 8px; } .tc-frow:hover { background: var(--surface, #161c29); }
+.tc-fmain { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: center; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 0; }
+.tc-acc { font-size: 10.5px; padding: 2px 7px; border-radius: 8px; white-space: nowrap; background: rgba(255,255,255,.07); color: var(--muted, #9aa3b2); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.tc-acc.admins { color: #e8a900; background: color-mix(in srgb, #e8a900 14%, transparent); } .tc-acc.products { color: #53bdeb; background: color-mix(in srgb, #53bdeb 14%, transparent); }
+.tc-acc-edit { display: flex; gap: 4px; align-items: center; } .tc-acc-edit input { width: 90px; }
+.tc-factions { display: flex; opacity: .55; } .tc-frow:hover .tc-factions { opacity: 1; }
+.tc-link { border: 0; background: none; color: inherit; cursor: pointer; font-size: 12.5px; padding: 3px 4px; }
+.tc-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; border-radius: 8px; background: #25d366; color: #fff; font-size: 9.5px; font-weight: 700; display: grid; place-items: center; padding: 0 3px; }

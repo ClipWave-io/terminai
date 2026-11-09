@@ -145,6 +145,25 @@ export async function migrate(pool) {
       );
       ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot text;
       ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS app_version text;
+      -- Team files: one shared space, each file with who may see it (everyone, admins, or members of some products).
+      CREATE TABLE IF NOT EXISTS manager_team_files (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        name text NOT NULL, mime text NOT NULL, size integer NOT NULL, data bytea NOT NULL,
+        access text NOT NULL DEFAULT 'all' CHECK (access IN ('all','admins','products')), products text[],
+        created_by uuid REFERENCES manager_users ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT now(), from_chat boolean NOT NULL DEFAULT false
+      );
+      CREATE INDEX IF NOT EXISTS manager_team_files_company ON manager_team_files(company_id,created_at DESC);
+      -- Team chat and presence (last seen, typing).
+      CREATE TABLE IF NOT EXISTS manager_chat (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        from_user uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, body text NOT NULL DEFAULT '',
+        file_id uuid REFERENCES manager_team_files ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+      );
+      CREATE INDEX IF NOT EXISTS manager_chat_company ON manager_chat(company_id,created_at);
+      CREATE TABLE IF NOT EXISTS manager_presence (
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
+        seen_at timestamptz NOT NULL DEFAULT now(), typing_until timestamptz, read_at timestamptz, PRIMARY KEY (company_id,user_id)
+      );
       -- Permissions: a member limited to some products sees only their tasks and notes (NULL: all); who sees others' shared sessions.
       ALTER TABLE manager_memberships ADD COLUMN IF NOT EXISTS products text[];
       ALTER TABLE manager_companies ADD COLUMN IF NOT EXISTS session_visibility text NOT NULL DEFAULT 'admins';

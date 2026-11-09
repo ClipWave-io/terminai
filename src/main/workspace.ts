@@ -216,3 +216,65 @@ export const workspaceTasks = {
     await request(session.url, `/api/companies/${workspace}/tasks/${encodeURIComponent(id)}`, 'DELETE', undefined, session.token)
   },
 }
+
+// Team chat and team files. The renderer names the company and the action; this side checks it and holds the token.
+const companyId = (id: unknown) => { if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id)) throw new Error('Unsupported workspace action.'); return id }
+async function authed(path: string, init: RequestInit & { timeout?: number } = {}): Promise<Response> {
+  const session = await load()
+  if (!session) throw new Error('Sign in with Sync first.')
+  const response = await fetch(session.url + path, { ...init, redirect: 'error', signal: AbortSignal.timeout(init.timeout ?? 15000),
+    headers: { 'X-TerminAI-Version': app.getVersion(), Authorization: `Bearer ${session.token}`, ...(init.headers ?? {}) } })
+  if (!response.ok) { const v = await response.json().catch(() => ({})) as any; throw new Error(typeof v.error === 'string' ? v.error.slice(0, 240) : `Request failed (${response.status}).`) }
+  return response
+}
+const jsonOf = (r: Response) => r.json() as Promise<any>
+/** The chat's long poll: new messages after `after`, people with last seen and typing; waits up to 25 s for a change. */
+export async function teamChat(company: unknown, after?: string, typing = ''): Promise<any> {
+  const q = new URLSearchParams({ wait: after ? '25' : '0', typing: String(typing).slice(0, 400), ...(after ? { after } : {}) })
+  return jsonOf(await authed(`/api/companies/${companyId(company)}/chat?${q}`, { timeout: 40000 }))
+}
+export async function teamSend(company: unknown, body: unknown, fileId?: unknown): Promise<any> {
+  if (typeof body !== 'string' || body.length > 8000 || (fileId !== undefined && (typeof fileId !== 'string' || !/^[0-9a-f-]{36}$/.test(fileId)))) throw new Error('Invalid message.')
+  return jsonOf(await authed(`/api/companies/${companyId(company)}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body, ...(fileId ? { fileId } : {}) }) }))
+}
+export async function teamSignal(company: unknown, kind: unknown): Promise<void> {
+  if (kind !== 'typing' && kind !== 'read') throw new Error('Unsupported workspace action.')
+  await authed(`/api/companies/${companyId(company)}/chat/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+}
+export async function teamFiles(company: unknown): Promise<any> { return jsonOf(await authed(`/api/companies/${companyId(company)}/files`)) }
+export async function teamFileChange(company: unknown, fileId: unknown, change: unknown): Promise<any> {
+  if (typeof fileId !== 'string' || !/^[0-9a-f-]{36}$/.test(fileId)) throw new Error('Unsupported workspace action.')
+  const path = `/api/companies/${companyId(company)}/files/${fileId}`
+  if (change === null) return jsonOf(await authed(path, { method: 'DELETE' }))
+  if (!change || typeof change !== 'object' || JSON.stringify(change).length > 4000) throw new Error('Invalid change.')
+  return jsonOf(await authed(path, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) }))
+}
+/** Uploads a file from disk to the team space; the bytes never pass through the renderer. */
+export async function teamUpload(company: unknown, filePath: unknown, access: unknown = 'all', products: unknown = [], chat = false): Promise<any> {
+  if (typeof filePath !== 'string' || !['all', 'admins', 'products'].includes(String(access)) || !Array.isArray(products)) throw new Error('Unsupported workspace action.')
+  const info = await stat(filePath)
+  if (!info.isFile()) throw new Error('Only files can be shared.')
+  if (info.size > 25 * 1024 * 1024) throw new Error(`${basename(filePath)} is larger than 25 MB.`)
+  const q = new URLSearchParams({ name: basename(filePath), type: TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream', access: String(access), products: products.map(String).join(','), ...(chat ? { chat: '1' } : {}) })
+  return jsonOf(await authed(`/api/companies/${companyId(company)}/files?${q}`, { method: 'POST', timeout: 180000, headers: { 'Content-Type': 'application/octet-stream' }, body: await readFile(filePath) }))
+}
+/** A team file in this Mac's cache, downloaded the first time it is opened; files never change, so the cache is kept. */
+export async function teamFetch(company: unknown, fileId: unknown, name: unknown): Promise<string> {
+  if (typeof fileId !== 'string' || !/^[0-9a-f-]{36}$/.test(fileId)) throw new Error('Unsupported workspace action.')
+  const safe = String(name).replace(/[\\/:\u0000-\u001f]/g, '_').replace(/^\.+/, '').slice(0, 200) || 'file'
+  const directory = join(app.getPath('userData'), 'team-files', fileId), target = join(directory, safe)
+  try { if ((await stat(target)).isFile()) return target } catch {}
+  const response = await authed(`/api/companies/${companyId(company)}/files/${fileId}`, { timeout: 180000 })
+  await mkdir(directory, { recursive: true })
+  await writeFile(target + '.part', Buffer.from(await response.arrayBuffer()), { mode: 0o600 })
+  await rename(target + '.part', target)
+  return target
+}
+const IMAGE = /\.(png|jpe?g|gif|webp)$/i
+/** An image shown in the chat, as a data URL (from the cache after the first time). */
+export async function teamImage(company: unknown, fileId: unknown, name: unknown): Promise<string> {
+  if (!IMAGE.test(String(name))) throw new Error('Not an image.')
+  const path = await teamFetch(company, fileId, name)
+  const ext = extname(path).slice(1).toLowerCase()
+  return `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${(await readFile(path)).toString('base64')}`
+}

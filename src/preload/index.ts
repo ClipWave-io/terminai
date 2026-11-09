@@ -130,6 +130,18 @@ const api = {
   },
 
   /** Personal and shared to-dos; src/main/todos.ts does the files and the git sync. */
+  teamchat: {
+    chat: (company: string, after?: string, typing?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing),
+    send: (company: string, body: string, fileId?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId),
+    signal: (company: string, kind: 'typing' | 'read'): Promise<void> => ipcRenderer.invoke('team:signal', company, kind),
+    files: (company: string): Promise<any> => ipcRenderer.invoke('team:files', company),
+    change: (company: string, id: string, change: object | null): Promise<any> => ipcRenderer.invoke('team:file-change', company, id, change),
+    upload: (company: string, path: string, access = 'all', products: string[] = [], chat = false): Promise<any> => ipcRenderer.invoke('team:upload', company, path, access, products, chat),
+    image: (company: string, id: string, name: string): Promise<string> => ipcRenderer.invoke('team:image', company, id, name),
+    open: (company: string, id: string, name: string, how: 'app' | 'pane' | 'reveal' = 'app'): Promise<void> => ipcRenderer.invoke('team:open', company, id, name, how),
+    pick: (): Promise<string[]> => ipcRenderer.invoke('team:pick'),
+    pathOf: (file: File): string => webUtils.getPathForFile(file),
+  },
   todos: {
     list: (): Promise<TaskList> => ipcRenderer.invoke('todos:list'),
     answer: (id: string, accept: boolean, reply?: string): Promise<TaskList> => ipcRenderer.invoke('todos:answer', id, accept, reply),

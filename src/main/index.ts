@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { createBrowserPane } from './browser'
@@ -372,6 +372,15 @@ function registerIpc(): void {
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
   appIpc.handle('workspace:attach', (_event, note, file) => workspaceAttach(note, file))
+  appIpc.handle('team:chat', (_e, company, after, typing) => teamChat(company, after, typing))
+  appIpc.handle('team:send', (_e, company, body, fileId) => teamSend(company, body, fileId))
+  appIpc.handle('team:signal', (_e, company, kind) => teamSignal(company, kind))
+  appIpc.handle('team:files', (_e, company) => teamFiles(company))
+  appIpc.handle('team:file-change', (_e, company, id, change) => teamFileChange(company, id, change))
+  appIpc.handle('team:upload', (_e, company, path, access, products, chat) => teamUpload(company, path, access, products, chat === true))
+  appIpc.handle('team:image', (_e, company, id, name) => teamImage(company, id, name))
+  appIpc.handle('team:open', async (_e, company, id, name, how) => { const path = await teamFetch(company, id, name); if (how === 'reveal') shell.showItemInFolder(path); else if (how === 'pane') queueOpenFile(path); else await shell.openPath(path) })
+  appIpc.handle('team:pick', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:pick-files', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:open-file', async (_event, note, fileId, name, reveal) => {
     const path = await workspaceFetchFile(note, fileId, name)
