@@ -6,6 +6,8 @@ import { autoUpdater } from 'electron-updater'
 let asking = false
 export function startUpdates(win: () => BrowserWindow | null): void {
   if (!app.isPackaged || process.env.TERMINAI_TEST_BUILD) return
+  // From TerminAI's server (it fetches GitHub's release through the API), so a GitHub download outage never blocks updates.
+  autoUpdater.setFeedURL({ provider: 'generic', url: 'https://terminai.xyz/updates' })
   autoUpdater.autoDownload = true
   // Installed only when the person clicks Restart now: never by itself on quit.
   autoUpdater.autoInstallOnAppQuit = false
@@ -20,17 +22,25 @@ export function startUpdates(win: () => BrowserWindow | null): void {
     asking = false
     if (response === 0) autoUpdater.quitAndInstall()
   })
-  autoUpdater.on('error', error => console.error('Update check failed:', error.message))
+  autoUpdater.on('error', error => console.error('Update check failed:', String(error?.message ?? error).split('\n')[0]))
   const check = () => void autoUpdater.checkForUpdates().catch(() => {})
   setTimeout(check, 10_000)
   setInterval(check, 4 * 60 * 60 * 1000)
 }
-/** "Check for Updates…": says so when there is nothing new. */
-export async function checkForUpdatesNow(owner: BrowserWindow | null): Promise<void> {
-  if (!app.isPackaged) { await dialog.showMessageBox({ message: 'Updates work in the installed app only.' }); return }
-  const result = await autoUpdater.checkForUpdates().catch(error => { void dialog.showMessageBox({ type: 'warning', message: 'Could not check for updates.', detail: String(error?.message ?? error) }); return null })
-  if (result && !result.isUpdateAvailable) {
-    const options = { message: 'TerminAI is up to date', detail: `You have version ${app.getVersion()}.` }
-    if (owner) await dialog.showMessageBox(owner, options); else await dialog.showMessageBox(options)
+/** "Check for Updates…": the result as a short line for Settings (and a dialog from the menu when there is nothing new). */
+export async function checkForUpdatesNow(owner: BrowserWindow | null, quiet = false): Promise<string> {
+  if (!app.isPackaged) { if (!quiet) await dialog.showMessageBox({ message: 'Updates work in the installed app only.' }); return 'Updates work in the installed app only.' }
+  const result = await autoUpdater.checkForUpdates().catch(error => ({ error: String(error?.message ?? error) }))
+  if (!result || 'error' in result) {
+    // One readable line, never a stack or headers: the server's status if it had one.
+    const raw = result && 'error' in result ? result.error : '', code = /HttpError: (\d{3})/.exec(raw)?.[1]
+    const why = code ? `The update server answered ${code}.` : raw.split('\n')[0].replace(/\s*\(?https?:\/\/\S+/g, '').slice(0, 120) || 'No answer.'
+    if (!quiet) void dialog.showMessageBox({ type: 'warning', message: 'Could not check for updates.', detail: `${why}\nTry again in a few minutes.` })
+    return `Could not check: ${why}`
   }
+  if (!result.isUpdateAvailable) {
+    if (!quiet) { const options = { message: 'TerminAI is up to date', detail: `You have version ${app.getVersion()}.` }; if (owner) await dialog.showMessageBox(owner, options); else await dialog.showMessageBox(options) }
+    return `Up to date (${app.getVersion()}).`
+  }
+  return `TerminAI ${result.updateInfo.version} is downloading: it asks to restart when it is ready.`
 }

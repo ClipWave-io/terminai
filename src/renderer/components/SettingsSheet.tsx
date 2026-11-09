@@ -139,6 +139,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
         <h2>Settings</h2>
         <AppVersion />
         <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} />
+        <Feedback />
         <div className="row">
           <label>Notify when a chat is done<span className="hint">A notice with its summary; click it to open that tab.</span></label>
           <input type="checkbox" checked={prefs.doneNotices} onChange={e => onChange({ doneNotices: e.target.checked })} />
@@ -406,10 +407,11 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
 /** The version this Mac runs, and the same check as TerminAI › Check for Updates… in the menu bar. */
 function AppVersion(): JSX.Element {
   const [version, setVersion] = useState('')
+  const [status, setStatus] = useState('')
   useEffect(() => { void window.term.window.version().then(setVersion) }, [])
   return <div className="row">
-    <label>TerminAI {version}<span className="hint">New versions download by themselves; they install when you click Restart now.</span></label>
-    <button className="btn settings-update" onClick={() => void window.term.window.checkForUpdates()}>Check for updates</button>
+    <label>TerminAI {version}<span className="hint">{status || 'New versions download by themselves; they install when you click Restart now.'}</span></label>
+    <button className="btn settings-update" disabled={status === 'Checking…'} onClick={() => { setStatus('Checking…'); void window.term.window.checkForUpdates().then(setStatus).catch(e => setStatus(`Could not check: ${e?.message ?? e}`)) }}>{status === 'Checking…' ? 'Checking…' : 'Check for updates'}</button>
   </div>
 }
 
@@ -428,5 +430,15 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
       <span className="mem-name">{tab?.label ?? 'Session'}</span><i style={{ width: `${(t.mb / max) * 100}%` }} /><em>{gb(t.mb)}</em>
       {tab && <><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}
     </div> })}
+  </div>
+}
+
+/** Feedback to Maracuya Labs: opens an email in the Mail app with the version filled in. */
+function Feedback(): JSX.Element {
+  const [text, setText] = useState('')
+  return <div className="row feedback">
+    <label>Feedback<span className="hint">A bug, an idea, an error you saw: it goes to info@maracuyalabs.com.</span></label>
+    <span className="feedback-box"><textarea rows={2} placeholder="What happened, or what you'd like" value={text} onChange={e => setText(e.target.value)} />
+      <button className="btn" onClick={() => { void window.term.window.feedback(text); setText('') }}>Send feedback</button></span>
   </div>
 }

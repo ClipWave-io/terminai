@@ -90,6 +90,7 @@ export function createApp(pool, config) {
     const session = await newSession(db, user.id, client);
     return { status: 200, value: { user: publicUser(user), expiresAt: session.expiresAt, ...(client === 'desktop' ? { token: session.token } : {}) }, headers: client === 'browser' ? { 'Set-Cookie': cookie(session.token) } : {} };
   }
+  let updatesCache = null;
   return async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -100,7 +101,7 @@ export function createApp(pool, config) {
     // The site has one address (PUBLIC_ORIGIN, terminai.xyz): pages opened on any other host go there. The API answers
     // on every host, so the apps that call the Railway address directly keep working.
     const host = String(req.headers.host || '').toLowerCase();
-    if ((req.method === 'GET' || req.method === 'HEAD') && host && host !== new URL(origin).host && !/^\/(api\/|health$)/.test(req.url || '') && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host)) {
+    if ((req.method === 'GET' || req.method === 'HEAD') && host && host !== new URL(origin).host && !/^\/(api\/|health$|updates\/)/.test(req.url || '') && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host)) {
       res.writeHead(301, { Location: origin + req.url }); return res.end();
     }
     try {
@@ -111,6 +112,24 @@ export function createApp(pool, config) {
         const [file, type] = staticFiles[path]; res.setHeader('Content-Type', `${type}; charset=utf-8`); return res.end(await readFile(new URL(`../public/${file}`, import.meta.url)));
       }
       // The newest signed Mac app, straight from GitHub's latest release: the website's Download button.
+      // App updates, served here so a GitHub download outage never blocks them: /updates/<file of the newest TerminAI release>,
+      // fetched through GitHub's API (its asset host), the release list cached a few minutes.
+      const upd = path.match(/^\/updates\/([A-Za-z0-9._-]{1,120})$/);
+      if (req.method === 'GET' && upd) {
+        if (!updatesCache || Date.now() - updatesCache.at > 300000) {
+          const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases?per_page=20', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json', ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) }, signal: AbortSignal.timeout(10000) });
+          requireThat(r.ok, 502, 'Updates are not reachable right now.');
+          updatesCache = { at: Date.now(), release: (await r.json()).find(x => /^v\d/.test(x.tag_name) && !x.draft && !x.prerelease) };
+        }
+        const asset = updatesCache.release?.assets?.find(a => a.name === upd[1]);
+        requireThat(asset, 404, 'Not found.');
+        const file = await fetch(asset.url, { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/octet-stream' }, signal: AbortSignal.timeout(600000) });
+        requireThat(file.ok && file.body, 502, 'Updates are not reachable right now.');
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', ...(file.headers.get('content-length') ? { 'Content-Length': file.headers.get('content-length') } : {}), 'Cache-Control': 'no-store' });
+        const { Readable } = await import('node:stream');
+        Readable.fromWeb(file.body).pipe(res);
+        return;
+      }
       // LocalFlow's DMG: the newest localflow-* release (a pre-release, so it never becomes TerminAI's latest).
       if (req.method === 'GET' && path === '/localflow/download') {
         const r = await fetch('https://api.github.com/repos/ClipWave-io/terminai/releases?per_page=30', { headers: { 'User-Agent': 'terminai-manager', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) }).catch(() => null);

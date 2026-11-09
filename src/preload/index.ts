@@ -17,9 +17,10 @@ const api = {
     onFullscreen: (cb: (value: boolean) => void): (() => void) => { const handler = (_event: Electron.IpcRendererEvent, value: boolean) => cb(value); ipcRenderer.on('window:fullscreen', handler); return () => { ipcRenderer.removeListener('window:fullscreen', handler) } },
     toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggle-maximize'),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    feedback: (text: string): Promise<void> => ipcRenderer.invoke('app:feedback', text),
     memory: (): Promise<import('../main/memory').MemoryReport> => ipcRenderer.invoke('memory:report'),
     onOpenSettings: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
-    checkForUpdates: (): Promise<void> => ipcRenderer.invoke('app:check-updates') },
+    checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
   team: {
     agentMessages: (v?: 'ask' | 'allow'): Promise<'ask' | 'allow'> => ipcRenderer.invoke('team:agentMessages', v),
     onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
@@ -72,7 +73,7 @@ const api = {
     unclose: (id: string): Promise<{id: string; cwd: string; exited: boolean} | null> => ipcRenderer.invoke('pty:unclose', { id }),
     agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),
     resumeCommand: (desc: {kind: string; sessionId?: string; args?: string[]; cwd?: string}): Promise<string> => ipcRenderer.invoke('pty:resumeCommand', desc),
-    exec: (id: string, cmd: string): void => ipcRenderer.send('pty:exec', { id, cmd }),
+    exec: (id: string, cmd: string, resume?: { continue?: boolean }): void => ipcRenderer.send('pty:exec', { id, cmd, resume }),
     size: (id: string): Promise<{ cols: number; rows: number } | null> => ipcRenderer.invoke('pty:size', { id }),
     create: (opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }): Promise<{ id: string; cwd: string }> =>
       ipcRenderer.invoke('pty:create', opts),

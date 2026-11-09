@@ -1266,3 +1266,4 @@ textarea.card-notes.editing {
 .mem-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px auto auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
 .mem-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mem-row i { height: 5px; border-radius: 3px; background: var(--accent); justify-self: start; } .mem-row em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; }
+.feedback-box{display:grid;gap:6px;justify-items:end}.feedback-box textarea{width:240px;font:inherit;font-size:12.5px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--pane);color:var(--fg);resize:vertical}

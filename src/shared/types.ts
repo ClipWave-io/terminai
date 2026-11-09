@@ -206,6 +206,8 @@ export interface TabInfo {
   browserKey?: string
   agentSession?: string
   agentArgs?: string[]
+  /** its agent was in the middle of a turn when TerminAI quit: told to continue after the resume */
+  wasWorking?: boolean
   cwd: string
   /** best-effort: the foreground process name reported by the PTY's shell */
   process: string
@@ -273,6 +275,8 @@ export interface SavedTab {
   browserKey?: string
   agentSession?: string
   agentArgs?: string[]
+  /** its agent was mid-turn when TerminAI quit: told to continue after the resume */
+  wasWorking?: boolean
   title: string
   notes: string
   focusedMs: number

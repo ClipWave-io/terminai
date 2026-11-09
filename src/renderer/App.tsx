@@ -251,7 +251,7 @@ export function App(): JSX.Element {
       const sessionId = restore.agentSession || restore.claudeSession || ''
       const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs, cwd: realCwd })
       setTabs(prev => prev.map(t=>t.id===id?{...t, agent:kind, agentSession:sessionId, agentArgs:restore.agentArgs||[]}:t))
-      window.term.pty.exec(id, cmd)
+      window.term.pty.exec(id, cmd, { continue: restore.wasWorking === true })
     }
     return id
   }, [])

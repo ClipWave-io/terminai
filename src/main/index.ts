@@ -191,6 +191,32 @@ function createWindow(): void {
   )
 }
 
+/**
+ * After a restart brings a conversation back: Claude Code's "trust this folder?" screen is answered Yes (the folder
+ * was already worked in), and a conversation that was mid-turn when TerminAI quit is told to carry on.
+ */
+function afterResume(id: string, carryOn: boolean): void {
+  const started = Date.now()
+  let trusted = false, nudged = false, quietSince = 0
+  const plain = () => ptys.bufferOf(id).slice(-6000).replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')
+  const tick = () => {
+    if (Date.now() - started > 120_000 || !ptys.liveIds().includes(id)) return
+    const screen = plain()
+    if (!trusted && /Yes, I trust this folder/.test(screen) && /trust/i.test(screen.slice(-1500))) { trusted = true; ptys.write(id, '\r') }
+    const agent = ptys.agentOf(id), status = ptys.statusOf(id)
+    if (carryOn && !nudged && agent.alive && status === 'waiting' && Date.now() - started > 6000) {
+      if (!quietSince) quietSince = Date.now()
+      if (Date.now() - quietSince > 3000) {
+        nudged = true
+        ptys.write(id, '\x1b[200~TerminAI restarted while you were working: continue where you left off.\x1b[201~')
+        setTimeout(() => ptys.write(id, '\r'), 400)
+      }
+    } else quietSince = 0
+    if (!nudged || !trusted) setTimeout(tick, 700)
+  }
+  setTimeout(tick, 1500)
+}
+
 /** A conversation finished a turn: a notice naming its tab with the one-line summary; a click opens that tab. */
 function tabDone(tabId: string, text: string): void {
   if (!win || win.isDestroyed() || !Notification.isSupported() || !store.load().doneNotices) return
@@ -299,7 +325,7 @@ app.on('before-quit', () => {
   store.save({ tabs: prefs.tabs.map(tab => {
     if (!tab.ptyId) return tab
     const agent = ptys.agentOf(tab.ptyId)
-    return agent.kind ? { ...tab, agent: agent.kind, agentSession: agent.sessionId || tab.agentSession, agentArgs: agent.args } : tab
+    return agent.kind ? { ...tab, agent: agent.kind, agentSession: agent.sessionId || tab.agentSession, agentArgs: agent.args, wasWorking: agent.alive && ptys.statusOf(tab.ptyId) === 'working' } : { ...tab, wasWorking: false }
   }) })
   voice.stopWatching()
   ptys.killAll()
@@ -403,6 +429,11 @@ function registerIpc(): void {
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())
+  // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
+  appIpc.handle('app:feedback', (_e, text: unknown) => {
+    const body = `${typeof text === 'string' ? text.slice(0, 4000) : ''}\n\n—\nTerminAI ${app.getVersion()} · macOS ${process.getSystemVersion()} · ${process.arch}`
+    return shell.openExternal(`mailto:info@maracuyalabs.com?subject=${encodeURIComponent(`TerminAI feedback (${app.getVersion()})`)}&body=${encodeURIComponent(body)}`)
+  })
   // macOS says memory is tight: name the tabs using most, before something is killed. A click opens Settings › Memory.
   watchMemory(r => {
     if (!Notification.isSupported()) return
@@ -412,7 +443,7 @@ function registerIpc(): void {
     note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
     note.show()
   })
-  appIpc.handle('app:check-updates', () => checkForUpdatesNow(win))
+  appIpc.handle('app:check-updates', () => checkForUpdatesNow(win, true))
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {
     if (!win) return
@@ -431,7 +462,10 @@ function registerIpc(): void {
   appIpc.handle('pty:unclose', (_event, { id }: {id: string}) => ptys.uncloseSession(id))
   appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
   appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))
-  appIpc.on('pty:exec', (_event, { id, cmd }: {id: string; cmd: string}) => ptys.execWhenReady(id, String(cmd || '')))
+  appIpc.on('pty:exec', (_event, { id, cmd, resume }: {id: string; cmd: string; resume?: { continue?: boolean }}) => {
+    ptys.execWhenReady(id, String(cmd || ''))
+    if (resume) afterResume(id, resume.continue === true)
+  })
   appIpc.handle('pty:size', (_event, { id }: {id: string}) => ptys.sizeOf(id))
   appIpc.on('tab:reply', (_event, reply) => controlReply(reply))
   appIpc.handle('clip:image', async (_event, path: string) => {
