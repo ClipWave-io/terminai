@@ -456,6 +456,8 @@ function registerIpc(): void {
   appIpc.handle('memory:sleep', (_e, ids: unknown) => sleepTabs(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []))
   appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? wakeTab(id) : false)
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
+  // macOS keeps Downloads, Documents and Desktop behind a permission; this opens the page where TerminAI is allowed in.
+  appIpc.handle('app:privacy-files', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'))
   appIpc.handle('app:feedback', (_e, text: unknown) => {
     const body = `${typeof text === 'string' ? text.slice(0, 4000) : ''}\n\n—\nTerminAI ${app.getVersion()} · macOS ${process.getSystemVersion()} · ${process.arch}`
     return shell.openExternal(`mailto:info@maracuyalabs.com?subject=${encodeURIComponent(`TerminAI feedback (${app.getVersion()})`)}&body=${encodeURIComponent(body)}`)

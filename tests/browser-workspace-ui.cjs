@@ -1,6 +1,6 @@
 const {app}=require('electron'),fs=require('fs'),os=require('os'),path=require('path'),assert=require('assert/strict'),http=require('http'),cp=require('child_process');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'terminai-browser-workspace-'));app.setPath('userData',dir);process.env.CODEX_HOME=path.join(dir,'codex');
-fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({seenWelcome:true,tabs:[],voice:{enabled:false}}));
+fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({seenWelcome:true,browserBeta:true,tabs:[],voice:{enabled:false}}));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const server=http.createServer((q,r)=>r.end('<title>Embedded fixture</title><h1>Agent browsing inside TerminAI</h1>'));
 app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
@@ -27,7 +27,7 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
  assert.notEqual(await js(`getComputedStyle(document.querySelector('.workspace > .pane')).display`),'none');
  await js(`const control=document.querySelector('.workspace-tabs [aria-label="Browser"]');control.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true}))`);await delay(200);
  assert.ok(await js(`document.querySelector('.browser-slot').getBoundingClientRect().left < document.querySelector('.workspace > .pane').getBoundingClientRect().left`),'Browser moves left of terminal');
- assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir,'prefs.json'),'utf8')).paneOrder,['files','browser','terminal']);
+ await delay(600);assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir,'prefs.json'),'utf8')).paneOrder,['browser','terminal','files']);
  await js(`const dt=new DataTransfer();dt.setData('application/x-terminai-pane','files');document.querySelector('.workspace-tabs [aria-label="Terminal"]').dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:dt}))`);await delay(200);
  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir,'prefs.json'),'utf8')).paneOrder,['browser','terminal','files']);
  await js(`document.querySelector('.workspace-tabs [aria-label="Terminal"]').click()`);await delay(200);

@@ -354,6 +354,8 @@ export interface Prefs {
   seenWelcome: boolean
   /** what a tab you open starts: Claude Code or Codex with permissions skipped, or a plain shell */
   newTabAgent: 'claude' | 'codex' | 'none'
+  /** the built-in browser pane, still in beta: hidden unless turned on in Settings */
+  browserBeta: boolean
   /** a notice when a tab's conversation finishes a turn; a click opens that tab */
   doneNotices: boolean
   /** folders whose conversations stay out of the shared work log */
@@ -412,6 +414,7 @@ export const DEFAULT_PREFS: Prefs = {
   },
   seenWelcome: false,
   newTabAgent: 'claude',
+  browserBeta: false,
   doneNotices: true,
   worklogSkip: [],
   shareConversations: false,

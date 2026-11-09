@@ -34,9 +34,9 @@ import {
 } from '../shared/types'
 import type { JSX } from 'react'
 
-function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal' | 'todo'}) {
+function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal' | 'todo' | 'chat'}) {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : kind==='todo' ? <><path d="M11 6h9M11 12h9M11 18h9"/><path d="m3.5 6 1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
+    {kind==='chat' ? <><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z"/></> : kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : kind==='todo' ? <><path d="M11 6h9M11 12h9M11 18h9"/><path d="m3.5 6 1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
   </svg>
 }
 
@@ -96,7 +96,7 @@ export function App(): JSX.Element {
   const [showTerminal, setShowTerminal] = useState(true)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserOnly, setBrowserOnly] = useState(false)
-  useEffect(()=>window.term.browser.onReveal(()=>{setShowBrowser(true);setCompactPane('browser')}),[])
+  useEffect(()=>window.term.browser.onReveal(()=>{if(!prefsRef.current.browserBeta)return;setShowBrowser(true);setCompactPane('browser')}),[])
   useEffect(() => {
     const tab = tabs.find(tab => tab.id === activeId)
     if (!tab) return
@@ -111,7 +111,7 @@ export function App(): JSX.Element {
   useEffect(() => { if (!filesOnly) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilesOnly(false) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [filesOnly])
   const terminalVisible = !filesOnly && showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
   const filesVisible = showFiles && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'files')
-  const browserVisible = !filesOnly && showBrowser && (!compactWorkspace || compactPane === 'browser')
+  const browserVisible = !filesOnly && showBrowser && prefs.browserBeta && (!compactWorkspace || compactPane === 'browser')
   const toggleTerminal = () => {
     setShowTerminal(!terminalVisible); setBrowserOnly(false)
     setCompactPane(terminalVisible ? showBrowser ? 'browser' : showFiles ? 'files' : 'terminal' : 'terminal')
@@ -800,7 +800,7 @@ export function App(): JSX.Element {
               stage — with the rail visible on the left, it holds them instead. */}
           <span className="topbar-gap" />
           <div className="workspace-tabs" role="group" aria-label="Workspace panes">
-            {paneOrder.filter(pane => !prefs.hiddenToolbarItems.includes(pane)).map(pane => <button key={pane} className="btn icon no-drag" draggable
+            {paneOrder.filter(pane => !prefs.hiddenToolbarItems.includes(pane) && (pane !== 'browser' || prefs.browserBeta)).map(pane => <button key={pane} className="btn icon no-drag" draggable
               aria-label={pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'}
               aria-pressed={({ terminal: terminalVisible, browser: browserVisible, files: filesVisible })[pane]}
               title={`${pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'} · click to show/hide · drag to reorder · ⌥←/→ to move`}
@@ -813,7 +813,7 @@ export function App(): JSX.Element {
             ><PaneIcon kind={pane} /></button>)}
           </div>
           {!prefs.hiddenToolbarItems.includes('team') && <button className="btn icon no-drag" aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>}
-          <button className="btn icon no-drag" style={{ position: 'relative' }} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>💬{chatUnread > 0 && <span className="tc-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>
+          <button className="btn icon no-drag" style={{ position: 'relative' }} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}><PaneIcon kind="chat" />{chatUnread > 0 && <span className="tc-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>
           <button className="btn icon no-drag" aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
           <span className="topbar-spacer" />
           {/* The active session's name in the middle of the bar, as in Livio's build; the to-do menus take its place. */}
@@ -865,7 +865,7 @@ export function App(): JSX.Element {
           {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
         </div>
 
-        {showBrowser && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && prefs.browserBeta && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 

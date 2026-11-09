@@ -144,6 +144,10 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
             <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select>
         </div>
+        <div className="row">
+          <label>Browser (beta)<span className="hint">The built-in browser pane. Off until it is finished.</span></label>
+          <input type="checkbox" checked={prefs.browserBeta} onChange={e => onChange({ browserBeta: e.target.checked })} />
+        </div>
         <Feedback />
         <div className="row">
           <label>Notify when a chat is done<span className="hint">A notice with its summary; click it to open that tab.</span></label>

@@ -38,3 +38,5 @@
 .tc-factions { display: flex; opacity: .55; } .tc-frow:hover .tc-factions { opacity: 1; }
 .tc-link { border: 0; background: none; color: inherit; cursor: pointer; font-size: 12.5px; padding: 3px 4px; }
 .tc-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; border-radius: 8px; background: #25d366; color: #fff; font-size: 9.5px; font-weight: 700; display: grid; place-items: center; padding: 0 3px; }
+.tc-x, .tc-clip, .tc-link { display: grid; place-items: center; color: var(--muted, #9aa3b2); } .tc-x:hover, .tc-clip:hover, .tc-link:hover { color: var(--fg, #e6e9ef); }
+.tc-send { display: grid; place-items: center; } .tc-ticks { display: inline-flex; } .tc-file.hidden { display: flex; gap: 6px; align-items: center; }

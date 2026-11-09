@@ -12,6 +12,15 @@ type Message = { id: string; body: string; at: string; from: string; fromName: s
 type TeamFile = { id: string; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
 
 const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : d } catch { return d } }, set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} } }
+
+const P: Record<string, string> = {
+  clip: 'M20.5 11.5 12 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.7a1.7 1.7 0 0 1-2.4-2.4L15 7.6',
+  send: 'M4 12 20 4l-4 16-4-7-8-1Z', close: 'M6 6l12 12M18 6 6 18', lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5Z',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14', reveal: 'M12 4v11M7 10l5 5 5-5M5 20h14', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6',
+  clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', check: 'M5 12.5 9.5 17 19 7', checks: 'M2 12.5 6.5 17 16 7M10 16l1 1 9.5-10',
+  image: 'M4 5h16v14H4ZM4 16l5-5 4 4 3-3 4 4M15 9h.01', play: 'M8 5v14l11-7Z', note: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+}
+const Ico = ({ n, s = 16 }: { n: keyof typeof P; s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={P[n]} /></svg>
 const images = new Map<string, Promise<string>>()
 const size = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -24,7 +33,7 @@ const initials = (name: string) => name.split(/\s+/).map(w => w[0]).join('').sli
 export function TeamChat({ open, onClose, onUnread }: { open: boolean; onClose: () => void; onUnread: (n: number) => void }): JSX.Element | null {
   const [company, setCompany] = useState<{ id: string; role: string } | null>(null)
   useEffect(() => { void window.term.workspace.state().then(s => { const c = s.identity?.companies[0]; setCompany(c ? { id: c.id, role: c.role } : null) }).catch(() => {}) }, [open])
-  if (!company) return open ? <aside className="tc"><header className="tc-head"><strong>Team</strong><button className="tc-x" onClick={onClose}>✕</button></header><p className="tc-empty">Sign in with Sync (people icon) to chat with your team.</p></aside> : null
+  if (!company) return open ? <aside className="tc"><header className="tc-head"><strong>Team</strong><button className="tc-x" aria-label="Close" onClick={onClose}><Ico n="close" /></button></header><p className="tc-empty">Sign in with Sync (people icon) to chat with your team.</p></aside> : null
   return <Team key={company.id} company={company.id} admin={company.role === 'owner' || company.role === 'admin'} open={open} onClose={onClose} onUnread={onUnread} />
 }
 
@@ -54,7 +63,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
             setMessages(prev => { const seen = new Set(prev.filter(m => !m.pending).map(m => m.id)); const next = [...prev.filter(m => !m.pending), ...r.messages.filter((m: Message) => !seen.has(m.id))].slice(-500); cache.set(`${key}:m`, next); return next })
             const fresh = r.messages.filter((m: Message) => m.from !== r.me)
             if (fresh.length && (!openRef.current || !document.hasFocus()) && 'Notification' in window) {
-              const m = fresh.at(-1); const n = new Notification(m.fromName, { body: m.body || (m.file ? '📎 File' : ''), silent: false }); n.onclick = () => window.dispatchEvent(new Event('teamchat:open'))
+              const m = fresh.at(-1); const n = new Notification(m.fromName, { body: m.body || (m.file ? 'Sent a file' : ''), silent: false }); n.onclick = () => window.dispatchEvent(new Event('teamchat:open'))
             }
           }
         } catch { if (stop) return; setOffline(true); await new Promise(r => setTimeout(r, 4000)) }
@@ -87,10 +96,10 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const sub = offline ? 'connecting…' : typingNow.length ? `${typingNow.map(p => p.name.split(' ')[0]).join(', ')} ${typingNow.length > 1 ? 'are' : 'is'} typing…` : others.length === 1 ? lastSeen(others[0]) : others.map(p => p.name.split(' ')[0] + (p.online ? ' ●' : '')).join(', ')
   return <aside className="tc" aria-label="Team chat">
     <header className="tc-head">
-      <span className="tc-avatar">{others.length === 1 ? initials(others[0].name) : '👥'}</span>
+      <span className="tc-avatar">{others.length === 1 ? initials(others[0].name) : <Ico n="group" s={18} />}</span>
       <div className="tc-who"><strong>{title}</strong><small className={typingNow.length ? 'typing' : ''}>{sub}</small></div>
       <div className="tc-tabs" role="tablist">{(['chat', 'files'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : 'Files'}</button>)}</div>
-      <button className="tc-x" title="Close" onClick={onClose}>✕</button>
+      <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
     {notice && <div className="tc-notice">{notice}</div>}
     {view === 'chat' ? <Chat company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
@@ -121,26 +130,26 @@ function Chat({ company, messages, me, others, onSend, onShare }: { company: str
               {!mine && first && others.length > 1 && <b className="tc-from">{m.fromName}</b>}
               {m.file && <Attachment company={company} file={m.file} />}
               {m.body && <span className="tc-text">{m.body}</span>}
-              <span className="tc-meta">{m.fromName === 'failed' ? 'not sent' : clock(m.at)}{mine && <span className={`tc-ticks${readBy(m) ? ' read' : ''}`}>{m.pending ? '🕓' : readBy(m) ? '✓✓' : '✓'}</span>}</span>
+              <span className="tc-meta">{m.fromName === 'failed' ? 'not sent' : clock(m.at)}{mine && <span className={`tc-ticks${readBy(m) ? ' read' : ''}`}><Ico n={m.pending ? 'clock' : readBy(m) ? 'checks' : 'check'} s={14} /></span>}</span>
             </div>
           </div>
         </div>
       })}
     </div>
     <form className="tc-compose" onSubmit={e => { e.preventDefault(); go() }}>
-      <button type="button" className="tc-clip" title="Share a file or photo" onClick={() => void window.term.teamchat.pick().then(p => { if (p.length) onShare(p) })}>📎</button>
+      <button type="button" className="tc-clip" title="Share a file or photo" aria-label="Share a file or photo" onClick={() => void window.term.teamchat.pick().then(p => { if (p.length) onShare(p) })}><Ico n="clip" s={19} /></button>
       <textarea rows={1} placeholder="Message" value={text} onChange={e => typed(e.target.value)}
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go() } }} />
-      <button className="tc-send" type="submit" disabled={!text.trim()} title="Send">➤</button>
+      <button className="tc-send" type="submit" disabled={!text.trim()} title="Send" aria-label="Send"><Ico n="send" s={17} /></button>
     </form>
   </div>
 }
 
 function Attachment({ company, file }: { company: string; file: ChatFile }): JSX.Element {
-  if ('hidden' in file) return <span className="tc-file hidden">🔒 A file you have no access to</span>
+  if ('hidden' in file) return <span className="tc-file hidden"><Ico n="lock" s={14} /> A file you have no access to</span>
   if (isImage(file.name)) return <LazyImage company={company} file={file} />
   return <button className="tc-file" onClick={() => void window.term.teamchat.open(company, file.id, file.name, 'pane')}>
-    <span className="tc-file-ico">{/\.pdf$/i.test(file.name) ? 'PDF' : /\.(mp4|mov)$/i.test(file.name) ? '▶' : /\.(mp3|m4a|wav)$/i.test(file.name) ? '♪' : (file.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
+    <span className="tc-file-ico">{/\.(mp4|mov)$/i.test(file.name) ? <Ico n="play" /> : /\.(mp3|m4a|wav)$/i.test(file.name) ? <Ico n="note" /> : (file.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
     <span className="tc-file-name">{file.name}<small>{size(file.size)} · click to open</small></span></button>
 }
 
@@ -188,7 +197,7 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
         const mine = admin || f.by === me
         return <div className="tc-frow" key={f.id}>
           <button className="tc-fmain" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'pane').catch(e => onError(String(e.message ?? e)))} title="Open (downloads it the first time)">
-            <span className="tc-file-ico">{isImage(f.name) ? '🖼' : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
+            <span className="tc-file-ico">{isImage(f.name) ? <Ico n="image" /> : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
             <span className="tc-file-name">{f.name}<small>{size(f.size)} · {f.byName ?? 'someone'} · {dayLabel(f.createdAt)}</small></span></button>
           {editing === f.id ? <span className="tc-acc-edit">
               <select defaultValue={f.access} onChange={e => change(f, { access: e.target.value, products: e.target.value === 'products' ? (f.products ?? []) : undefined })}>
@@ -197,9 +206,9 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
               <button className="tc-link" onClick={() => setEditing(null)}>Done</button></span>
             : <span className={`tc-acc ${f.access}`} title="Who can see it">{f.access === 'products' ? (f.products ?? []).join(', ') || 'No one' : ACCESS[f.access]}</span>}
           <span className="tc-factions">
-            <button className="tc-link" title="Show in Finder" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'reveal')}>⤓</button>
-            {mine && <button className="tc-link" title="Who can see it" onClick={() => setEditing(editing === f.id ? null : f.id)}>🔒</button>}
-            {mine && <button className="tc-link" title="Delete" onClick={() => change(f, null)}>🗑</button>}
+            <button className="tc-link" title="Show in Finder" aria-label="Show in Finder" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'reveal')}><Ico n="reveal" s={15} /></button>
+            {mine && <button className="tc-link" title="Who can see it" aria-label="Who can see it" onClick={() => setEditing(editing === f.id ? null : f.id)}><Ico n="lock" s={15} /></button>}
+            {mine && <button className="tc-link" title="Delete" aria-label="Delete" onClick={() => change(f, null)}><Ico n="trash" s={15} /></button>}
           </span>
         </div>
       })}

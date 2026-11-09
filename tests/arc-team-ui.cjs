@@ -3,7 +3,7 @@
 const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), http = require('http')
 if (!process.env.CODEX_HOME) { console.error('Set CODEX_HOME to a scratch folder.'); process.exit(1) }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-arc-team-')); app.setPath('userData', dir)
-fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false } }))
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, browserBeta: true, tabs: [], voice: { enabled: false } }))
 const delay = ms => new Promise(r => setTimeout(r, ms)), out = process.env.SHOTS || os.tmpdir()
 const server = http.createServer((q, r) => r.end(`<title>Fixture ${q.url}</title><body style="font:40px system-ui;padding:40px">Page ${q.url}</body>`))
 app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {

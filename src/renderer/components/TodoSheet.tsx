@@ -1042,7 +1042,7 @@ function RequestTag({ task, me }: { task: Task; me: unknown }): JSX.Element {
   const [replying, setReplying] = useState(false), [text, setText] = useState('')
   const answer = (ok: boolean) => void window.term.todos.answer(task.id, ok, text).then(() => { setReplying(false); setText('') })
   if (r.status !== 'pending') return <span className={`todo-tag todo-req ${r.status}`} title={r.reply ? `“${r.reply}”` : undefined}>
-    {mine ? `${r.status === 'accepted' ? 'Accepted' : 'Declined'} by ${task.assignee === 'livio' ? 'Matteo' : 'Ilai'}` : `${r.status === 'accepted' ? 'You accepted' : 'You declined'}`}{r.reply ? ' · 💬' : ''}</span>
+    {mine ? `${r.status === 'accepted' ? 'Accepted' : 'Declined'} by ${task.assignee === 'livio' ? 'Matteo' : 'Ilai'}` : `${r.status === 'accepted' ? 'You accepted' : 'You declined'}`}{r.reply ? ' · with a message' : ''}</span>
   if (mine) return <span className={`todo-tag todo-req${r.urgent ? ' urgent' : ''}`}>Asked {task.assignee === 'livio' ? 'Matteo' : 'Ilai'}{r.urgent ? ' · urgent' : ''} · waiting</span>
   return <span className={`todo-req-ask${r.urgent ? ' urgent' : ''}`}>
     <b>{r.urgent ? 'Urgent · ' : ''}{from} asks</b>

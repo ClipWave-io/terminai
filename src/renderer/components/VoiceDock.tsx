@@ -210,7 +210,7 @@ export function VoiceDock({
           onClick={onToggleEnabled}
           title={enabled ? 'Mute spoken summaries  ⌘⇧M' : 'Unmute spoken summaries  ⌘⇧M'}
         >
-          {enabled ? '🔊' : '🔇'}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4Z" />{enabled ? <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" /> : <path d="m16 9 6 6M22 9l-6 6" />}</svg>
         </button>
         <button
           className="chip"
