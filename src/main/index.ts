@@ -576,6 +576,7 @@ function registerIpc(): void {
   appIpc.handle('pty:unclose', (_event, { id }: {id: string}) => ptys.uncloseSession(id))
   appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
   appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))
+  let nextResume = 0
   appIpc.on('pty:exec', (_event, { id, cmd, resume }: {id: string; cmd: string; resume?: { continue?: boolean; later?: boolean }}) => {
     const line = String(cmd || '')
     // After a restart only the open tab and the ones that were working start at once; forty Claude Codes starting
@@ -583,6 +584,12 @@ function registerIpc(): void {
     if (resume?.later && line) {
       laterResume.set(id, { line, carryOn: resume.continue === true })
       ptys.execWhenReady(id, `clear; printf '\\n  \\033[2mThis conversation resumes when you open the tab.\\033[0m\\n\\n'`)
+      return
+    }
+    // Restored conversations start one every 1.5 s, so twenty Claude Codes never start at the same moment.
+    if (resume && line) {
+      const at = Math.max(Date.now(), nextResume); nextResume = at + 1500
+      setTimeout(() => startAgent(id, line, { carryOn: resume.continue === true }), at - Date.now())
       return
     }
     startAgent(id, line, resume ? { carryOn: resume.continue === true } : undefined)

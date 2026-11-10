@@ -402,9 +402,9 @@ export function App(): JSX.Element {
     }
 
     restoring.current = true
-    try { for (const [i, raw] of savedTabs.entries()) {
-      // Only the last one (it ends up open) and the ones that were working start now; the rest when opened.
-      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: i < savedTabs.length - 1 && !raw.wasWorking }
+    try { for (const raw of savedTabs) {
+      // Every conversation comes back by itself after a restart, as before 0.3.27 (main spaces the starts out).
+      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: false }
       const running = t.ptyId ? live.get(t.ptyId) : undefined
       if (running) {
         taken.add(running.id)
