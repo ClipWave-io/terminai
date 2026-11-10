@@ -4,7 +4,7 @@ import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
@@ -184,7 +184,9 @@ function createWindow(): void {
 
   // Links in terminal output open in the real browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    // A file link is shown in Finder, never opened: any program can print a link, and opening it would start an app or a script.
+    if (/^file:/i.test(url)) { try { shell.showItemInFolder(fileURLToPath(url)) } catch {} }
+    else void shell.openExternal(url)
     return { action: 'deny' }
   })
 
