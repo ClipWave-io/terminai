@@ -52,6 +52,13 @@ function urlAtCell(term: Terminal, col: number, row: number): string {
  * drag is still delivered to the app as a press+release, so Codex's
  * click-to-place-cursor keeps working. ⌥ continues to force selection.
  *
+ * The one place left to the app is its own input box (Claude Code's prompt in
+ * fullscreen: the rows between the two rules around the cursor). There every
+ * press, drag and release goes to the app, so a double click selects a word of
+ * the prompt and a drag selects part of it as the app's own selection, the one
+ * Backspace or typing replaces. A selection of xterm's over those rows was only
+ * a highlight: the app got the first click alone and Backspace took one letter.
+ *
  * Reaches into xterm's private core (pinned to @xterm/xterm 5.5.0); there is no
  * public option for this.
  */
@@ -63,14 +70,36 @@ function installSelectionOverride(term: Terminal, host: HTMLElement): void {
   const mouseUtil = core?._mouseService
   if (!selection || !mouse || !mouseUtil) return
 
+  const inInputBox = (ev: MouseEvent): boolean => {
+    if (!mouse.areMouseEventsActive || ev.altKey) return false
+    const pos = mouseUtil.getMouseReportCoords(ev, core.screenElement)
+    if (!pos) return false
+    const buf = term.buffer.active
+    const rule = (y: number): boolean => {
+      const text = buf.getLine(y)?.translateToString(true) ?? ''
+      return text.startsWith('─') && (text.match(/─/g)?.length ?? 0) >= term.cols / 2
+    }
+    const cursor = buf.baseY + buf.cursorY
+    let top = cursor, bottom = cursor
+    while (top >= 0 && top > cursor - 30 && !rule(top)) top--
+    while (bottom < buf.length && bottom < cursor + 30 && !rule(bottom)) bottom++
+    if (top < 0 || bottom >= buf.length || !rule(top) || !rule(bottom)) return false
+    const at = buf.viewportY + pos.row
+    return at > top && at < bottom
+  }
+
+  // True from a press inside the app's input box until the next press: xterm asks at mousedown only.
+  let appGesture = false
   selection.shouldForceSelection = (ev: MouseEvent): boolean =>
-    ev.button === 0 && !ev.ctrlKey
+    ev.button === 0 && !ev.ctrlKey && !appGesture
 
   let downAt: { x: number; y: number } | null = null
   host.addEventListener(
     'mousedown',
     (ev) => {
       downAt = ev.button === 0 ? { x: ev.clientX, y: ev.clientY } : null
+      appGesture = ev.button === 0 && !ev.ctrlKey && inInputBox(ev)
+      if (appGesture) term.clearSelection()
     },
     true,
   )
@@ -79,6 +108,8 @@ function installSelectionOverride(term: Terminal, host: HTMLElement): void {
     (ev) => {
       const start = downAt
       downAt = null
+      // xterm has already reported this press and will report the release.
+      if (appGesture) return
       if (!start || ev.button !== 0 || ev.altKey || !mouse.areMouseEventsActive) return
       const moved = Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > 3
       if (moved || term.hasSelection()) return
