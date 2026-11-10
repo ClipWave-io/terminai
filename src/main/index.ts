@@ -840,6 +840,8 @@ function registerIpc(): void {
   // ---- prefs -------------------------------------------------------------
   appIpc.handle('prefs:get', () => store.load())
   appIpc.handle('prefs:set', (_e, patch: Partial<Prefs>) => {
+    // Once quitting has begun the tabs are final (before-quit saved them): the window's last polls see shells going away.
+    if (quitting && patch.tabs) { const { tabs: _late, ...rest } = patch; patch = rest }
     const next = store.save(patch)
     // The first clone waits for the user to say who they are in the To-do sheet.
     // Private tasks are per user: the sheet reloads them once the new name is saved.
