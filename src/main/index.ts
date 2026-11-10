@@ -800,11 +800,12 @@ function registerIpc(): void {
     waiting: (tabId: string) => laterResume.has(tabId),
     approve: async (from, tab, text, tabId, force) => {
       // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.
-      if (!win || win.isDestroyed()) return !force
       if (store.load().agentMessages === 'allow' && !force) return true
+      // No window to ask in (closed, with the app still running): the message waits; nothing gets in unasked.
+      if (!win || win.isDestroyed()) return null
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
-      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: force ? ['Allow', 'Decline'] : ['Allow', 'Decline', 'Always allow'], defaultId: 0, cancelId: 1,
-        message: `${from} wants to message “${tab}”`, detail: (text.length > 600 ? text.slice(0, 597) + '…' : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') })
+      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: force ? ['Allow', 'Decline'] : ['Allow', 'Decline', 'Always allow'], defaultId: 1, cancelId: 1,
+        message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') })
       if (response === 2 && !force) store.save({ ...store.load(), agentMessages: 'allow' })
       return response !== 1
     },
