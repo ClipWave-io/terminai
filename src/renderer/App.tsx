@@ -1021,6 +1021,7 @@ export function App(): JSX.Element {
         <SettingsSheet
           key={settingsSection}
           initialSection={settingsSection as 'general'}
+          activeTab={activeId ?? undefined}
           prefs={prefs}
           onChange={patchPrefs}
           onClose={() => { setShowSettings(false); setSettingsSection('general') }}

@@ -37,6 +37,8 @@ interface Props {
   onCloseTab: (id: string) => void
   onOpenTab: (id: string) => void
   initialSection?: SettingsSection
+  /** the tab open behind the sheet (the MacGuard page never puts that one to sleep) */
+  activeTab?: string
 }
 
 /** Every binding registered in App.tsx's keydown handler, grouped for reading. */
@@ -82,7 +84,7 @@ interface ElevenVoice {
   description: string
 }
 
-export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onCloseTab, onOpenTab, initialSection }: Props): JSX.Element {
+export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onCloseTab, onOpenTab, initialSection, activeTab }: Props): JSX.Element {
   const [voices, setVoices] = useState<string[]>([])
   const [hasEleven, setHasEleven] = useState(false)
   const [elevenVoices, setElevenVoices] = useState<ElevenVoice[]>([])
@@ -194,7 +196,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.autoSleepReserve} onChange={e => onChange({ autoSleepReserve: Number(e.target.value) })}>{[10, 15, 20, 25].map(n => <option key={n} value={n}>{n}%</option>)}</select></Row>}
       </div>
       <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
-    macguard: () => page('MacGuard', 'This Mac\'s memory guardian: what it measures, the chats it paused, and what it did.', <GuardPanel tabs={tabs} onOpenTab={onOpenTab} />),
+    macguard: () => page('MacGuard', 'This Mac\'s memory guardian: what it measures, the chats it paused, and what it did.', <GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} />),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />
       <div className="st-card"><Row label="Chat sound" hint="A soft chime in TerminAI for each new team chat message, even when macOS notifications are off or silent."><Toggle on={prefs.chatSound} set={v => onChange({ chatSound: v })} /></Row></div>
