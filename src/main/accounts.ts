@@ -36,6 +36,10 @@ const API_HOST = 'api.anthropic.com'
 // The program whose connections the relay opens: Claude Code's native binary runs as `claude`.
 // Tests name another one.
 const CLIENT = process.env.TERMINAI_RELAY_CLIENT || 'claude'
+// Claude Code's background sessions (its daemon: the ← agent view, /bg) run as `claude bg-spare` and the like, and
+// inherit the environment, proxy key included, of whichever tab started the daemon. The daemon's roster names the
+// conversation behind each of their pids; the tab showing that conversation is the one whose account signs them.
+const DAEMON_ROSTER = process.env.TERMINAI_CLAUDE_ROSTER || join(homedir(), '.claude', 'daemon', 'roster.json')
 // What statusline.sh keeps of /api/oauth/usage for the login account, refreshed every 5 minutes.
 const LOGIN_USAGE_FILE = process.env.TERMINAI_LOGIN_USAGE_FILE || join(homedir(), '.claude', 'cache', 'usage-limits.json')
 const USAGE_STALE_MS = 5 * 60_000
@@ -297,19 +301,32 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     }
   })()
   /** Whether the loopback connection from this port was opened by Claude Code itself. */
-  const clientCache = new Map<number, boolean>()
+  type Client = { claude: boolean; background: boolean; pid: number }
+  const clientCache = new Map<number, Client>()
   setInterval(() => clientCache.clear(), 10 * 60_000).unref()
-  function fromClaude(port: number): Promise<boolean> {
+  function fromClaude(port: number): Promise<Client> {
+    const none: Client = { claude: false, background: false, pid: 0 }
     return new Promise(resolve => execFile('/usr/sbin/lsof', ['-nP', `-iTCP@127.0.0.1:${port}`, '-sTCP:ESTABLISHED', '-Fp'], { timeout: 5_000 }, (_e, out) => {
       const pids = [...new Set(String(out).split('\n').filter(l => l.startsWith('p')).map(l => Number(l.slice(1))))].filter(p => p !== process.pid)
-      if (pids.length !== 1) { resolve(false); return }
+      if (pids.length !== 1) { resolve(none); return }
       if (clientCache.has(pids[0])) { resolve(clientCache.get(pids[0])!); return }
       execFile('/bin/ps', ['-o', 'comm=', '-p', String(pids[0])], { timeout: 5_000 }, (_e2, comm) => {
-        const is = String(comm).trim().split('/').pop() === CLIENT
-        clientCache.set(pids[0], is)
-        resolve(is)
+        const name = String(comm).trim().split('/').pop() ?? ''
+        const background = name.startsWith(`${CLIENT} bg-`)
+        const c = { claude: name === CLIENT || background, background, pid: pids[0] }
+        clientCache.set(pids[0], c)
+        resolve(c)
       })
     }))
+  }
+  /** The key of the tab showing a background session's conversation; the proxy's own key when no tab shows it. */
+  function backgroundKey(pid: number, key: string): string {
+    try {
+      const workers = Object.values<{ replPid?: unknown; sessionId?: unknown }>(JSON.parse(readFileSync(DAEMON_ROSTER, 'utf8'))?.workers ?? {})
+      const session = workers.find(w => w?.replPid === pid)?.sessionId
+      if (typeof session === 'string' && session) for (const ptyId of ptys.liveIds()) if (ptys.agentOf(ptyId).sessionId === session) return ptys.workspaceKeyOf(ptyId)
+    } catch {}
+    return key
   }
   // Requests on a connection opened below: the same forward() as the relay's, keyed by the tab.
   const opened = http.createServer((req, res) => {
@@ -340,12 +357,13 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     const auth = String(req.headers['proxy-authorization'] || '').replace(/^Basic /i, '')
     const key = Buffer.from(auth, 'base64').toString().split(':')[0]
     sock.on('error', () => sock.destroy())
-    void (cert && host === API_HOST && port === 443 && validKey(key) ? fromClaude(sock.remotePort ?? 0) : Promise.resolve(false)).then(open => {
+    void (cert && host === API_HOST && port === 443 && validKey(key) ? fromClaude(sock.remotePort ?? 0) : Promise.resolve({ claude: false, background: false, pid: 0 })).then(client => {
       if (sock.destroyed) return
-      if (open && cert) {
+      if (client.claude && cert) {
         sock.write('HTTP/1.1 200 Connection Established\r\n\r\n')
         if (head.length) sock.unshift(head)
-        const t = Object.assign(new tls.TLSSocket(sock, { isServer: true, cert: cert.cert, key: cert.key, ALPNProtocols: ['http/1.1'] }), { tabKey: key })
+        const tabKey = client.background ? backgroundKey(client.pid, key) : key
+        const t = Object.assign(new tls.TLSSocket(sock, { isServer: true, cert: cert.cert, key: cert.key, ALPNProtocols: ['http/1.1'] }), { tabKey })
         t.on('error', () => t.destroy())
         t.setTimeout(IDLE, () => t.destroy())
         t.on('close', () => sock.destroy())

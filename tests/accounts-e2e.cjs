@@ -3,10 +3,12 @@
 // After `npx electron-vite build`: CODEX_HOME=<scratch dir> TERMINAI_TEST_BUILD=1 npx electron tests/accounts-e2e.cjs
 // It adds two fake items to the login keychain and removes them.
 const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), http = require('http'), assert = require('assert/strict')
-const { execFileSync, execFile } = require('child_process'), crypto = require('crypto')
+const { execFileSync, execFile, spawn } = require('child_process'), crypto = require('crypto')
 if (!process.env.CODEX_HOME) { console.error('Set CODEX_HOME to a scratch folder: the app writes its Codex config there.'); process.exit(1) }
 const REPO = path.join(__dirname, '..'), WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-accounts-e2e-'))
 const dir = path.join(WORK, 'userData'); fs.mkdirSync(dir); app.setPath('userData', dir)
+// Claude Code's daemon roster, as the relay reads it for background sessions.
+const ROSTER = path.join(WORK, 'roster.json'); process.env.TERMINAI_CLAUDE_ROSTER = ROSTER
 fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false } }))
 const SVC = 'TerminAI Claude account', A = crypto.randomUUID(), B = crypto.randomUUID()
 const LOGIN = 'sk-ant-oat01-FAKELOGINFORTESTONLY-LLLLLL'
@@ -54,6 +56,24 @@ function call(key, urlPath, { method = 'POST', body = '{"model":"x","stream":tru
     req.end(method === 'POST' ? body : undefined)
   })
 }
+// A background session's request through the proxy: a child named `curl bg-spare` that the roster maps to `session`.
+const BG_CLIENT = `const http=require('http'),tls=require('tls'),fs=require('fs');const [relay,ca,login]=process.argv.slice(1);
+console.log(process.pid);
+process.stdin.once('data',()=>{const u=new URL(relay);
+const r=http.request({host:u.hostname,port:u.port,method:'CONNECT',path:'api.anthropic.com:443',headers:{'proxy-authorization':'Basic '+Buffer.from('k9:tab').toString('base64')}});
+r.on('connect',(res,sock)=>{const t=tls.connect({socket:sock,servername:'api.anthropic.com',ca:fs.readFileSync(ca)},()=>t.write('POST /v1/messages?beta=true HTTP/1.1\r\nHost: api.anthropic.com\r\nauthorization: Bearer '+login+'\r\nanthropic-beta: oauth-2025-04-20\r\ncontent-type: application/json\r\ncontent-length: 13\r\nconnection: close\r\n\r\n{"model":"x"}'));
+let d='';t.on('data',c=>d+=c);t.on('end',()=>{console.log(d.split(' ')[1]);process.exit(0)});t.on('error',e=>{console.log('ERR '+e.message);process.exit(1)})});
+r.on('error',e=>{console.log('ERR '+e.message);process.exit(1)});r.end()})`
+const background = session => new Promise((resolve, reject) => {
+  const c = spawn(process.execPath, ['-e', BG_CLIENT, relay, ca, LOGIN], { argv0: 'curl bg-spare', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  let out = '', go = false
+  c.stdout.on('data', d => {
+    out += d
+    if (!go && out.includes('\n')) { go = true; fs.writeFileSync(ROSTER, JSON.stringify({ proto: 1, workers: { w: { replPid: Number(out.split('\n')[0]), sessionId: session } } })); c.stdin.write('go\n') }
+  })
+  c.on('error', reject)
+  c.on('exit', () => resolve((out.split('\n')[1] || '').trim()))
+})
 const tabOf = key => { try { return fs.readFileSync(path.join(dir, 'accounts', 'tabs', key), 'utf8') } catch { return '' } }
 const setTab = (key, id) => fs.writeFileSync(path.join(dir, 'accounts', 'tabs', key), id)
 const state = () => JSON.parse(fs.readFileSync(path.join(dir, 'accounts', 'accounts.json'), 'utf8'))
@@ -156,6 +176,19 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   await waitFor('pill shows Alpha', async () => /Alpha/.test(await win.webContents.executeJavaScript(`document.querySelector('.account-pill')?.textContent || ''`)), 3000)
   assert.equal(starts().length, 1, 'picking an account restarts nothing')
 
+  // A Claude Code background session (its daemon: the ← agent view) runs as `claude bg-spare`, here `curl bg-spare`,
+  // started from another tab and carrying that tab's proxy key. It is opened too, and signed with the account of the
+  // tab showing its conversation, found through the daemon's roster.
+  const sid = /sid=(\S+)/.exec(starts()[0])?.[1]
+  assert.ok(sid, starts()[0])
+  setTab('k9', B)
+  let nb = seen.length
+  assert.equal(await background(sid), '200')
+  assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'a background session is signed with the account of the tab showing its conversation')
+  nb = seen.length
+  assert.equal(await background('00000000-0000-4000-8000-000000000000'), '200')
+  assert.deepEqual(seen.slice(nb).map(s => s.by), ['B'], 'one that no tab shows keeps the key it was started with')
+
   // A default for new tabs: a tab already open keeps where it is, a new one starts on the default.
   await cli('open', '--cwd', '/tmp', '--name', 'idle', '--command', 'sleep 60')
   await delay(500)
@@ -172,7 +205,7 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   await call('knew', '/v1/messages?beta=true')
   assert.deepEqual(seen.slice(nd).map(s => s.by), ['B'], 'a new tab starts on the default')
   assert.equal(fs.readFileSync(path.join(dir, 'accounts', 'default'), 'utf8'), B, 'the status line reads the default too')
-  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
+  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, background sessions signed with the account of the tab showing them, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
   cleanup(); app.quit()
 })().catch(e => { console.error(e); cleanup(); app.exit(1) }) }))
 setTimeout(() => { console.error('e2e timeout'); cleanup(); app.exit(1) }, 120000).unref()
