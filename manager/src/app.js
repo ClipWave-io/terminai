@@ -529,8 +529,11 @@ export function createApp(pool, config) {
           let rows = await fetchNew(), closed = false; req.on('close', () => { closed = true });
           const typingKey = async () => (await pool.query("SELECT string_agg(user_id::text,',') AS t FROM manager_presence WHERE company_id=$1 AND user_id<>$2 AND typing_until>now()", [companyId, user.id])).rows[0].t || '';
           const typing0 = url.searchParams.get('typing') ?? '';
+          // Delivered ticks: the sender's poll also answers once every other member's app has fetched since its newest unticked message.
+          const pending = url.searchParams.get('pending'); requireThat(!pending || Number.isFinite(Date.parse(pending)), 400, 'Invalid cursor.');
+          const delivered = async () => !!pending && !(await pool.query('SELECT 1 FROM manager_memberships m LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND m.user_id<>$2 AND (p.seen_at IS NULL OR p.seen_at<$3) LIMIT 1', [companyId, user.id, pending])).rowCount;
           const until = Date.now() + wait * 1000;
-          while (!rows.length && !closed && Date.now() < until && (await typingKey()) === typing0) { await new Promise(r => setTimeout(r, 600)); rows = await fetchNew(); }
+          while (!rows.length && !closed && Date.now() < until && (await typingKey()) === typing0 && !(await delivered())) { await new Promise(r => setTimeout(r, 600)); rows = await fetchNew(); }
           if (closed) return;
           const { rows: people } = await pool.query(`SELECT u.id,u.name,p.seen_at,p.read_at,(p.typing_until>now()) AS typing FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id
             LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1`, [companyId]);

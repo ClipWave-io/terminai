@@ -144,7 +144,7 @@ const api = {
     onNew: (cb: (n: Notice) => void): (() => void) => { const h = (_e: IpcRendererEvent, n: Notice) => cb(n); ipcRenderer.on('notices:new', h); return () => { ipcRenderer.removeListener('notices:new', h) } },
   },
   teamchat: {
-    chat: (company: string, after?: string, typing?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing),
+    chat: (company: string, after?: string, typing?: string, pending?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing, pending),
     send: (company: string, body: string, fileId?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId),
     signal: (company: string, kind: 'typing' | 'read'): Promise<void> => ipcRenderer.invoke('team:signal', company, kind),
     call: (company: string, after?: string): Promise<any> => ipcRenderer.invoke('team:call', company, after),

@@ -49,7 +49,9 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const [offline, setOffline] = useState(false)
   const openRef = useRef(open); openRef.current = open
   const known = useRef(new Set<string>())
+  const peopleRef = useRef(people); peopleRef.current = people
   const meRef = useRef(me); meRef.current = me
+  const msgsRef = useRef(messages); msgsRef.current = messages
 
   // The long poll: each answer brings what is new, then the next call waits for more (or for typing to change).
   useEffect(() => {
@@ -58,7 +60,11 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
     const run = async () => {
       while (!stop) {
         try {
-          const r = await window.term.teamchat.chat(company, after, typing)
+          // My newest message not yet on everyone's Mac: the server answers as soon as it is, so the second tick shows at once.
+          const mine = msgsRef.current.filter(m => m.from === meRef.current && !m.pending), last = mine.at(-1)
+          const others = peopleRef.current.filter(p => p.id !== meRef.current)
+          const pending = last && others.some(p => !p.seenAt || p.seenAt < last.at) ? last.at : undefined
+          const r = await window.term.teamchat.chat(company, after, typing, pending)
           if (stop) return
           setOffline(false); setMe(r.me); cache.set(`${key}:me`, r.me); setPeople(r.people); cache.set(`${key}:p`, r.people)
           typing = r.people.filter((p: Person) => p.typing).map((p: Person) => p.id).join(',')
@@ -97,7 +103,6 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   }
   const [notice, setNotice] = useState(''); const alertLine = (t: string) => { setNotice(t); setTimeout(() => setNotice(''), 5000) }
 
-  const peopleRef = useRef(people); peopleRef.current = people
   const calls = useCalls(company, me, id => peopleRef.current.find(p => p.id === id)?.name ?? 'Someone')
   const others = people.filter(p => p.id !== me)
   const callTitle = others.length === 1 ? others[0].name : 'Team'
@@ -127,7 +132,9 @@ function Chat({ company, messages, me, others, onSend, onShare }: { company: str
   const [text, setText] = useState(''), [drag, setDrag] = useState(false)
   const list = useRef<HTMLDivElement>(null), stick = useRef(true), lastTyping = useRef(0)
   useEffect(() => { const el = list.current; if (el && stick.current) el.scrollTop = el.scrollHeight }, [messages.length])
+  // WhatsApp ticks: one grey sent, two grey on their Mac, two blue read.
   const readBy = (m: Message) => others.length > 0 && others.every(p => p.readAt && p.readAt >= m.at)
+  const gotBy = (m: Message) => others.length > 0 && others.every(p => p.seenAt && p.seenAt >= m.at)
   const go = () => { const t = text.trim(); if (!t) return; onSend(t); setText(''); stick.current = true }
   const typed = (v: string) => { setText(v); const now = Date.now(); if (v && now - lastTyping.current > 3000) { lastTyping.current = now; void window.term.teamchat.signal(company, 'typing').catch(() => {}) } }
   let day = ''
@@ -146,7 +153,7 @@ function Chat({ company, messages, me, others, onSend, onShare }: { company: str
               {!mine && first && others.length > 1 && <b className="tc-from">{m.fromName}</b>}
               {m.file && <Attachment company={company} file={m.file} />}
               {m.body && <span className="tc-text">{m.body}</span>}
-              <span className="tc-meta">{m.fromName === 'failed' ? 'not sent' : clock(m.at)}{mine && <span className={`tc-ticks${readBy(m) ? ' read' : ''}`}><Ico n={m.pending ? 'clock' : readBy(m) ? 'checks' : 'check'} s={14} /></span>}</span>
+              <span className="tc-meta">{m.fromName === 'failed' ? 'not sent' : clock(m.at)}{mine && <span className={`tc-ticks${readBy(m) ? ' read' : ''}`}><Ico n={m.pending ? 'clock' : readBy(m) || gotBy(m) ? 'checks' : 'check'} s={14} /></span>}</span>
             </div>
           </div>
         </div>

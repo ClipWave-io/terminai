@@ -440,7 +440,7 @@ function registerIpc(): void {
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
   appIpc.handle('workspace:attach', (_event, note, file) => workspaceAttach(note, file))
-  appIpc.handle('team:chat', (_e, company, after, typing) => teamChat(company, after, typing))
+  appIpc.handle('team:chat', (_e, company, after, typing, pending) => teamChat(company, after, typing, pending))
   appIpc.handle('team:send', (_e, company, body, fileId) => teamSend(company, body, fileId))
   appIpc.handle('team:signal', (_e, company, kind) => teamSignal(company, kind))
   appIpc.handle('team:call', (_e, company, after) => teamCall(company, after))

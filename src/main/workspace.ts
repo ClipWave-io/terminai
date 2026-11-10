@@ -231,8 +231,8 @@ async function authed(path: string, init: RequestInit & { timeout?: number } = {
 }
 const jsonOf = (r: Response) => r.json() as Promise<any>
 /** The chat's long poll: new messages after `after`, people with last seen and typing; waits up to 25 s for a change. */
-export async function teamChat(company: unknown, after?: string, typing = ''): Promise<any> {
-  const q = new URLSearchParams({ wait: after ? '25' : '0', typing: String(typing).slice(0, 400), ...(after ? { after } : {}) })
+export async function teamChat(company: unknown, after?: string, typing = '', pending?: string): Promise<any> {
+  const q = new URLSearchParams({ wait: after ? '25' : '0', typing: String(typing).slice(0, 400), ...(after ? { after } : {}), ...(typeof pending === 'string' && pending ? { pending } : {}) })
   return jsonOf(await authed(`/api/companies/${companyId(company)}/chat?${q}`, { timeout: 40000 }))
 }
 export async function teamSend(company: unknown, body: unknown, fileId?: unknown): Promise<any> {
