@@ -20,7 +20,7 @@
 //   terminai team send <id> <message>                      to that session's agent, typed in there when it is free; prints the message id
 //   terminai team reply <message id> <answer>              answer a message that reached this tab
 //   terminai team replies <message id>                     answers to a message you sent
-//   terminai ask-grok <question> [--agent <name>]          ask your Grok Bot (Settings › Connections); the answer arrives in this tab later
+//   terminai ask-grok <question> [--bot <name>] [--agent <name>]  ask one of your bots (Settings › Connections); the answer arrives in this tab later
 //   terminai log hook                                      Claude Code's UserPromptSubmit hook: hands finished work of other tabs to this one for the To-do
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
@@ -80,7 +80,7 @@ function map(){
   private:pages.map(p=>({page:p.name,to:p.name,about:p.about||null,tasks:all.personal.filter(t=>t.list===p.name).map(short)}))};
 }
 function request(command,flags,words){
- if(command==='ask-grok')return {question:words.join(' '),agent:flags.agent,tab:process.env.TERMINAI_TAB_ID};
+ if(command==='ask-grok')return {question:words.join(' '),agent:flags.agent,bot:flags.bot,tab:process.env.TERMINAI_TAB_ID};
  if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),tab:process.env.TERMINAI_TAB_ID};
  if(command==='log')return words[0]==='hook'?{action:'hook',session:flags.session}:{action:'day',day:words[0]};
  if(command==='task'){

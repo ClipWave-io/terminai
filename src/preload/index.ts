@@ -1,3 +1,4 @@
+type BotInfo = { id: string; name: string; keyId?: string; host: string; agent: string; isDefault: boolean; status: { ok: boolean; at: string; error?: string } | null }
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
@@ -149,9 +150,10 @@ const api = {
     notificationSettings: (): Promise<void> => ipcRenderer.invoke('app:notification-settings'),
     askFolders: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('app:ask-folders'),
     notifyPermission: (ask = false): Promise<string> => ipcRenderer.invoke('notify:permission', ask),
-    grok: (): Promise<{ configured: boolean; host: string; agent: string; status: { ok: boolean; at: string; error?: string } | null }> => ipcRenderer.invoke('grok:get'),
-    grokSave: (v: object): Promise<{ configured: boolean; host: string; agent: string; status: { ok: boolean; at: string; error?: string } | null }> => ipcRenderer.invoke('grok:save', v),
-    grokTest: (): Promise<{ configured: boolean; host: string; agent: string; status: { ok: boolean; at: string; error?: string } | null }> => ipcRenderer.invoke('grok:test'),
+    bots: (): Promise<BotInfo[]> => ipcRenderer.invoke('bots:list'),
+    botSave: (v: object): Promise<BotInfo[]> => ipcRenderer.invoke('bots:save', v),
+    botRemove: (id: string): Promise<BotInfo[]> => ipcRenderer.invoke('bots:remove', id),
+    botTest: (id: string): Promise<BotInfo[]> => ipcRenderer.invoke('bots:test', id),
     onOpen: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('teamchat:open', h); return () => { ipcRenderer.removeListener('teamchat:open', h) } },
     pathOf: (file: File): string => webUtils.getPathForFile(file),
   },

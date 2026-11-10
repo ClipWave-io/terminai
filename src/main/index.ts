@@ -11,7 +11,7 @@ import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
-import { grokAsk, grokPublic, grokSave, grokTest } from './connections'
+import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
 import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-guide'
@@ -305,7 +305,7 @@ app.whenReady().then(() => {
   void startControl(app.getPath('userData'), { askGrok: async a => {
       const tab = typeof a.tab === 'string' && ptys.liveIds().includes(a.tab) ? a.tab : activeTabId ?? ''
       const saved = store.load().tabs.find(t => t.ptyId === tab)
-      return grokAsk(a.question, a.agent, saved?.customTitle || saved?.name || saved?.title || 'TerminAI session', tab && bridge ? bridge.conversationFor(tab) : null)
+      return botAsk(a.question, a.agent, a.bot, saved?.customTitle || saved?.name || saved?.title || 'TerminAI session', tab && bridge ? bridge.conversationFor(tab) : null)
     }, wake: id => resumeLater(id) || wakeTab(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     log: {
@@ -439,9 +439,10 @@ function registerIpc(): void {
   // Reading each folder once makes macOS ask for it (Files and Folders); true where TerminAI may read it.
   appIpc.handle('app:ask-folders', async () => Object.fromEntries(await Promise.all(['Downloads', 'Documents', 'Desktop'].map(async name => {
     try { await readdir(join(homedir(), name)); return [name, true] } catch { return [name, false] } }))))
-  appIpc.handle('grok:get', () => grokPublic())
-  appIpc.handle('grok:save', (_e, v) => grokSave(v))
-  appIpc.handle('grok:test', () => grokTest())
+  appIpc.handle('bots:list', () => botList())
+  appIpc.handle('bots:save', (_e, v) => botSave(v))
+  appIpc.handle('bots:remove', (_e, id) => botRemove(id))
+  appIpc.handle('bots:test', (_e, id) => botTest(id))
   appIpc.handle('app:notification-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'))
   appIpc.handle('team:pick', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:pick-files', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])

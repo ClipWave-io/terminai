@@ -21,8 +21,7 @@ const LOCAL_VOICES = [
 ]
 import { THEMES } from '../../shared/themes'
 import { PermissionsSetup } from './PermissionsSetup'
-import { GrokConnection } from './GrokConnection'
-import { Bots } from './WorkspaceSheet'
+import { BotsPanel } from './BotsPanel'
 import './workspace.css'
 import './welcome.css'
 import type { JSX } from 'react'
@@ -137,8 +136,6 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
   }
 
   const [section, setSection] = useState<SettingsSection>('general')
-  const [company, setCompany] = useState('')
-  useEffect(() => { void window.term.workspace.state().then(v => setCompany(v.identity?.companies[0]?.id ?? '')).catch(() => {}) }, [])
   const patchVoice = (p: Partial<Prefs['voice']>): void =>
     onChange({ voice: { ...prefs.voice, ...p } })
 
@@ -193,8 +190,8 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <PermissionsSetup compact />
       <div className="st-card"><Row label="Notify when a chat is done" hint="A notice with its summary when you are not looking at that tab; click it to open the tab."><Toggle on={prefs.doneNotices} set={v => onChange({ doneNotices: v })} /></Row></div>
     </>),
-    connections: () => page('Connections', 'Your own bots: your sessions can ask them, and they can reach your Shared sessions.', <>
-      <GrokConnection />{company ? <Bots base={`/api/companies/${company}`} onError={e => console.warn(e)} /> : null}</>),
+    connections: () => page('Connections', 'Your bots and agents: your sessions ask them, and they reach your Shared sessions.', <>
+      <BotsPanel /></>),
     shortcuts: () => page('Keyboard shortcuts', 'Everything you can do from the keyboard.', <div className="st-keys">
       {SHORTCUTS.map(g => <div key={g.group} className="st-card"><div className="st-keys-title">{g.group}</div>
         {g.items.map(([keys, what]) => <div key={keys} className="st-key"><span>{what}</span><span className="kbd">{keys}</span></div>)}</div>)}</div>),
