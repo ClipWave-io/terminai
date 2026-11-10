@@ -366,7 +366,9 @@ export interface Prefs {
   /** false until the first-run welcome has been dismissed */
   seenWelcome: boolean
   /** what a tab you open starts: Claude Code or Codex with permissions skipped, or a plain shell */
-  newTabAgent: 'claude' | 'codex' | 'none'
+  newTabAgent: 'claude' | 'codex' | 'none' | 'custom'
+  /** what a new tab runs when newTabAgent is 'custom': the person's own command or alias */
+  newTabCommand: string
   /** the built-in browser pane, still in beta: hidden unless turned on in Settings */
   browserBeta: boolean
   /** install a downloaded update by itself at night, when nothing is running */
@@ -444,6 +446,7 @@ export const DEFAULT_PREFS: Prefs = {
   },
   seenWelcome: false,
   newTabAgent: 'claude',
+  newTabCommand: '',
   browserBeta: false,
   nightUpdates: true,
   doneNotices: true,
