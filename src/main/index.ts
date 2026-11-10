@@ -22,7 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory, autoSleep, sleep as sleepTabs, wake as wakeTab } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
-import { guardState, resumeGuard, watchGuard } from './macguard'
+import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard } from './macguard'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -630,6 +630,8 @@ function registerIpc(): void {
   watchFullscreenOff()
   // MacGuard paused a chat to keep the Mac from freezing: the tab says so, with Resume, and the bell has it (a click opens the tab).
   appIpc.handle('macguard:state', () => guardState())
+  appIpc.handle('macguard:details', async () => { const d = await guardDetails(); return d && { ...d, sessions: ptys.liveIds().filter(id => ptys.agentOf(id).alive).length } })
+  appIpc.handle('macguard:restart', () => restartGuard())
   appIpc.handle('macguard:resume', async (_e, ids: unknown) => { await resumeGuard(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []); return guardState() })
   watchGuard(s => { if (win && !win.isDestroyed()) win.webContents.send('macguard:state', s) }, p => {
     const t = store.load().tabs.find(x => x.ptyId === p.id), name = t?.customTitle || t?.name || t?.title || p.name || 'Session'

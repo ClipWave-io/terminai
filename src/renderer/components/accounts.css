@@ -81,3 +81,14 @@
 .guard-banner .btn { flex: 0 0 auto; white-space: nowrap; }
 .guard-text em { color: var(--danger); font-style: normal; }
 .guard-icon { flex: 0 0 10px; width: 10px; height: 12px; border-radius: 1px; background: linear-gradient(to right, #d9822b 0 36%, transparent 36% 64%, #d9822b 64%); }
+.toolbar-guard { position: relative; }
+.guard-level { position: absolute; left: 5px; bottom: 5px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--bg, var(--pane)); pointer-events: none; }
+.guard-level.l0, .guard-dot.l0 { background: #3fb950; } .guard-level.l1, .guard-dot.l1 { background: #e8a900; } .guard-level.l2, .guard-dot.l2 { background: var(--danger); } .guard-level.ls { background: var(--dim); }
+.mem-level.stopped { background: color-mix(in srgb, var(--dim) 20%, transparent); color: var(--dim); }
+.guard-rows { display: grid; gap: 6px; margin-top: 4px; }
+.guard-row { display: grid; grid-template-columns: 8px minmax(130px, 170px) minmax(90px, 140px) 1fr; gap: 10px; align-items: center; font-size: 12.5px; }
+.guard-row b { font-weight: 600; font-variant-numeric: tabular-nums; } .guard-row em, .guard-paused em, .guard-events em { font-style: normal; color: var(--dim); font-size: 11.5px; }
+.guard-dot { width: 7px; height: 7px; border-radius: 50%; }
+.guard-paused { display: flex; align-items: center; gap: 10px; font-size: 12.5px; } .guard-paused > span:nth-child(2) { flex: 1; }
+.guard-events { display: grid; gap: 4px; font-size: 12px; max-height: 260px; overflow: auto; } .guard-events div { display: grid; grid-template-columns: 82px 1fr; gap: 8px; }
+.guard-error { color: var(--danger); }

@@ -26,6 +26,7 @@ import { BotsPanel } from './BotsPanel'
 import './workspace.css'
 import './welcome.css'
 import type { JSX } from 'react'
+import { GuardPanel } from './GuardPanel'
 
 interface Props {
   prefs: Prefs
@@ -193,6 +194,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.autoSleepReserve} onChange={e => onChange({ autoSleepReserve: Number(e.target.value) })}>{[10, 15, 20, 25].map(n => <option key={n} value={n}>{n}%</option>)}</select></Row>}
       </div>
       <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
+    macguard: () => page('MacGuard', 'This Mac\'s memory guardian: what it measures, the chats it paused, and what it did.', <GuardPanel tabs={tabs} onOpenTab={onOpenTab} />),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />
       <div className="st-card"><Row label="Chat sound" hint="A soft chime in TerminAI for each new team chat message, even when macOS notifications are off or silent."><Toggle on={prefs.chatSound} set={v => onChange({ chatSound: v })} /></Row></div>
@@ -223,7 +225,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
   )
 }
 
-type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'notifications' | 'connections' | 'shortcuts'
+type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'macguard' | 'notifications' | 'connections' | 'shortcuts'
 // One row of a card: what it is on the left, its control on the right. Defined out here, not inside SettingsSheet: a
 // component made anew on every render is a new type to React, so each re-render (the app polls its tabs every 800 ms)
 // rebuilt the row and closed an open dropdown or dropped the focus from a field.
@@ -236,6 +238,7 @@ const SECTIONS: [SettingsSection, string, string][] = [
   ['appearance', 'Appearance', 'M12 3a9 9 0 1 0 9 9c0-.8-.7-1.5-1.5-1.5H17a2.5 2.5 0 0 1 0-5h.5A1.5 1.5 0 0 0 19 4 9 9 0 0 0 12 3ZM7.5 11.5h.01M10 7.5h.01M15 7.5h.01'],
   ['voice', 'Voice', 'M4 9h4l5-4v14l-5-4H4ZM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12'],
   ['memory', 'Memory', 'M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'],
+  ['macguard', 'MacGuard', 'M12 3l7 3v6c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6Z'],
   ['notifications', 'Notifications', 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15ZM10 20a2 2 0 0 0 4 0'],
   ['connections', 'Connections', 'M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1'],
   ['shortcuts', 'Shortcuts', 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10'],

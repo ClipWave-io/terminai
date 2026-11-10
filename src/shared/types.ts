@@ -426,8 +426,8 @@ export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
   hiddenToolbarItems: [],
-  toolbarOrder: ['terminal', 'browser', 'files', 'team', 'settings', 'notices', 'chat', 'todo', 'maximize', 'sessions', 'sidebar'],
-  toolbarRight: ['notices', 'chat', 'todo', 'maximize', 'sessions', 'sidebar'],
+  toolbarOrder: ['terminal', 'browser', 'files', 'team', 'settings', 'macguard', 'notices', 'chat', 'todo', 'maximize', 'sessions', 'sidebar'],
+  toolbarRight: ['macguard', 'notices', 'chat', 'todo', 'maximize', 'sessions', 'sidebar'],
   chatButton: true,
   paneOrder: ['terminal', 'browser', 'files'],
   theme: 'midnight',
