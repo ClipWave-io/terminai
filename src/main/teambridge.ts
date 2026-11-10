@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import * as ptys from './pty'
-import { tabMode, scrub } from './sharing'
+import { tabMode, scrub, rememberSession } from './sharing'
 import { cursor, readAppended, type Cursor } from './transcripts'
 
 /**
@@ -106,6 +106,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         // A tab whose conversation waits to resume since a restart is listed too: a message from your phone starts it.
         const agent = ptys.agentOf(id); if (!agent.kind && !opts.waiting?.(id)) continue
         const key = ptys.workspaceKeyOf(id), mode = tabMode(key, ptys.cwdOf(id)), share = mode === 'shared'
+        if (agent.sessionId) rememberSession(agent.sessionId, key)
         // Off the record deletes what the server had of it (its turns and messages). Shared to Only me keeps it, readable by you alone.
         if (mode === 'off' && wasShared.has(key) && conversationOf.has(key)) {
           await team.call(`/api/companies/${team.id}/conversations/${conversationOf.get(key)}`, 'DELETE').catch(() => {})

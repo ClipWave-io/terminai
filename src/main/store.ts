@@ -46,6 +46,7 @@ function hydrate(raw: unknown): Prefs {
     agentMessages: p.agentMessages === 'allow' ? 'allow' : 'ask',
     tabSharing: p.tabSharing && typeof p.tabSharing === 'object' && !Array.isArray(p.tabSharing) ? Object.fromEntries(Object.entries(p.tabSharing).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'boolean').slice(-500)) as Record<string, boolean> : {},
     tabModes: p.tabModes && typeof p.tabModes === 'object' && !Array.isArray(p.tabModes) ? Object.fromEntries(Object.entries(p.tabModes).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && ['shared', 'private', 'off'].includes(v as string)).slice(-500)) as Record<string, 'shared' | 'private' | 'off'> : {},
+    sessionTabs: p.sessionTabs && typeof p.sessionTabs === 'object' && !Array.isArray(p.sessionTabs) ? Object.fromEntries(Object.entries(p.sessionTabs).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(v)).slice(-1000)) as Record<string, string> : {},
     folderSharing: p.folderSharing && typeof p.folderSharing === 'object' && !Array.isArray(p.folderSharing) ? Object.fromEntries(Object.entries(p.folderSharing).filter(([k, v]) => typeof k === 'string' && k.length < 1000 && ['shared', 'private', 'off'].includes(v as string)).slice(0, 200)) as Record<string, 'shared' | 'private' | 'off'> : {},
     worklogSkip: Array.isArray(p.worklogSkip) ? p.worklogSkip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 50) : [],
     groupByFolder: p.groupByFolder !== false,

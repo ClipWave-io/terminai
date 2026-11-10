@@ -45,6 +45,16 @@ export function tabMode(key: string, cwd: string): FolderMode {
   if (own !== undefined) return own ? 'shared' : 'private'
   return defaultMode(cwd)
 }
+/** A conversation remembered with the tab it runs in (by session id: the last 36 characters of its transcript's name). */
+export function rememberSession(session: string, key: string): void {
+  const id = session.slice(-36), p = store.load()
+  if (id && p.sessionTabs?.[id] !== key) store.save({ sessionTabs: { ...p.sessionTabs, [id]: key } })
+}
+/** What applies to one conversation of the work log: the choice of the tab it ran in (even once closed), else its folder's. */
+export function conversationMode(cwd: string, session: string, liveKey?: string): FolderMode {
+  const key = liveKey ?? store.load().sessionTabs?.[session.slice(-36)]
+  return key ? tabMode(key, cwd) : defaultMode(cwd)
+}
 /** Keys, tokens and anything written as a password, taken out of whatever goes to the server. */
 const SECRET = /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[abp]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|[A-Za-z0-9_+/=-]{40,})/g
 // Labelled ones in English, Italian and Spanish ("password: …", "la contraseña es …"); Telegram bot tokens; fal keys (id:secret).

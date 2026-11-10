@@ -383,6 +383,8 @@ export interface Prefs {
   tabSharing: Record<string, boolean>
   /** A tab's own choice from the privacy selector beside its account: it beats tabSharing and every folder rule. */
   tabModes: Record<string, 'shared' | 'private' | 'off'>
+  /** Which tab each conversation ran in (its session id → the tab's key), kept after the tab closes, so the work log applies that tab's choice to it. */
+  sessionTabs: Record<string, string>
   /** sidebar sessions bucketed under a heading per folder */
   groupByFolder: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
@@ -438,6 +440,7 @@ export const DEFAULT_PREFS: Prefs = {
   agentMessages: 'ask',
   tabSharing: {},
   tabModes: {},
+  sessionTabs: {},
   folderSharing: {},
   groupByFolder: true,
   tasksUser: 'ilai',
