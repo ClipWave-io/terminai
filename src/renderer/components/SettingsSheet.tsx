@@ -140,11 +140,6 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
   const patchVoice = (p: Partial<Prefs['voice']>): void =>
     onChange({ voice: { ...prefs.voice, ...p } })
 
-  // One row of a card: what it is on the left, its control on the right.
-  const Row = ({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) =>
-    <div className="st-row"><div className="st-label"><strong>{label}</strong>{hint && <small>{hint}</small>}</div><div className="st-control">{children}</div></div>
-  const Toggle = ({ on, set }: { on: boolean; set: (v: boolean) => void }) =>
-    <button type="button" role="switch" aria-checked={on} className={`st-switch${on ? ' on' : ''}`} onClick={() => set(!on)}><i /></button>
   const page = (title: string, text: string, body: React.ReactNode) => <div className="team-page st-page"><header><div><h2>{title}</h2><p>{text}</p></div></header>{body}</div>
   const pages: Record<SettingsSection, () => React.ReactNode> = {
     general: () => page('General', 'How TerminAI starts, updates and behaves.', <>
@@ -216,6 +211,13 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
 }
 
 type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'notifications' | 'connections' | 'shortcuts'
+// One row of a card: what it is on the left, its control on the right. Defined out here, not inside SettingsSheet: a
+// component made anew on every render is a new type to React, so each re-render (the app polls its tabs every 800 ms)
+// rebuilt the row and closed an open dropdown or dropped the focus from a field.
+const Row = ({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) =>
+  <div className="st-row"><div className="st-label"><strong>{label}</strong>{hint && <small>{hint}</small>}</div><div className="st-control">{children}</div></div>
+const Toggle = ({ on, set }: { on: boolean; set: (v: boolean) => void }) =>
+  <button type="button" role="switch" aria-checked={on} className={`st-switch${on ? ' on' : ''}`} onClick={() => set(!on)}><i /></button>
 const SECTIONS: [SettingsSection, string, string][] = [
   ['general', 'General', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z'],
   ['appearance', 'Appearance', 'M12 3a9 9 0 1 0 9 9c0-.8-.7-1.5-1.5-1.5H17a2.5 2.5 0 0 1 0-5h.5A1.5 1.5 0 0 0 19 4 9 9 0 0 0 12 3ZM7.5 11.5h.01M10 7.5h.01M15 7.5h.01'],
