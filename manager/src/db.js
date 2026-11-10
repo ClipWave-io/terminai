@@ -177,6 +177,13 @@ export async function migrate(pool) {
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
         seen_at timestamptz NOT NULL DEFAULT now(), typing_until timestamptz, read_at timestamptz, PRIMARY KEY (company_id,user_id)
       );
+      -- Calls: the offers, answers and network candidates two Macs pass each other to connect directly (kept a few minutes).
+      CREATE TABLE IF NOT EXISTS manager_call_signals (
+        seq bigserial PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        from_user uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, to_user uuid REFERENCES manager_users ON DELETE CASCADE,
+        call_id text NOT NULL, kind text NOT NULL, data jsonb, created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+      );
+      CREATE INDEX IF NOT EXISTS manager_call_signals_company ON manager_call_signals(company_id,seq);
       -- Permissions: a member limited to some products sees only their tasks and notes (NULL: all); who sees others' shared sessions.
       ALTER TABLE manager_memberships ADD COLUMN IF NOT EXISTS products text[];
       ALTER TABLE manager_companies ADD COLUMN IF NOT EXISTS session_visibility text NOT NULL DEFAULT 'admins';

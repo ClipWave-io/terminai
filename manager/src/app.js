@@ -46,6 +46,23 @@ async function limit(db, key, max, seconds) {
     resets_at=CASE WHEN manager_rate_limits.resets_at<=now() THEN now()+$2*interval '1 second' ELSE manager_rate_limits.resets_at END RETURNING count`, [digest(key), seconds]);
   requireThat(row.count <= max, 429, 'Too many requests. Try again later.');
 }
+const signalOf = r => ({ seq: String(r.seq), from: r.from_user, fromName: r.from_name, to: r.to_user, callId: r.call_id, kind: r.kind, data: r.data, at: r.created_at });
+/** STUN finds each Mac's public address; TURN relays when a network blocks direct connections (Cloudflare or any TURN server, from env). */
+let iceCache = null;
+async function iceServers() {
+  const list = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+  const keyId = process.env.CF_TURN_KEY_ID, token = process.env.CF_TURN_API_TOKEN;
+  if (keyId && token) {
+    if (iceCache && iceCache.until > Date.now()) return iceCache.list;
+    try {
+      const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ttl: 86400 }), signal: AbortSignal.timeout(5000) });
+      const v = await r.json();
+      if (r.ok && Array.isArray(v.iceServers)) { iceCache = { list: v.iceServers, until: Date.now() + 6 * 3600e3 }; return v.iceServers }
+    } catch {}
+  }
+  if (process.env.TURN_URLS && process.env.TURN_USERNAME) list.push({ urls: process.env.TURN_URLS.split(','), username: process.env.TURN_USERNAME, credential: process.env.TURN_CREDENTIAL || '' });
+  return list;
+}
 async function audit(db, companyId, userId, action, targetId) {
   await db.query('INSERT INTO manager_audit(id,company_id,actor_id,action,target_id) VALUES($1,$2,$3,$4,$5)', [randomUUID(), companyId, userId, action, targetId || null]);
 }
@@ -165,7 +182,8 @@ export function createApp(pool, config) {
       if (req.headers.origin && unsafe(req.method)) requireThat(req.headers.origin === origin, 403, 'Invalid request origin.');
       const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim());
       const ip = config.trustProxyHops > 0 ? forwarded.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
-      await limit(pool, `api:${ip}`, 300, 60);
+      // Call signals have their own limit per person: a call sends a burst of them, and two Macs in one office share an address.
+      if (!/^\/api\/companies\/[0-9a-f-]{36}\/call$/.test(path)) await limit(pool, `api:${ip}`, 300, 60);
       // Continue with Google: an account by its verified Google email (made the first time), signed in in this browser.
       if (req.method === 'GET' && path === '/api/auth/google' && config.google) {
         const state = opaqueToken();
@@ -418,7 +436,7 @@ export function createApp(pool, config) {
         return json(res,201,{id:companyId,name});
       }
       // Team files and chat: a raw-body upload and long polls, so outside the JSON company route below.
-      const teamRoute = path.match(/^\/api\/companies\/([0-9a-f-]{36})\/(files|chat)(?:\/([^/]+))?$/);
+      const teamRoute = path.match(/^\/api\/companies\/([0-9a-f-]{36})\/(files|chat|call)(?:\/([^/]+))?$/);
       if (teamRoute && !user.bot_id) {
         const companyId = teamRoute[1], kind = teamRoute[2], sub = teamRoute[3] || '';
         const { rows: [member] } = await pool.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2', [companyId, user.id]);
@@ -460,6 +478,45 @@ export function createApp(pool, config) {
             await pool.query('UPDATE manager_team_files SET access=$1,products=$2,name=$3 WHERE id=$4', [access, products, name, id]);
             return json(res, 200, { file: meta({ ...f, access, products, name }) });
           }
+        }
+        // Calls: terminai.xyz only passes the connection details between the Macs; voice and video go directly Mac to Mac.
+        if (kind === 'call' && sub === 'ice' && req.method === 'GET') return json(res, 200, { iceServers: await iceServers() });
+        if (kind === 'call' && !sub && req.method === 'POST') {
+          const input = await body(req);
+          const callId = typeof input.callId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(input.callId) ? input.callId : requireThat(false, 400, 'Invalid call.');
+          const kindOf = enumValue(input.kind, ['ring', 'accept', 'decline', 'offer', 'answer', 'ice', 'hangup', 'state'], 'kind');
+          const to = input.to ? uuid(input.to) : null;
+          if (to) { const { rowCount } = await pool.query('SELECT 1 FROM manager_memberships WHERE company_id=$1 AND user_id=$2', [companyId, to]); requireThat(rowCount, 404, 'Not in this workspace.') }
+          const data = input.data === undefined ? null : JSON.stringify(input.data);
+          requireThat(!data || data.length <= 64000, 413, 'Too large.');
+          if (kindOf === 'ring') requireThat(member.role !== 'viewer', 403, 'Viewers cannot start calls.');
+          await limit(pool, `call:${user.id}`, 4000, 3600);
+          const { rows: [row] } = await pool.query('INSERT INTO manager_call_signals(company_id,from_user,to_user,call_id,kind,data) VALUES($1,$2,$3,$4,$5,$6) RETURNING seq',
+            [companyId, user.id, to, callId, kindOf, data]);
+          if (Math.random() < 0.05) void pool.query("DELETE FROM manager_call_signals WHERE created_at<now()-interval '10 minutes'").catch(() => {});
+          return json(res, 200, { seq: String(row.seq) });
+        }
+        if (kind === 'call' && !sub && req.method === 'GET') {
+          await limit(pool, `call:${user.id}`, 4000, 3600);
+          // Long poll for what other Macs sent this one. Without a cursor: rings of the last 40 s that nobody ended yet.
+          const after = url.searchParams.get('after'), wait = Math.min(25, Math.max(0, Number(url.searchParams.get('wait')) || 0));
+          requireThat(!after || /^\d{1,18}$/.test(after), 400, 'Invalid cursor.');
+          const fetchNew = () => pool.query(`SELECT s.seq,s.from_user,u.name AS from_name,s.to_user,s.call_id,s.kind,s.data,s.created_at FROM manager_call_signals s JOIN manager_users u ON u.id=s.from_user
+              WHERE s.company_id=$1 AND s.from_user<>$2 AND (s.to_user IS NULL OR s.to_user=$2) AND s.seq>$3 AND s.created_at>now()-interval '2 minutes' ORDER BY s.seq LIMIT 500`,
+            [companyId, user.id, after || '0']).then(r => r.rows);
+          let rows;
+          if (!after) {
+            const { rows: [m] } = await pool.query('SELECT coalesce(max(seq),0) AS seq FROM manager_call_signals WHERE company_id=$1', [companyId]);
+            rows = (await pool.query(`SELECT s.seq,s.from_user,u.name AS from_name,s.to_user,s.call_id,s.kind,s.data,s.created_at FROM manager_call_signals s JOIN manager_users u ON u.id=s.from_user
+              WHERE s.company_id=$1 AND s.from_user<>$2 AND s.kind='ring' AND s.created_at>now()-interval '40 seconds'
+              AND NOT EXISTS (SELECT 1 FROM manager_call_signals h WHERE h.call_id=s.call_id AND h.company_id=s.company_id AND h.kind='hangup' AND h.from_user=s.from_user)`, [companyId, user.id])).rows;
+            return json(res, 200, { after: String(m.seq), signals: rows.map(signalOf) });
+          }
+          rows = await fetchNew(); let closed = false; req.on('close', () => { closed = true });
+          const until = Date.now() + wait * 1000;
+          while (!rows.length && !closed && Date.now() < until) { await new Promise(r => setTimeout(r, 250)); rows = await fetchNew(); }
+          if (closed) return;
+          return json(res, 200, { after: rows.length ? String(rows.at(-1).seq) : after, signals: rows.map(signalOf) });
         }
         if (kind === 'chat' && !sub && req.method === 'GET') {
           // Long poll: answers at once when there is something newer than `after`, else waits up to `wait` seconds.

@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises'
-import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification, systemPreferences, desktopCapturer, session } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
 import { notice, noticesWindow, noticesList, noticesRead, noticesClear } from './notices'
@@ -289,6 +289,10 @@ function tabDone(tabId: string, text: string): void {
 let crashedLastRun = false
 const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
 app.whenReady().then(() => {
+  // Screen sharing in calls: macOS's own picker where it has one, else the main screen.
+  session.defaultSession.setDisplayMediaRequestHandler((_req, cb) => {
+    void desktopCapturer.getSources({ types: ['screen', 'window'] }).then(s => cb(s[0] ? { video: s[0] } : {})).catch(() => cb({}))
+  }, { useSystemPicker: true })
   if (pendingLink) setTimeout(() => void openLink(pendingLink), 1500)
   // Electron's own menu, plus Check for Updates… under TerminAI.
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -436,6 +440,23 @@ function registerIpc(): void {
   appIpc.handle('team:chat', (_e, company, after, typing) => teamChat(company, after, typing))
   appIpc.handle('team:send', (_e, company, body, fileId) => teamSend(company, body, fileId))
   appIpc.handle('team:signal', (_e, company, kind) => teamSignal(company, kind))
+  appIpc.handle('team:call', (_e, company, after) => teamCall(company, after))
+  appIpc.handle('team:call-send', (_e, company, signal) => teamCallSend(company, signal))
+  appIpc.handle('team:ice', (_e, company) => teamIce(company))
+  // Calls ask macOS for the microphone and camera the first time; true when allowed.
+  appIpc.handle('team:media-access', async (_e, video: unknown) => {
+    if (process.platform !== 'darwin' || !app.isPackaged) return true
+    const mic = await systemPreferences.askForMediaAccess('microphone')
+    const cam = video === true ? await systemPreferences.askForMediaAccess('camera') : true
+    return mic && cam
+  })
+  appIpc.handle('team:call-notify', (_e, title: unknown, body: unknown) => {
+    notice('chat', String(title), String(body), { open: 'chat' })
+    if (!Notification.isSupported()) return false
+    const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
+    n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
+    n.show(); return true
+  })
   appIpc.handle('team:files', (_e, company) => teamFiles(company))
   appIpc.handle('team:file-change', (_e, company, id, change) => teamFileChange(company, id, change))
   appIpc.handle('team:upload', (_e, company, path, access, products, chat) => teamUpload(company, path, access, products, chat === true))

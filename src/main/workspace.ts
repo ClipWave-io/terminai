@@ -243,6 +243,19 @@ export async function teamSignal(company: unknown, kind: unknown): Promise<void>
   if (kind !== 'typing' && kind !== 'read') throw new Error('Unsupported workspace action.')
   await authed(`/api/companies/${companyId(company)}/chat/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
 }
+/** Calls: the long poll for what other Macs sent this one (rings, offers, answers, network candidates), and sending one. */
+export async function teamCall(company: unknown, after?: unknown): Promise<any> {
+  const q = new URLSearchParams(typeof after === 'string' && /^\d{1,18}$/.test(after) ? { after, wait: '25' } : {})
+  return jsonOf(await authed(`/api/companies/${companyId(company)}/call?${q}`, { timeout: 40000 }))
+}
+export async function teamCallSend(company: unknown, signal: unknown): Promise<any> {
+  const v = signal as any
+  if (!v || typeof v !== 'object' || typeof v.callId !== 'string' || typeof v.kind !== 'string') throw new Error('Invalid call signal.')
+  const out = JSON.stringify({ callId: v.callId, kind: v.kind, to: typeof v.to === 'string' ? v.to : undefined, data: v.data })
+  if (out.length > 64000) throw new Error('Invalid call signal.')
+  return jsonOf(await authed(`/api/companies/${companyId(company)}/call`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: out }))
+}
+export async function teamIce(company: unknown): Promise<any> { return jsonOf(await authed(`/api/companies/${companyId(company)}/call/ice`)) }
 export async function teamFiles(company: unknown): Promise<any> { return jsonOf(await authed(`/api/companies/${companyId(company)}/files`)) }
 export async function teamFileChange(company: unknown, fileId: unknown, change: unknown): Promise<any> {
   if (typeof fileId !== 'string' || !/^[0-9a-f-]{36}$/.test(fileId)) throw new Error('Unsupported workspace action.')

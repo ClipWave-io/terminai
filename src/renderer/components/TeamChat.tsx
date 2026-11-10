@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import './teamchat.css'
 import { AccessPicker, Avatar, PeoplePanel, useProducts, type Access } from './Permissions'
+import { CallIcon, CallView, useCalls } from './Call'
 
 /**
  * Team chat and team files, a drawer on the right. It stays mounted while signed in so the long poll keeps the
@@ -61,6 +62,8 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
           if (stop) return
           setOffline(false); setMe(r.me); cache.set(`${key}:me`, r.me); setPeople(r.people); cache.set(`${key}:p`, r.people)
           typing = r.people.filter((p: Person) => p.typing).map((p: Person) => p.id).join(',')
+          // An empty chat has no newest message: wait from the beginning of time, so the next call is a long poll too.
+          if (!after && !r.messages.length) after = new Date(0).toISOString()
           if (r.messages.length) {
             after = r.messages.at(-1).at
             // Only messages this window has not had yet notify, once each (a repeat from the server never does).
@@ -94,23 +97,30 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   }
   const [notice, setNotice] = useState(''); const alertLine = (t: string) => { setNotice(t); setTimeout(() => setNotice(''), 5000) }
 
-  if (!open) return null
+  const peopleRef = useRef(people); peopleRef.current = people
+  const calls = useCalls(company, me, id => peopleRef.current.find(p => p.id === id)?.name ?? 'Someone')
   const others = people.filter(p => p.id !== me)
+  const callTitle = others.length === 1 ? others[0].name : 'Team'
+  if (!open) return <CallView calls={calls} title={callTitle} />
   const typingNow = others.filter(p => p.typing)
   const title = others.length === 1 ? others[0].name : others.length ? others.map(p => p.name.split(' ')[0]).join(', ') : 'Team'
   const sub = offline ? 'connecting…' : typingNow.length ? `${typingNow.map(p => p.name.split(' ')[0]).join(', ')} ${typingNow.length > 1 ? 'are' : 'is'} typing…` : others.length === 1 ? lastSeen(others[0]) : others.length ? `${others.filter(p => p.online).length} of ${others.length} online` : 'Invite someone from Sync › Members'
-  return <aside className="tc" aria-label="Team chat">
+  return <><CallView calls={calls} title={callTitle} beside /><aside className="tc" aria-label="Team chat">
     <header className="tc-head">
       <span className="tc-faces" aria-hidden="true">{(others.length ? others : people).slice(0, 4).map(p => <Avatar key={p.id} id={p.id} name={p.name} size={30} online={p.online} />)}</span>
       <div className="tc-who"><strong>{title}</strong><small className={typingNow.length ? 'typing' : ''}>{sub}</small></div>
       <div className="tc-tabs" role="tablist">{(['chat', 'files', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : v === 'files' ? 'Files' : 'People'}</button>)}</div>
+      {others.length > 0 && calls.phase === 'idle' && <span className="tc-calls">
+        <button className="tc-x" title={`Voice call ${callTitle}`} aria-label="Voice call" onClick={() => void calls.start(false)}><CallIcon n="phone" s={17} /></button>
+        <button className="tc-x" title={`Video call ${callTitle}`} aria-label="Video call" onClick={() => void calls.start(true)}><CallIcon n="video" s={17} /></button>
+      </span>}
       <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
     {notice && <div className="tc-notice">{notice}</div>}
     {view === 'chat' ? <Chat company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
       : view === 'files' ? <Files company={company} admin={admin} me={me} onError={alertLine} />
       : <PeoplePanel company={company} me={me} onError={e => alertLine(String((e as Error).message ?? e))} online={id => people.find(p => p.id === id)?.online} />}
-  </aside>
+  </aside></>
 }
 
 function Chat({ company, messages, me, others, onSend, onShare }: { company: string; messages: Message[]; me: string; others: Person[]; onSend: (b: string) => void; onShare: (p: string[]) => void }): JSX.Element {

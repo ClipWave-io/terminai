@@ -1,6 +1,6 @@
 {
   "name": "clipwave-term",
-  "version": "0.3.41",
+  "version": "0.3.42",
   "description": "A terminal that is easier on the eyes, and talks back.",
   "main": "out/main/index.js",
   "author": "Maracuya Labs UG",
@@ -81,7 +81,8 @@
       "notarize": true,
       "extendInfo": {
         "NSAppleEventsUsageDescription": "Commands you run in TerminAI can control other apps.",
-        "NSMicrophoneUsageDescription": "Voice tools you run in TerminAI can use the microphone.",
+        "NSMicrophoneUsageDescription": "Calls with your team, and voice tools you run in TerminAI, use the microphone.",
+        "NSCameraUsageDescription": "Video calls with your team use the camera.",
         "NSDownloadsFolderUsageDescription": "TerminAI shows and edits the files in folders you open, and the agents in your tabs work with them.",
         "NSDocumentsFolderUsageDescription": "TerminAI shows and edits the files in folders you open, and the agents in your tabs work with them.",
         "NSDesktopFolderUsageDescription": "TerminAI shows and edits the files in folders you open, and the agents in your tabs work with them."
