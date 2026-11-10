@@ -227,6 +227,8 @@ export interface TabInfo {
   focusedMs: number
   /** epoch ms it was last focused, for "last used" */
   lastActiveAt: number
+  /** epoch ms the conversation last did something (its agent started or finished a turn, or it was opened); kept across restarts */
+  activityAt: number
   /** free-text scratch note the user keeps against this session */
   notes: string
   /** Claude Code session id minted for this tab; '' until `claude` has run */
@@ -288,6 +290,8 @@ export interface SavedTab {
   title: string
   notes: string
   focusedMs: number
+  /** epoch ms the conversation was last active, for sorting the sidebar by it */
+  activityAt?: number
   /**
    * The PTY this tab was showing. Only meaningful while the app is still
    * running: closing the window on macOS leaves the shells alive, so reopening
@@ -387,6 +391,10 @@ export interface Prefs {
   sessionTabs: Record<string, string>
   /** sidebar sessions bucketed under a heading per folder */
   groupByFolder: boolean
+  /** the sidebar lists the most recently active conversations first (and folders by their newest one) */
+  railRecent: boolean
+  /** each conversation in the sidebar shows when it was last active */
+  railTimes: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
   /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
@@ -443,6 +451,8 @@ export const DEFAULT_PREFS: Prefs = {
   sessionTabs: {},
   folderSharing: {},
   groupByFolder: true,
+  railRecent: false,
+  railTimes: false,
   tasksUser: 'ilai',
   todoHiddenColumns: [],
   todoProducts: [],

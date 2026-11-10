@@ -1308,7 +1308,7 @@ textarea.card-notes.editing {
 .btn.danger { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
 /* Feedback, bottom left: the button sits in the sidebar's footer, the panel opens above it. */
 .fb-button { flex: none; }
-.fb-backdrop { position: fixed; inset: 0; z-index: 70; }
+.fb-backdrop { position: fixed; inset: 0; z-index: 1100; }
 .fb-panel { position: fixed; left: 14px; bottom: 60px; width: 320px; display: grid; gap: 10px; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 18px 50px var(--shadow); color: var(--fg); }
 .fb-panel header { display: flex; justify-content: space-between; align-items: center; } .fb-panel strong { font-size: 13.5px; }
 .fb-x { border: 0; background: none; color: var(--dim); font-size: 18px; line-height: 1; cursor: pointer; } .fb-x:hover { color: var(--fg); }
@@ -1363,3 +1363,16 @@ textarea.card-notes.editing {
 /* The To-do's Activity, now a plain button: its new changes also reach the bell in the top bar. */
 .todo-head-activity { border: 1px solid var(--border); background: none; color: var(--dim); font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 8px; cursor: pointer; } .todo-head-activity:hover, .todo-head-activity[aria-pressed=true] { color: var(--fg); }
 .nc-panel { z-index: 1200; }
+
+/* Settings › Show when each was last active: the folder, then the time, on the line under the title. */
+.tab-sub { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.tab-sub .tab-cwd { min-width: 0; flex: 0 1 auto; }
+.tab-ago { flex: none; margin-left: auto; font-size: 10.5px; color: var(--dim); opacity: .85; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Feedback sits at the bottom of the Settings sidebar, styled like its sections. */
+.team-side .st-feedback { margin-top: auto; }
+.fb-nav { display: flex; align-items: center; gap: 9px; border: 0; background: transparent; color: var(--dim); padding: 7px 9px; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 500; text-align: left; cursor: pointer; width: 100%; }
+.fb-nav:hover, .fb-nav[aria-expanded=true] { background: var(--surface); color: var(--fg); }
+.fb-wrap { position: relative; display: block; } .fb-wrap-rail { display: contents; }
+.fb-anchor { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 1101; }
+.fb-anchor .fb-panel { position: static; width: 300px; }
+.fb-fixed { position: relative; z-index: 1101; }

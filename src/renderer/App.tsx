@@ -304,6 +304,7 @@ export function App(): JSX.Element {
       // Focus time carries across restarts; the session age deliberately does not.
       focusedMs: restore?.focusedMs ?? 0,
       lastActiveAt: now,
+      activityAt: restore?.activityAt ?? now,
       notes: restore?.notes ?? '',
       claudeSession: '',
     }
@@ -350,6 +351,7 @@ export function App(): JSX.Element {
         createdAt: now,
         focusedMs: restore?.focusedMs ?? 0,
         lastActiveAt: now,
+        activityAt: restore?.activityAt ?? now,
         notes: restore?.notes ?? '',
         claudeSession: '',
       },
@@ -461,6 +463,7 @@ export function App(): JSX.Element {
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
     notes: t.notes,
     focusedMs: t.focusedMs,
+    activityAt: t.activityAt,
     claude: t.usedClaude,
     claudeSession: t.claudeSession,
   }))
@@ -569,6 +572,8 @@ export function App(): JSX.Element {
                   process: s.process,
                   cwd: s.cwd,
                   status: s.status,
+                  // Starting or finishing a turn is activity; a question waiting is too.
+                  activityAt: s.status !== t.status && (s.status !== 'ready' || t.status === 'working') ? Date.now() : t.activityAt,
                   agent, agentSession, agentArgs: s.agent.kind ? s.agent.args : t.agentArgs,
                   agentAlive: s.agent.alive,
                   usedClaude: s.usedClaude,
@@ -836,6 +841,8 @@ export function App(): JSX.Element {
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir, undefined, true))}
             onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(!prev[from]||!prev[to]||groupOf(prev[from])!==groupOf(prev[to]))return prev;const key=groupOf(prev[from]);const slots=prev.map((t,i)=>groupOf(t)===key?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}
             grouped={prefs.groupByFolder}
+            recent={prefs.railRecent}
+            times={prefs.railTimes}
           />
 
           {/* Lives in the gutter rather than inside the rail: the rail clips its

@@ -1,4 +1,3 @@
-import { FeedbackButton } from './FeedbackButton'
 import { useRef, useState } from 'react'
 import { groupOf, tabLabel, type TabInfo, type TabStatus } from '../../shared/types'
 import type { JSX } from 'react'
@@ -27,6 +26,10 @@ interface Props {
   onReorder: (from: number, to: number) => void
   /** bucket the rows under a heading per group, or per folder for tabs without one */
   grouped: boolean
+  /** most recently active conversations first, and folders by their newest one (Settings) */
+  recent?: boolean
+  /** show under each conversation when it was last active (Settings) */
+  times?: boolean
 }
 
 /** Trailing path segment, with $HOME collapsed to ~ the way a prompt would. */
@@ -36,6 +39,20 @@ function shortCwd(cwd: string): string {
   const parts = cwd.split('/').filter(Boolean)
   if (cwd.startsWith(home) && parts.length <= 2) return '~'
   return parts.slice(-2).join('/')
+}
+
+/** When a conversation was last active, short: "now", "5 min ago", "2 h ago", "yesterday 14:30", "Mon 14:30", "3 Nov". */
+export function activeAgo(at: number, now = Date.now()): string {
+  const m = Math.floor((now - at) / 60000)
+  if (m < 1) return 'now'
+  if (m < 60) return `${m} min ago`
+  if (m < 6 * 60) return `${Math.floor(m / 60)} h ago`
+  const d = new Date(at), t = new Date(now), y = new Date(now); y.setDate(t.getDate() - 1)
+  const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (d.toDateString() === t.toDateString()) return `today ${hm}`
+  if (d.toDateString() === y.toDateString()) return `yesterday ${hm}`
+  if (now - at < 6 * 86400000) return `${d.toLocaleDateString([], { weekday: 'short' })} ${hm}`
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' })
 }
 
 /** Green: free to use. Yellow: busy. Blue: it stopped and wants you. Accent
@@ -73,6 +90,8 @@ export function TabRail({
   onNewIn,
   onReorder,
   grouped,
+  recent = false,
+  times = false,
 }: Props): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
@@ -98,8 +117,11 @@ export function TabRail({
   // Buckets in first-appearance order, so turning grouping on rearranges as
   // little as possible: the folder you were just in stays near the top.
   const groups: { key: string; name?: string; hidden: number; tabs: { tab: TabInfo; i: number }[] }[] = []
+  // Sorted by last activity, the order is the clock's: rows and folders follow it and do not drag.
+  const order = tabs.map((tab, i) => ({ tab, i }))
+  if (recent) order.sort((a, b) => (b.tab.activityAt ?? 0) - (a.tab.activityAt ?? 0))
   if (grouped) {
-    tabs.forEach((tab, i) => {
+    order.forEach(({ tab, i }) => {
       if (!matches(tab)) return
       const key = groupOf(tab)
       let bucket = groups.find((g) => g.key === key)
@@ -130,7 +152,7 @@ export function TabRail({
         .join(' ')}
       // Grouping *is* the order while it is on: a row dragged across
       // folders would snap straight back when the buckets re-form.
-      draggable={editingId !== tab.id}
+      draggable={editingId !== tab.id && !recent}
       onDragStart={(e) => {
         // Chromium refuses to start a drag whose dataTransfer is empty,
         // which is why `draggable` alone did nothing here.
@@ -170,7 +192,8 @@ export function TabRail({
       >{!tab.exited && tab.id !== speakingId && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tabLabel(tab)}{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
-        <div className="tab-cwd">{shortCwd(tab.cwd)}</div>
+        {times ? <div className="tab-sub"><span className="tab-cwd">{shortCwd(tab.cwd)}</span><span className="tab-ago" title={`Last active ${new Date(tab.activityAt ?? tab.createdAt).toLocaleString()}`}>{activeAgo(tab.activityAt ?? tab.createdAt)}</span></div>
+          : <div className="tab-cwd">{shortCwd(tab.cwd)}</div>}
       </span>
       <button
         className="tab-hide"
@@ -212,14 +235,14 @@ export function TabRail({
           ? groups.map((g) => (
               <div key={g.key} className={['rail-group', dragGroup === g.key ? 'dragging' : '', overGroup === g.key && dragGroup !== null && dragGroup !== g.key ? 'dropping' : ''].filter(Boolean).join(' ')}>
                 {/* Only another folder lands on a header, never a single session. */}
-                <div className="rail-group-head" title={`${g.key}\nDrag to move this folder`} draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';e.dataTransfer.setData(GROUP_MIME,g.key);setDragGroup(g.key)}} onDragOver={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.dataTransfer.dropEffect='move';setOverGroup(g.key)}} onDrop={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData(GROUP_MIME)||dragGroup;if(from&&from!==g.key)onReorderGroups(from,g.key);clearDrag()}} onDragEnd={clearDrag}>
+                <div className="rail-group-head" title={recent ? g.key : `${g.key}\nDrag to move this folder`} draggable={!recent} onDragStart={e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';e.dataTransfer.setData(GROUP_MIME,g.key);setDragGroup(g.key)}} onDragOver={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.dataTransfer.dropEffect='move';setOverGroup(g.key)}} onDrop={e=>{if(!e.dataTransfer.types.includes(GROUP_MIME))return;e.preventDefault();e.stopPropagation();const from=e.dataTransfer.getData(GROUP_MIME)||dragGroup;if(from&&from!==g.key)onReorderGroups(from,g.key);clearDrag()}} onDragEnd={clearDrag}>
                   <span className="rail-group-name">{g.name || shortCwd(g.key) || '/'}</span>
                   {hiddenToggle(g.key, g.hidden)}
                 </div>
                 {g.tabs.map(({ tab, i }) => row(tab, i))}
               </div>
             ))
-          : tabs.map((tab, i) => matches(tab) && shown(tab, ALL) ? row(tab, i) : null)}
+          : order.map(({ tab, i }) => matches(tab) && shown(tab, ALL) ? row(tab, i) : null)}
         {!grouped && hiddenCount > 0 && !filter && <div className="rail-hidden-footer">{hiddenToggle(ALL, hiddenCount)}</div>}
       </div>
 
@@ -240,7 +263,6 @@ export function TabRail({
             />
           </svg>
         </button>
-        <FeedbackButton />
       </div>
     </aside>
   )

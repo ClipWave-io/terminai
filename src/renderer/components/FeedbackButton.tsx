@@ -1,7 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 
-/** Feedback, bottom left like the ManyMotions dashboard: a round button that opens a small panel above it. */
-export function FeedbackButton(): JSX.Element {
+/** Feedback, at the bottom left of Settings: a button that opens a small panel above it. */
+export function FeedbackButton({ nav = false }: { nav?: boolean }): JSX.Element {
   const [open, setOpen] = useState(false), [email, setEmail] = useState(''), [message, setMessage] = useState(''), [state, setState] = useState<'' | 'sending' | 'sent' | 'mail'>('')
   useEffect(() => { if (open && !email) void window.term.workspace.state().then(s => setEmail(s.identity?.user.email ?? '')).catch(() => {}) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const send = async () => {
@@ -11,11 +11,12 @@ export function FeedbackButton(): JSX.Element {
     setState(r); setMessage('')
     setTimeout(() => { setState(''); setOpen(false) }, 2200)
   }
-  return <>
-    <button className="btn icon fb-button" title="Send feedback" aria-label="Send feedback" aria-expanded={open} onClick={() => setOpen(v => !v)}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+  return <span className={nav ? 'fb-wrap' : 'fb-wrap-rail'}>
+    <button className={nav ? 'fb-nav' : 'btn icon fb-button'} title="Send feedback" aria-label="Send feedback" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+      <svg width={nav ? 16 : 14} height={nav ? 16 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>{nav && 'Send feedback'}
     </button>
-    {open && <div className="fb-backdrop" onMouseDown={() => setOpen(false)}>
+    {open && <div className="fb-backdrop" onMouseDown={() => setOpen(false)} />}
+    {open && <div className={nav ? 'fb-anchor' : 'fb-fixed'}>
       <section className="fb-panel" role="dialog" aria-label="Send feedback" onMouseDown={e => e.stopPropagation()}>
         <header><strong>Send feedback</strong><button className="fb-x" aria-label="Close" onClick={() => setOpen(false)}>×</button></header>
         {state === 'sent' || state === 'mail' ? <div className="fb-done">
@@ -29,5 +30,5 @@ export function FeedbackButton(): JSX.Element {
           </>}
       </section>
     </div>}
-  </>
+  </span>
 }

@@ -1,3 +1,4 @@
+import { FeedbackButton } from './FeedbackButton'
 import { useEffect, useState } from 'react'
 import type React from 'react'
 import {
@@ -160,6 +161,8 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Sidebar" hint={<><span className="kbd">⌥⌘S</span> to flip · <span className="kbd">⌘S</span> to hide</>}>
         <select value={prefs.railSide} onChange={e => onChange({ railSide: e.target.value as RailSide })}><option value="left">Left</option><option value="right">Right</option></select></Row>
       <Row label="Group by folder" hint="Sessions sit under the folder they are in."><Toggle on={prefs.groupByFolder} set={v => onChange({ groupByFolder: v })} /></Row>
+      <Row label="Sort by last active" hint="The conversation that did something most recently comes first, and folders by their newest one."><Toggle on={prefs.railRecent} set={v => onChange({ railRecent: v })} /></Row>
+      <Row label="Show when each was last active" hint="The time under each conversation in the sidebar, like 5 min ago or yesterday 14:30."><Toggle on={prefs.railTimes} set={v => onChange({ railTimes: v })} /></Row>
       <Row label="Font size" hint={<><span className="kbd">⌘+</span> / <span className="kbd">⌘−</span></>}>
         <select value={prefs.fontSize} onChange={e => onChange({ fontSize: Number(e.target.value) })}>{[11, 12, 13, 14, 15, 16, 18].map(n => <option key={n} value={n}>{n}px</option>)}</select></Row>
     </div>),
@@ -199,6 +202,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <aside className="team-side">
             <div className="team-brand"><span className="team-mark">›_</span>Settings</div>
             <nav>{SECTIONS.map(([key, label, icon]) => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => setSection(key)}><SIcon d={icon} />{label}</button>)}</nav>
+            <div className="team-side-actions st-feedback"><FeedbackButton nav /></div>
           </aside>
           <main className="team-main">
             <button className="team-close" aria-label="Close settings" onClick={onClose}><SIcon d="M6 6l12 12M18 6 6 18" /></button>
