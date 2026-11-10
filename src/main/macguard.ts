@@ -9,7 +9,9 @@ import { join } from 'node:path'
  * by TerminAI tab id. TerminAI shows which chats are paused and resumes one through it (`macguard resume <id>`), so the
  * guardian's own list stays true. Without MacGuard installed there is no state file and nothing shows.
  */
-const HOME = process.env.TERMINAI_MACGUARD_HOME || join(homedir(), 'Library', 'Application Support', 'MacGuard')
+const INSTALL = join(homedir(), 'Library', 'Application Support', 'MacGuard')
+// Where its state lives; tests point it at a scratch folder. The script itself is always the installed one.
+const HOME = process.env.TERMINAI_MACGUARD_HOME || INSTALL
 
 export type GuardState = { running: boolean; level: number; paused: { id: string; name: string; at: string }[] }
 
@@ -25,8 +27,8 @@ export async function guardState(): Promise<GuardState | null> {
 /** Resumes these tabs (none: every paused one). Waits for the guardian to do it, at most about 15 s. */
 export function resumeGuard(ids: string[]): Promise<void> {
   const ok = ids.filter(id => /^[A-Za-z0-9_-]{1,120}$/.test(id))
-  return new Promise((resolve, reject) => execFile('/usr/bin/python3', ['-I', join(HOME, 'macguard.py'), '--home', HOME, 'resume', ...ok], { timeout: 30_000 },
-    err => err ? reject(err) : resolve()))
+  return new Promise((resolve, reject) => execFile('/usr/bin/python3', ['-I', join(INSTALL, 'macguard.py'), '--home', HOME, 'resume', ...ok], { timeout: 30_000 },
+    (err, _out, stderr) => err ? reject(new Error(String(stderr).trim().split('\n').pop() || `macguard exited with ${err.code ?? err.signal}`)) : resolve()))
 }
 
 /** Every 3 s: `onChange` with the new state when it changed, `onPaused` for each tab the guardian has just paused. */

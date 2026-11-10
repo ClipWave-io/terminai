@@ -12,7 +12,7 @@ export function GuardBanner({ id, at, others, running, onState }: { id: string; 
   const [error, setError] = useState('')
   const resume = (ids: string[]) => {
     setBusy(true); setError('')
-    void window.term.macguard.resume(ids).then(onState).catch(e => setError(String(e?.message ?? e).split('\n')[0])).finally(() => setBusy(false))
+    void window.term.macguard.resume(ids).then(onState).catch(e => setError(String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').split('\n')[0])).finally(() => setBusy(false))
   }
   return (
     <div className="guard-banner" role="status">
