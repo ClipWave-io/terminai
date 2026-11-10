@@ -95,6 +95,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
   const received = new Map<string, { from: string | null; fromName: string; bot?: boolean }>() // agent message id -> who sent it
   let running = false
   const wasShared = new Set<string>(), seen = new Set<string>()
+  const offRetry = new Map<string, number>()         // Off tab key -> when to try deleting its server copy again
 
   const modeOf = (key: string) => { const id = ptys.liveIds().find(t => ptys.workspaceKeyOf(t) === key); return tabMode(key, id ? ptys.cwdOf(id) : '') }
   const shared = (key: string) => modeOf(key) === 'shared'
@@ -108,15 +109,15 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         const agent = ptys.agentOf(id); if (!agent.kind && !opts.waiting?.(id)) continue
         const key = ptys.workspaceKeyOf(id), mode = tabMode(key, ptys.cwdOf(id)), share = mode === 'shared'
         if (agent.sessionId) rememberSession(agent.sessionId, key)
-        // Off the record deletes what the server had of it (its turns and messages). Shared to Only me keeps it, readable by you alone.
-        if (mode === 'off' && wasShared.has(key) && conversationOf.has(key)) {
-          await team.call(`/api/companies/${team.id}/conversations/${conversationOf.get(key)}`, 'DELETE').catch(() => {})
-          posted.delete(conversationOf.get(key)!); conversationOf.delete(key)
-        }
-        // First sight since the app started, Off the record: whatever an earlier run uploaded of it is deleted.
-        if (mode === 'off' && !seen.has(key)) {
-          const old = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', { title: 'Private session', visibility: 'owner' }).catch(() => null))?.conversation
-          if (old) await team.call(`/api/companies/${team.id}/conversations/${old.id}`, 'DELETE').catch(() => {})
+        // Off the record deletes what the server had of it (its turns and messages): when the tab goes Off, and at first sight
+        // since the app started (whatever an earlier run uploaded). Shared to Only me keeps it, readable by you alone.
+        // A deletion the server did not confirm is tried again every minute: Off must not stay a promise the server never got.
+        if (mode === 'off' && ((wasShared.has(key) && conversationOf.has(key)) || !seen.has(key) || (offRetry.get(key) ?? Infinity) <= Date.now())) {
+          try {
+            const id = conversationOf.get(key) ?? (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', { title: 'Private session', visibility: 'owner' })).conversation?.id
+            if (id) { await team.call(`/api/companies/${team.id}/conversations/${id}`, 'DELETE'); posted.delete(id) }
+            offRetry.delete(key)
+          } catch { offRetry.set(key, Date.now() + 60_000) }
           conversationOf.delete(key)
         }
         seen.add(key)

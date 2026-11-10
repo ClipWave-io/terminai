@@ -75,3 +75,5 @@
 .cb-tools button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); background: color-mix(in srgb, var(--pane) 92%, transparent); color: var(--dim); cursor: pointer; padding: 0; }
 .cb-tools button:hover { color: var(--fg); }
 .corner-chat.mini { position: relative; }
+.privacy-confirm { margin: 6px 8px; padding: 8px 10px; border: 1px solid color-mix(in srgb, #c8871a 55%, var(--border)); border-radius: 8px; font-size: 11.5px; line-height: 1.4; white-space: normal; }
+.privacy-confirm p { margin: 0 0 8px; } .privacy-confirm span { display: flex; gap: 6px; }

@@ -6,8 +6,13 @@ type Mode = 'shared' | 'private' | 'off'
 const LABEL: Record<Mode, string> = { shared: 'Shared', private: 'Only me', off: 'Off the record' }
 const HINT: Record<Mode, string> = {
   shared: 'Your partner and their agents can read this chat and message it.',
-  private: 'The chat goes to the TerminAI server, readable by you alone (iPhone and web).',
-  off: 'Nothing of this chat leaves this Mac.',
+  private: 'Sent to the TerminAI server for your account only (iPhone and web). The team cannot open it; the server keeps it unencrypted.',
+  off: 'Not sent anywhere. A copy shared before is deleted from the server.',
+}
+// Leaving Off (or Only me for Shared) uploads what is already written, so it is said first and done on a second click.
+const WARN: Record<'shared' | 'private', [string, string]> = {
+  shared: ['This sends the chat to the server now, with its last 30 messages written before sharing. Your partner and their agents can read it and message it.', 'Share this chat'],
+  private: ['This sends the chat to the TerminAI server now, with its last 30 messages, for your account only.', 'Send to my account'],
 }
 const isMode = (m: unknown): m is Mode => m === 'shared' || m === 'private' || m === 'off'
 
@@ -18,6 +23,7 @@ const isMode = (m: unknown): m is Mode => m === 'shared' || m === 'private' || m
 export function PrivacyPill({ tabKey }: { tabKey: string }): JSX.Element | null {
   const [state, setState] = useState<{ mode: Mode; own: boolean; rule: Mode } | null>(null)
   const [open, setOpen] = useState(false)
+  const [confirm, setConfirm] = useState<'shared' | 'private' | null>(null)
   const box = useRef<HTMLDivElement>(null)
   const load = () => window.term.team.tabs().then(s => {
     const t = s.tabs.find(x => x.key === tabKey)
@@ -35,7 +41,12 @@ export function PrivacyPill({ tabKey }: { tabKey: string }): JSX.Element | null 
     return () => window.removeEventListener('mousedown', away)
   }, [open])
   if (!state) return null
-  const pick = (mode: Mode | null) => void window.term.team.tabMode(tabKey, mode).then(load).finally(() => setOpen(false))
+  const set = (mode: Mode | null) => void window.term.team.tabMode(tabKey, mode).then(load).finally(() => { setOpen(false); setConfirm(null) })
+  // More leaves this Mac than now: Off to anything, Only me to Shared.
+  const pick = (mode: Mode | null) => {
+    const to = mode ?? state.rule
+    if (to !== state.mode && to !== 'off' && (state.mode === 'off' || to === 'shared')) setConfirm(to); else set(mode)
+  }
   return (
     <div ref={box} className="account-menu privacy-menu" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }}>
       {open && (
@@ -53,12 +64,14 @@ export function PrivacyPill({ tabKey }: { tabKey: string }): JSX.Element | null 
               </button>
             </div>
           ))}
+          {confirm && <div className="privacy-confirm" role="alert"><p>{WARN[confirm][0]}</p>
+            <span><button className="btn primary" onClick={() => set(confirm === state.rule && state.own ? null : confirm)}>{WARN[confirm][1]}</button><button className="btn" onClick={() => setConfirm(null)}>Cancel</button></span></div>}
           {state.own && <div className="account-row"><button className="account-pick" role="menuitem" onClick={() => pick(null)}>
             <span className="account-check" /><span className="account-main"><span className="account-name">Follow the folder rules ({LABEL[state.rule]})</span></span></button></div>}
         </div>
       )}
       <button className={`corner-privacy ${state.mode}`} aria-haspopup="menu" aria-expanded={open} title={`Privacy of this chat: ${LABEL[state.mode]}. ${HINT[state.mode]}`}
-        onClick={() => setOpen(v => !v)}>
+        onClick={() => { setOpen(v => !v); setConfirm(null) }}>
         <span className={`privacy-dot ${state.mode}`} aria-hidden="true" />{LABEL[state.mode]}<span className="privacy-caret" aria-hidden="true">▾</span>
       </button>
     </div>

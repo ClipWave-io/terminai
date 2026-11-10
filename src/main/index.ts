@@ -61,6 +61,12 @@ async function openLink(link: string) {
   if (!app.isReady()) { pendingLink = link; return }
   if (!win || win.isDestroyed()) createWindow()
   win?.show(); win?.focus()
+  // A sign-in link changes which account this Mac's chats go to, so it is never followed without the person saying so.
+  const now = await workspaceState().catch(() => null), who = now?.signedIn ? now.identity?.user?.email || 'another account' : ''
+  const ask = { type: 'question' as const, buttons: ['Cancel', 'Sign in'], defaultId: 0, cancelId: 0, message: 'Sign in to TerminAI Sync from this link?',
+    detail: `${who ? `This Mac is signed in as ${who}: the link replaces that account. ` : ''}Shared and Only me chats are sent to the account that made the link. Continue only if you pressed “Open TerminAI” on the TerminAI website yourself, just now.` }
+  const { response } = win && !win.isDestroyed() ? await dialog.showMessageBox(win, ask) : await dialog.showMessageBox(ask)
+  if (response !== 1) return
   try { await workspaceHandoff(link); win?.webContents.send('workspace:signed-in') }
   catch (err) { dialog.showErrorBox('TerminAI could not sign in', err instanceof Error ? err.message : String(err)) }
 }
