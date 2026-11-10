@@ -211,6 +211,10 @@ export function createApp(pool, config) {
         requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
         return json(res, 200, { feedback: (await pool.query('SELECT email,message,app_version,created_at FROM manager_feedback ORDER BY created_at DESC LIMIT 500')).rows });
       }
+      if (req.method === 'GET' && path === '/api/operator/files') {
+        requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
+        return json(res, 200, { files: (await pool.query('SELECT name,mime,size,access,products,from_chat,created_at FROM manager_team_files ORDER BY created_at DESC LIMIT 20')).rows });
+      }
       if (req.method === 'GET' && path === '/api/operator/users') {
         requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
         const { rows } = await pool.query(`SELECT u.name,u.email,u.created_at,
@@ -464,7 +468,7 @@ export function createApp(pool, config) {
           await seen();
           const fetchNew = () => pool.query(`SELECT c.id,c.body,c.created_at,c.from_user,u.name AS from_name,f.id AS fid,f.name AS fname,f.mime,f.size,f.access,f.products,f.created_by
               FROM manager_chat c JOIN manager_users u ON u.id=c.from_user LEFT JOIN manager_team_files f ON f.id=c.file_id
-              WHERE c.company_id=$1 AND ($2::timestamptz IS NULL OR c.created_at>$2) ORDER BY c.created_at DESC LIMIT 200`, [companyId, after || null]).then(r => r.rows.reverse());
+              WHERE c.company_id=$1 AND ($2::timestamptz IS NULL OR date_trunc('milliseconds', c.created_at)>$2) ORDER BY c.created_at DESC LIMIT 200`, [companyId, after || null]).then(r => r.rows.reverse());
           let rows = await fetchNew(), closed = false; req.on('close', () => { closed = true });
           const typingKey = async () => (await pool.query("SELECT string_agg(user_id::text,',') AS t FROM manager_presence WHERE company_id=$1 AND user_id<>$2 AND typing_until>now()", [companyId, user.id])).rows[0].t || '';
           const typing0 = url.searchParams.get('typing') ?? '';

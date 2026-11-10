@@ -63,3 +63,4 @@
 .privacy-caret { font-size: 9px; color: var(--dim); }
 .privacy-hint { font-size: 11px; line-height: 1.35; color: var(--dim); white-space: normal; }
 .corner-count { min-width: 14px; padding: 1px 4px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; text-align: center; }
+.corner-chat.unread { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }

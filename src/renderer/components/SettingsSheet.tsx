@@ -154,7 +154,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
             <option value="claude">Claude Code</option><option value="codex">Codex</option><option value="none">Just a shell</option></select></Row>
         <Row label="Install updates at night" hint="Between 3 and 6, when no tab is working: TerminAI restarts into the new version and your conversations come back."><Toggle on={prefs.nightUpdates} set={v => onChange({ nightUpdates: v })} /></Row>
-        <Row label="Team chat button" hint="The Chat button at the bottom right of the terminal, next to the account."><Toggle on={prefs.chatButton} set={v => onChange({ chatButton: v })} /></Row>
+        <Row label="Team chat button" hint="The Chat button at the bottom right of the terminal, with the unread count. The toolbar icon is set under ⋯."><Toggle on={prefs.chatButton} set={v => onChange({ chatButton: v })} /></Row>
         <Row label="Browser (beta)" hint="The built-in browser pane. Off until it is finished."><Toggle on={prefs.browserBeta} set={v => onChange({ browserBeta: v })} /></Row>
         <Row label="Customise the design" hint="Opens Claude Code in this app's own source, then rebuilds and relaunches."><button className="btn" onClick={onCustomize}>Open Claude Code</button></Row>
       </div>

@@ -44,13 +44,16 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const [me, setMe] = useState<string>(() => cache.get(`${key}:me`, ''))
   const [view, setView] = useState<'chat' | 'files' | 'people'>('chat')
   const [lastRead, setLastRead] = useState<string>(() => cache.get(`${key}:read`, ''))
+  const lastReadRef = useRef(lastRead); lastReadRef.current = lastRead
   const [offline, setOffline] = useState(false)
   const openRef = useRef(open); openRef.current = open
+  const known = useRef(new Set<string>())
   const meRef = useRef(me); meRef.current = me
 
   // The long poll: each answer brings what is new, then the next call waits for more (or for typing to change).
   useEffect(() => {
-    let stop = false, after = messages.at(-1)?.at, typing = ''
+    let stop = false, after = messages.at(-1)?.at, typing = '', first = true
+    messages.forEach(m => known.current.add(m.id))
     const run = async () => {
       while (!stop) {
         try {
@@ -60,8 +63,10 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
           typing = r.people.filter((p: Person) => p.typing).map((p: Person) => p.id).join(',')
           if (r.messages.length) {
             after = r.messages.at(-1).at
+            // Only messages this window has not had yet notify, once each (a repeat from the server never does).
+            const fresh = r.messages.filter((m: Message) => m.from !== r.me && !known.current.has(m.id) && (!first || m.at > lastReadRef.current))
+            r.messages.forEach((m: Message) => known.current.add(m.id)); first = false
             setMessages(prev => { const seen = new Set(prev.filter(m => !m.pending).map(m => m.id)); const next = [...prev.filter(m => !m.pending), ...r.messages.filter((m: Message) => !seen.has(m.id))].slice(-500); cache.set(`${key}:m`, next); return next })
-            const fresh = r.messages.filter((m: Message) => m.from !== r.me)
             if (fresh.length && (!openRef.current || !document.hasFocus())) {
               const m = fresh.at(-1); void window.term.teamchat.notify(m.fromName, m.body || (m.file ? 'Sent a file' : ''))
             }
@@ -154,18 +159,20 @@ function Attachment({ company, file }: { company: string; file: ChatFile }): JSX
     <span className="tc-file-name">{file.name}<small>{size(file.size)} · click to open</small></span></button>
 }
 
-/** Downloads the image only when it scrolls into view; afterwards from the cache. */
+/** Downloads the picture once (kept in this Mac's cache), retrying a few times; clicking opens it in the Files pane. */
 function LazyImage({ company, file }: { company: string; file: { id: string; name: string; size: number } }): JSX.Element {
-  const [src, setSrc] = useState(''), ref = useRef<HTMLButtonElement>(null)
+  const [src, setSrc] = useState(''), [failed, setFailed] = useState(false)
   useEffect(() => {
-    const el = ref.current; if (!el) return
-    const io = new IntersectionObserver(([e]) => { if (!e.isIntersecting) return; io.disconnect()
-      let p = images.get(file.id); if (!p) { p = window.term.teamchat.image(company, file.id, file.name); images.set(file.id, p); p.catch(() => images.delete(file.id)) }
-      void p.then(setSrc).catch(() => {}) }, { rootMargin: '300px' })
-    io.observe(el); return () => io.disconnect()
+    let stop = false
+    const load = async (tries: number) => {
+      let p = images.get(file.id); if (!p) { p = window.term.teamchat.image(company, file.id, file.name); images.set(file.id, p) }
+      try { const v = await p; if (!stop) setSrc(v) }
+      catch { images.delete(file.id); if (tries > 0 && !stop) setTimeout(() => void load(tries - 1), 2500); else if (!stop) setFailed(true) }
+    }
+    void load(3); return () => { stop = true }
   }, [company, file.id, file.name])
-  return <button ref={ref} className="tc-img" title={file.name} onClick={() => void window.term.teamchat.open(company, file.id, file.name, 'pane')}>
-    {src ? <img src={src} alt={file.name} /> : <span className="tc-img-wait">{size(file.size)}</span>}</button>
+  return <button className="tc-img" title={`${file.name} · click to open in Files`} onClick={() => void window.term.teamchat.open(company, file.id, file.name, 'pane')}>
+    {src ? <img src={src} alt={file.name} /> : <span className="tc-img-wait">{failed ? `${file.name} · click to open` : `Loading · ${size(file.size)}`}</span>}</button>
 }
 
 const ACCESS: Record<TeamFile['access'], string> = { all: 'Everyone', admins: 'Admins only', products: 'Products' }

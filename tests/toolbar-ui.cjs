@@ -8,7 +8,7 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
   await delay(1800);win.setSize(1300,820);const js=s=>win.webContents.executeJavaScript(s);
   const side=label=>js(`document.querySelector('[aria-label="${label}"]')?.closest('.topbar-side')?.classList.contains('right')`);
   assert.equal(await side('Sync'),false);assert.equal(await side('To-do'),true);
-  assert.equal(await js(`!!document.querySelector('.topbar [aria-label^="Team chat"]')`),false,'chat left the toolbar');
+  assert.equal(await js(`!!document.querySelector('.topbar [aria-label^="Team chat"]')`),true,'chat in the toolbar');
   assert.ok(await js(`!!document.querySelector('.corner-chat')`),'chat button bottom right');
   await js(`document.querySelector('[aria-label="Customize toolbar"]').click()`);await delay(300);
   await js(`[...document.querySelectorAll('.tb-item')].find(r=>r.textContent.startsWith('Sync')).querySelector('.tb-seg button:last-child').click()`);await delay(400);
