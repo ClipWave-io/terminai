@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { WorkDay, WorkConversation } from '../shared/types'
 import { cursor, readAppended, type Cursor } from './transcripts'
+import { scrub } from './sharing'
 
 /**
  * The work log: each day, what this person's Claude Code and Codex conversations on this Mac did, read from
@@ -13,7 +14,6 @@ import { cursor, readAppended, type Cursor } from './transcripts'
  */
 const HOME = homedir()
 const GAP = 5 * 60_000                                       // a pause longer than this is not working time
-const SECRET = /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|[A-Za-z0-9_-]{40,})/g
 
 type Read = { tool: 'Claude' | 'Codex'; id: string; title: string; cwd: string; times: number[]; done: { at: number; text: string }[] }
 const spoken = (text: unknown) => String(text ?? '').split('\n').filter(l => l.startsWith('SPOKEN:')).map(l => l.slice(7).trim()).pop()
@@ -101,9 +101,9 @@ export async function workDay(day: string, person: string, skip: string[] = [], 
     const ms = length(s), secret = hidden?.(r) ?? false, where = secret ? 'Private work' : place(r.cwd)
     byPlace.set(where, (byPlace.get(where) ?? 0) + ms)
     if (secret) return { tool: r.tool, title: 'Private work', place: where, start: new Date(r.times[0]).toISOString(), end: new Date(r.times[r.times.length - 1]).toISOString(), activeMinutes: Math.round(ms / 60000), done: [] }
-    return { tool: r.tool, title: r.title || r.done[0]?.text.slice(0, 70) || 'Untitled', place: where, start: new Date(r.times[0]).toISOString(),
+    return { tool: r.tool, title: scrub(r.title || r.done[0]?.text.slice(0, 70) || 'Untitled'), place: where, start: new Date(r.times[0]).toISOString(),
       end: new Date(r.times[r.times.length - 1]).toISOString(), activeMinutes: Math.round(ms / 60000),
-      done: r.done.map(x => ({ at: new Date(x.at).toISOString(), text: x.text.replace(SECRET, '[hidden]') })) }
+      done: r.done.map(x => ({ at: new Date(x.at).toISOString(), text: scrub(x.text) })) }
   })
   return { day, person, workingMinutes: Math.round(union(all) / 60000), conversations: list,
     projects: [...byPlace].map(([place, ms]) => ({ place, minutes: Math.round(ms / 60000) })).filter(p => p.minutes > 0).sort((a, b) => b.minutes - a.minutes),
@@ -123,6 +123,6 @@ export async function handoff(stateFile: string, session: string, every = 30 * 6
   writeFileSync(`${stateFile}.tmp`, JSON.stringify({ handed: now })); renameSync(`${stateFile}.tmp`, stateFile)
   const clock = (at: number) => new Date(at).toTimeString().slice(0, 5)
   return (await conversations(today())).filter(r => r.id !== session && shared(r.cwd, r.id))
-    .flatMap(r => r.done.filter(x => x.at > since).map(x => ({ at: x.at, line: `${clock(x.at)} [${place(r.cwd)}] ${x.text.replace(SECRET, '[hidden]')}` })))
+    .flatMap(r => r.done.filter(x => x.at > since).map(x => ({ at: x.at, line: `${clock(x.at)} [${place(r.cwd)}] ${scrub(x.text)}` })))
     .sort((a, b) => a.at - b.at).map(x => x.line).slice(-40)
 }

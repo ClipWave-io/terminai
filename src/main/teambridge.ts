@@ -126,7 +126,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         if (mode === 'off') continue
         // Only me: the same as Shared, but readable by you alone (your iPhone and the web), never by the team or bots.
         const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
-          title: opts.tabName(id).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
+          title: scrub(opts.tabName(id)).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
         conversationOf.set(key, conv.id)
         const file = transcriptOf(id); if (!file) continue
         const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
