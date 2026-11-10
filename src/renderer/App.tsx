@@ -313,7 +313,7 @@ export function App(): JSX.Element {
     const kind = restore?.agent || (restore?.claude ? 'claude' : '')
     if (kind && restore) {
       const sessionId = restore.agentSession || restore.claudeSession || ''
-      const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs, cwd: realCwd })
+      const cmd = await window.term.pty.resumeCommand({ kind, sessionId, args: restore.agentArgs, cwd: realCwd, fresh: restore.fresh === true })
       setTabs(prev => prev.map(t=>t.id===id?{...t, agent:kind, agentSession:sessionId, agentArgs:restore.agentArgs||[]}:t))
       window.term.pty.exec(id, cmd, { continue: restore.wasWorking === true, later: restore.later === true })
     } else if (start) {
@@ -400,16 +400,20 @@ export function App(): JSX.Element {
     // tab nearest the top, so each comes back somewhere different.
     const needIds = savedTabs.filter((t) => t.claude && !t.claudeSession)
     const dealt = new Map<SavedTab, string>()
+    // Never a conversation another tab already holds: two Claude Codes on one conversation write over each other.
+    const held = new Set(savedTabs.flatMap((t) => [t.claudeSession, t.agentSession]).filter((x): x is string => !!x))
     for (const cwd of new Set(needIds.map((t) => t.cwd))) {
       const forCwd = needIds.filter((t) => t.cwd === cwd)
-      const ids = await window.term.pty.recentSessions(cwd, forCwd.length)
+      const ids = (await window.term.pty.recentSessions(cwd, forCwd.length + held.size)).filter((id) => !held.has(id))
       forCwd.forEach((t, i) => ids[i] && dealt.set(t, ids[i]))
     }
 
     restoring.current = true
     try { for (const raw of savedTabs) {
       // Every conversation comes back by itself after a restart, as before 0.3.27 (main spaces the starts out).
-      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: false }
+      // Left without a conversation in a folder other tabs work in: it starts a new one, since `--continue` would take theirs.
+      const fresh = !!raw.claude && !raw.claudeSession && !raw.agentSession && !dealt.has(raw) && savedTabs.some((o) => o !== raw && o.cwd === raw.cwd)
+      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: false, fresh }
       const running = t.ptyId ? live.get(t.ptyId) : undefined
       if (running) {
         taken.add(running.id)
