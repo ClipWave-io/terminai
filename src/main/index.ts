@@ -214,10 +214,13 @@ function modeOfConversation(cwd: string, id: string): FolderMode {
   return conversationMode(cwd, id, tab ? ptys.workspaceKeyOf(tab) : undefined)
 }
 function startAgent(id: string, line: string, resume?: { carryOn: boolean }): void {
-  if (claudeLine(line)) trustFolder(ptys.cwdOf(id))
+  // A restored conversation's folder is marked trusted (it was when the conversation began). A folder Claude Code has
+  // never run in keeps Claude's own "do you trust this folder" question: that question is what stops a cloned repo's hooks.
+  const known = folderTrusted(ptys.cwdOf(id))
+  if (resume && claudeLine(line)) trustFolder(ptys.cwdOf(id))
   // A restored tab starts on a clean screen with a line saying it is coming back, not blank.
   ptys.execWhenReady(id, resume && line ? `clear; printf '\\n  \\033[2mResuming conversation…\\033[0m\\n'; ${line}` : line)
-  if (resume || claudeLine(line)) afterResume(id, resume?.carryOn === true)
+  if (resume || claudeLine(line)) afterResume(id, resume?.carryOn === true, !!resume || known)
 }
 /** Opening a tab whose conversation waits since the restart starts it. */
 function resumeLater(id: string): boolean {
@@ -225,14 +228,19 @@ function resumeLater(id: string): boolean {
   if (!job) return false
   laterResume.delete(id); startAgent(id, job.line, { carryOn: job.carryOn }); return true
 }
-function afterResume(id: string, carryOn: boolean): void {
+/** Claude Code has run here before with the folder trusted, or it is the person's own home folder. */
+function folderTrusted(cwd: string): boolean {
+  if (cwd === homedir()) return true
+  try { return JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8')).projects?.[cwd]?.hasTrustDialogAccepted === true } catch { return false }
+}
+function afterResume(id: string, carryOn: boolean, answerTrust = true): void {
   const started = Date.now()
   let nudged = false, quietSince = 0, trusted = false
   const tick = () => {
     if (nudged || Date.now() - started > 120_000 || !ptys.liveIds().includes(id)) return
     // Claude Code asks again in the home folder whatever its settings say. Choose option 1 by its number, so a
     // highlight resting on "No, exit" cannot pick the wrong one; only when option 1 is the trust answer.
-    if (!trusted && /1\.\s*Yes, I trust this folder/.test(ptys.bufferOf(id).slice(-3000))) { trusted = true; ptys.write(id, '1'); setTimeout(tick, 1500); return }
+    if (answerTrust && !trusted && /1\.\s*Yes, I trust this folder/.test(ptys.bufferOf(id).slice(-3000))) { trusted = true; ptys.write(id, '1'); setTimeout(tick, 1500); return }
     const agent = ptys.agentOf(id), status = ptys.statusOf(id)
     if (carryOn && agent.alive && status === 'waiting' && Date.now() - started > 6000) {
       if (!quietSince) quietSince = Date.now()
