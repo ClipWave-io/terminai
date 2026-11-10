@@ -287,6 +287,8 @@ export interface SavedTab {
   wasWorking?: boolean
   /** restore only: start the conversation when the tab is opened, not at launch */
   later?: boolean
+  /** restore only: without a conversation of its own in a folder other tabs work in, it starts a new one instead of `--continue` */
+  fresh?: boolean
   title: string
   notes: string
   focusedMs: number
