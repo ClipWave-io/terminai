@@ -91,14 +91,14 @@ function union(all: [number, number][]): number {
   return cur ? total + cur[1] - cur[0] : total
 }
 
-/** `hidden(cwd)`: conversations the partner may not see, sent as "Private work" with their time only. */
-export async function workDay(day: string, person: string, skip: string[] = [], modeOf?: (cwd: string) => 'shared' | 'private' | 'off'): Promise<WorkDay> {
+/** `modeOf(cwd, id)`: what of each conversation the partner may see; not Shared is sent as "Private work" with its time only. */
+export async function workDay(day: string, person: string, skip: string[] = [], modeOf?: (cwd: string, id: string) => 'shared' | 'private' | 'off'): Promise<WorkDay> {
   // Off the record is left out completely; Only me shows as "Private work" with its time.
-  const hidden = modeOf && ((cwd: string) => modeOf(cwd) !== 'shared')
-  const rs = (await conversations(day, skip)).filter(r => !modeOf || modeOf(r.cwd) !== 'off'), all: [number, number][] = [], byPlace = new Map<string, number>()
+  const hidden = modeOf && ((r: Read) => modeOf(r.cwd, r.id) !== 'shared')
+  const rs = (await conversations(day, skip)).filter(r => !modeOf || modeOf(r.cwd, r.id) !== 'off'), all: [number, number][] = [], byPlace = new Map<string, number>()
   const list: WorkConversation[] = rs.sort((a, b) => a.times[0] - b.times[0]).map(r => {
     const s = spans(r.times); all.push(...s)
-    const ms = length(s), secret = hidden?.(r.cwd) ?? false, where = secret ? 'Private work' : place(r.cwd)
+    const ms = length(s), secret = hidden?.(r) ?? false, where = secret ? 'Private work' : place(r.cwd)
     byPlace.set(where, (byPlace.get(where) ?? 0) + ms)
     if (secret) return { tool: r.tool, title: 'Private work', place: where, start: new Date(r.times[0]).toISOString(), end: new Date(r.times[r.times.length - 1]).toISOString(), activeMinutes: Math.round(ms / 60000), done: [] }
     return { tool: r.tool, title: r.title || r.done[0]?.text.slice(0, 70) || 'Untitled', place: where, start: new Date(r.times[0]).toISOString(),
@@ -114,15 +114,15 @@ export async function workDay(day: string, person: string, skip: string[] = [], 
  * Finished work from the other conversations since the last hand-off, given to one conversation only, so it can
  * tick the To-do tasks it finished and add done ones for work that had none (`terminai log hook`, at a prompt).
  */
-/** Only Shared work is handed on (`shared(cwd)`): it may become tasks on the shared To-do. */
-export async function handoff(stateFile: string, session: string, every = 30 * 60_000, shared: (cwd: string) => boolean = () => true): Promise<string[]> {
+/** Only Shared work is handed on (`shared(cwd, id)`): it may become tasks on the shared To-do. */
+export async function handoff(stateFile: string, session: string, every = 30 * 60_000, shared: (cwd: string, id: string) => boolean = () => true): Promise<string[]> {
   let state: { handed?: number } = {}
   try { state = JSON.parse(readFileSync(stateFile, 'utf8')) } catch {}
   const now = Date.now(), since = state.handed ?? now - 3600_000
   if (now - since < every) return []
   writeFileSync(`${stateFile}.tmp`, JSON.stringify({ handed: now })); renameSync(`${stateFile}.tmp`, stateFile)
   const clock = (at: number) => new Date(at).toTimeString().slice(0, 5)
-  return (await conversations(today())).filter(r => r.id !== session && shared(r.cwd))
+  return (await conversations(today())).filter(r => r.id !== session && shared(r.cwd, r.id))
     .flatMap(r => r.done.filter(x => x.at > since).map(x => ({ at: x.at, line: `${clock(x.at)} [${place(r.cwd)}] ${x.text.replace(SECRET, '[hidden]')}` })))
     .sort((a, b) => a.at - b.at).map(x => x.line).slice(-40)
 }

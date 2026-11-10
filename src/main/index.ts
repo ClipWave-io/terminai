@@ -22,7 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory, sleep as sleepTabs, wake as wakeTab } from './memory'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
-import { tabMode, defaultMode, repoOf } from './sharing'
+import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import * as store from './store'
@@ -40,7 +40,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 import { getTheme } from '../shared/themes'
-import type { Prefs, Task, TaskInput, TaskScope, VoicePrefs } from '../shared/types'
+import type { FolderMode, Prefs, Task, TaskInput, TaskScope, VoicePrefs } from '../shared/types'
 import type { QuestionKind } from '../shared/questions'
 
 /** Injected by electron-vite at build time; see electron.vite.config.ts. */
@@ -201,6 +201,11 @@ function createWindow(): void {
  */
 const laterResume = new Map<string, { line: string; carryOn: boolean }>()
 const claudeLine = (line: string) => /(^\S*claude\b|--(resume|continue)\b)/.test(line)
+/** The work log's privacy for one conversation: the choice of the tab it runs in (or ran in, once closed), else its folder's. */
+function modeOfConversation(cwd: string, id: string): FolderMode {
+  const tab = ptys.liveIds().find(t => { const s = ptys.agentOf(t).sessionId; return !!s && id.endsWith(s) })
+  return conversationMode(cwd, id, tab ? ptys.workspaceKeyOf(tab) : undefined)
+}
 function startAgent(id: string, line: string, resume?: { carryOn: boolean }): void {
   if (claudeLine(line)) trustFolder(ptys.cwdOf(id))
   // A restored tab starts on a clean screen with a line saying it is coming back, not blank.
@@ -325,7 +330,7 @@ app.whenReady().then(() => {
       hook: async (session) => {
         const user = store.load().tasksUser
         if (!user) return {}
-        const items = await handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '', undefined, cwd => defaultMode(cwd) === 'shared')
+        const items = await handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '', undefined, (cwd, id) => modeOfConversation(cwd, id) === 'shared')
         if (!items.length) return {}
         return { context: `TerminAI work log hand-off: finished work in this person's other conversations since the last hand-off, not yet matched to the To-do. `
           + `Before answering, quietly run \`terminai todo map\`; mark done any open task of the user's (theirs, Together or private) this work finished; for real work with no task, `
@@ -801,7 +806,7 @@ function registerIpc(): void {
     const user = store.load().tasksUser
     if (!user || process.env.TERMINAI_TEST_BUILD) return
     const p = store.load()
-    await workspaceWorklog.put(user, day, await workDay(day, user, p.worklogSkip, defaultMode)).catch(err => console.warn('[worklog]', err?.message ?? err))
+    await workspaceWorklog.put(user, day, await workDay(day, user, p.worklogSkip, modeOfConversation)).catch(err => console.warn('[worklog]', err?.message ?? err))
   }
   setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
   setInterval(() => void logDay(today()), 10 * 60_000)
