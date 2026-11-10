@@ -1,8 +1,9 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import * as ptys from './pty'
 import { tabMode, scrub } from './sharing'
+import { cursor, readAppended, type Cursor } from './transcripts'
 
 /**
  * The bridge between the partners' sessions. Each TerminAI tab running Claude Code or Codex is a conversation on the
@@ -20,12 +21,16 @@ export type Bridge = ReturnType<typeof createBridge>
 const HOME = homedir()
 const place = (cwd: string) => cwd.startsWith(HOME) ? '~' + cwd.slice(HOME.length) : cwd
 
+const found = new Map<string, string>()   // Claude session id -> its transcript
 function transcriptOf(tabId: string): string {
   const agent = ptys.agentOf(tabId)
   if (!agent.sessionId) return ''
   if (agent.kind === 'claude') {
+    // Found once, then only checked: scanning every project folder for every tab every 5 seconds adds up.
+    const known = found.get(agent.sessionId)
+    if (known) { try { statSync(known); return known } catch { found.delete(agent.sessionId) } }
     const root = join(HOME, '.claude', 'projects')
-    try { for (const d of readdirSync(root)) { const f = join(root, d, `${agent.sessionId}.jsonl`); try { statSync(f); return f } catch {} } } catch {}
+    try { for (const d of readdirSync(root)) { const f = join(root, d, `${agent.sessionId}.jsonl`); try { statSync(f); found.set(agent.sessionId, f); return f } catch {} } } catch {}
   }
   if (agent.kind === 'codex') {
     const walk = (dir: string, depth: number): string => {
@@ -41,14 +46,21 @@ function transcriptOf(tabId: string): string {
   }
   return ''
 }
-/** The turns of a transcript as messages: the person's prompts and the agent's text, keyed for the server's dedupe. */
-function turns(file: string): { id: string; kind: 'user' | 'assistant'; content: string }[] {
-  let text = ''; try { text = readFileSync(file, 'utf8') } catch { return [] }
-  const out: { id: string; kind: 'user' | 'assistant'; content: string }[] = []
-  let n = 0
-  for (const line of text.split('\n')) {
-    let d: any; try { d = JSON.parse(line) } catch { continue }
-    n++
+type Turn = { id: string; kind: 'user' | 'assistant'; content: string }
+/** Per transcript: where reading stopped, the lines parsed so far (they number the turns without an id), the newest 30 turns. */
+const reads = new Map<string, { cur: Cursor; n: number; last: Turn[] }>()
+/**
+ * The turns of a transcript as messages: the person's prompts and the agent's text, keyed for the server's dedupe.
+ * Read in full once, then only what was appended (readAppended, which never holds the main process).
+ * `fresh`: the turns added since the last call; `last`: the newest 30.
+ */
+async function turns(file: string): Promise<{ fresh: Turn[]; last: Turn[] }> {
+  let s = reads.get(file)
+  if (!s) { s = { cur: cursor(), n: 0, last: [] }; reads.set(file, s) }
+  const r = s, out: Turn[] = []
+  await readAppended(file, r.cur, line => {
+    let d: any; try { d = JSON.parse(line) } catch { return }
+    r.n++
     let kind: 'user' | 'assistant' | null = null, content = '', id = typeof d.uuid === 'string' && /^[0-9a-f-]{36}$/.test(d.uuid) ? d.uuid : ''
     if (d.type === 'user' && typeof d.message?.content === 'string' && !d.isMeta) { kind = 'user'; content = d.message.content }
     else if (d.type === 'assistant') { kind = 'assistant'; content = (d.message?.content ?? []).filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n') }
@@ -57,12 +69,13 @@ function turns(file: string): { id: string; kind: 'user' | 'assistant'; content:
     }
     content = content.trim()
     // Command echoes, system reminders and the TerminAI hand-offs are not the conversation.
-    if (!kind || !content || content.startsWith('<') || content.startsWith('[TerminAI')) continue
-    if (!id) id = fakeUuid(`${basename(file)}:${n}`)
+    if (!kind || !content || content.startsWith('<') || content.startsWith('[TerminAI')) return
+    if (!id) id = fakeUuid(`${basename(file)}:${r.n}`)
     content = scrub(content)
     out.push({ id, kind, content: content.length > 12000 ? content.slice(0, 12000) + '\n…' : content })
-  }
-  return out
+  }, () => { r.n = 0; r.last = []; out.length = 0 })
+  r.last = [...r.last, ...out].slice(-30)
+  return { fresh: out, last: r.last }
 }
 function fakeUuid(seed: string): string {
   let h = 2166136261; const hex: string[] = []
@@ -115,8 +128,8 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         const file = transcriptOf(id); if (!file) continue
         const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
         // The first look sends only the last 30 turns: older history stays on this Mac.
-        const all = turns(file), todo = all.filter(t => !sent.has(t.id)).slice(sent.size ? 0 : -30)
-        if (!sent.size) for (const t of all) sent.add(t.id)
+        const { fresh, last } = await turns(file), todo = sent.size ? fresh.filter(t => !sent.has(t.id)) : last
+        if (!sent.size) for (const t of [...last, ...fresh]) sent.add(t.id)
         for (const t of todo) {
           await team.call(`/api/companies/${team.id}/conversations/${conv.id}/messages`, 'POST', { kind: t.kind, content: t.content, clientMessageId: t.id }).catch(() => {})
           sent.add(t.id)

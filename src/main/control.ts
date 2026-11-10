@@ -16,7 +16,7 @@ type Deps={askGrok?:(a:any)=>Promise<unknown>;wake?:(id:string)=>Promise<boolean
   todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
     add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;
     request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
-  log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>{context:string}|{}}
+  log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>Promise<{context:string}|{}>}
   team:(args:any)=>Promise<unknown>}
 const COMMANDS=['list','open','send','read','close','focus','show','task','log','team','ask-grok']
 

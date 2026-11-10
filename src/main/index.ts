@@ -320,12 +320,12 @@ app.whenReady().then(() => {
       day: async (day) => {
         const d = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : today(), user = store.load().tasksUser
         const people = user ? await workspaceWorklog.get(user, d).catch(() => null) : null
-        return { day: d, people: { ...(people ?? {}), ...(user ? { [user]: workDay(d, user, store.load().worklogSkip) } : {}) } }
+        return { day: d, people: { ...(people ?? {}), ...(user ? { [user]: await workDay(d, user, store.load().worklogSkip) } : {}) } }
       },
-      hook: (session) => {
+      hook: async (session) => {
         const user = store.load().tasksUser
         if (!user) return {}
-        const items = handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '', undefined, cwd => defaultMode(cwd) === 'shared')
+        const items = await handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '', undefined, cwd => defaultMode(cwd) === 'shared')
         if (!items.length) return {}
         return { context: `TerminAI work log hand-off: finished work in this person's other conversations since the last hand-off, not yet matched to the To-do. `
           + `Before answering, quietly run \`terminai todo map\`; mark done any open task of the user's (theirs, Together or private) this work finished; for real work with no task, `
@@ -787,13 +787,13 @@ function registerIpc(): void {
     const user = store.load().tasksUser
     if (!user || process.env.TERMINAI_TEST_BUILD) return
     const p = store.load()
-    await workspaceWorklog.put(user, day, workDay(day, user, p.worklogSkip, defaultMode)).catch(err => console.warn('[worklog]', err?.message ?? err))
+    await workspaceWorklog.put(user, day, await workDay(day, user, p.worklogSkip, defaultMode)).catch(err => console.warn('[worklog]', err?.message ?? err))
   }
   setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
   setInterval(() => void logDay(today()), 10 * 60_000)
   appIpc.handle('worklog:get', async (_e, day: unknown) => {
     if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Invalid day')
-    const user = store.load().tasksUser, mine = user ? workDay(day, user, store.load().worklogSkip) : null
+    const user = store.load().tasksUser, mine = user ? await workDay(day, user, store.load().worklogSkip) : null
     // Your own day is read here, always current; the partner's comes from the workspace.
     const people = user ? await workspaceWorklog.get(user, day).catch(() => null) : null
     return { day, people: { ...(people ?? {}), ...(mine && user ? { [user]: mine } : {}) }, offline: people === null }
