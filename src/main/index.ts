@@ -767,7 +767,7 @@ function registerIpc(): void {
   })
   bridge.start()
   appIpc.handle('team:agentMessages', (_e, v: unknown) => { if (v === 'ask' || v === 'allow') store.save({ ...store.load(), agentMessages: v }); return store.load().agentMessages })
-  appIpc.handle('team:tabs', () => { const p = store.load(); return { agentMessages: p.agentMessages, byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)) } }), folders: p.folderSharing } })
+  appIpc.handle('team:tabs', () => { const p = store.load(); return { agentMessages: p.agentMessages, byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)), own: !!p.tabModes[key] || p.tabSharing[key] !== undefined, rule: defaultMode(ptys.cwdOf(id)) } }), folders: p.folderSharing } })
   appIpc.handle('team:folder', async (_e, folder: unknown, mode: unknown) => {
     const p = store.load(), rules = { ...p.folderSharing }
     let path = typeof folder === 'string' ? folder : ''
@@ -781,11 +781,18 @@ function registerIpc(): void {
     if (mode === null) delete rules[path]; else if (mode === 'shared' || mode === 'private' || mode === 'off') rules[path] = mode; else throw new Error('Invalid mode')
     store.save({ ...p, folderSharing: rules }); void bridge?.tick(); return rules
   })
+  // The privacy selector beside a tab's account: Shared, Only me or Off the record for that tab alone; null follows the folder rules again.
+  appIpc.handle('team:tabMode', (_e, key: unknown, mode: unknown) => {
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{1,120}$/.test(key) || !(mode === null || mode === 'shared' || mode === 'private' || mode === 'off')) throw new Error('Invalid')
+    const p = store.load(), { [key]: _m, ...modes } = p.tabModes, { [key]: _s, ...sharing } = p.tabSharing
+    store.save({ ...p, tabModes: mode ? { ...modes, [key]: mode } : modes, tabSharing: sharing })
+    void bridge?.tick()
+  })
   appIpc.handle('team:share', (_e, key: unknown, shared: unknown) => {
     if (typeof shared !== 'boolean') throw new Error('Invalid')
     const p = store.load()
     if (key === null) store.save({ ...p, shareConversations: shared })
-    else if (typeof key === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(key)) store.save({ ...p, tabSharing: { ...p.tabSharing, [key]: shared } })
+    else if (typeof key === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(key)) { const { [key]: _, ...modes } = p.tabModes; store.save({ ...p, tabSharing: { ...p.tabSharing, [key]: shared }, tabModes: modes }) }
     else throw new Error('Invalid')
     void bridge?.tick()
   })

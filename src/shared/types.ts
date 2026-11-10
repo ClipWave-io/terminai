@@ -381,6 +381,8 @@ export interface Prefs {
   folderSharing: Record<string, FolderMode>
   /** per tab (its workspace key): true shared, false private, whatever the default */
   tabSharing: Record<string, boolean>
+  /** A tab's own choice from the privacy selector beside its account: it beats tabSharing and every folder rule. */
+  tabModes: Record<string, 'shared' | 'private' | 'off'>
   /** sidebar sessions bucketed under a heading per folder */
   groupByFolder: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
@@ -403,8 +405,8 @@ export const RAIL_DEFAULT = 224
 
 export const DEFAULT_PREFS: Prefs = {
   hiddenToolbarItems: [],
-  toolbarOrder: ['terminal', 'browser', 'files', 'team', 'settings', 'notices', 'todo', 'maximize', 'sessions', 'sidebar'],
-  toolbarRight: ['notices', 'todo', 'maximize', 'sessions', 'sidebar'],
+  toolbarOrder: ['terminal', 'browser', 'files', 'team', 'settings', 'notices', 'chat', 'todo', 'maximize', 'sessions', 'sidebar'],
+  toolbarRight: ['notices', 'chat', 'todo', 'maximize', 'sessions', 'sidebar'],
   chatButton: true,
   paneOrder: ['terminal', 'browser', 'files'],
   theme: 'midnight',
@@ -435,6 +437,7 @@ export const DEFAULT_PREFS: Prefs = {
   teamTasks: false,
   agentMessages: 'ask',
   tabSharing: {},
+  tabModes: {},
   folderSharing: {},
   groupByFolder: true,
   tasksUser: 'ilai',

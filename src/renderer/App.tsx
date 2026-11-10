@@ -15,6 +15,7 @@ import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
 import { AccountMenu } from './components/AccountMenu'
+import { PrivacyPill } from './components/PrivacyPill'
 import { getTheme, nextTheme } from '../shared/themes'
 import * as snapshots from './snapshots'
 import { detectQuestion } from '../shared/questions'
@@ -174,6 +175,10 @@ export function App(): JSX.Element {
     if (id === 'team') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
     if (id === 'settings') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
     if (id === 'notices') return <NoticeBell key={id} drag={drag} onOpen={openNotice} />
+    // The team chat sits beside the bell, where the other notices are.
+    if (id === 'chat') return prefs.chatButton ? <button key={id} className={`btn icon no-drag toolbar-chat${showChat ? ' on' : ''}`} {...drag} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z" /></svg>
+      {chatUnread > 0 && <span className="corner-count toolbar-count">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button> : null
     if (id === 'todo') return <button key={id} className="btn icon no-drag todo-button" {...drag} aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>
     if (id === 'maximize') return <button key={id} className="btn icon no-drag" {...drag} title="Maximise or restore window" aria-label="Maximise or restore window" onClick={() => void window.term.window.toggleMaximize()}>↗</button>
     if (id === 'sessions') return <button key={id} className="btn icon no-drag" {...drag} aria-label="All sessions" title="All sessions  ⌘G" onClick={() => setShowGrid(g => !g)}>⊞</button>
@@ -894,12 +899,10 @@ export function App(): JSX.Element {
               onTitle={(title) => setTitle(tab.id, title)}
             />
           ))}
-          {/* Bottom right of the terminal: the tab's Claude account, and the team chat beside it. */}
+          {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
           {terminalVisible && <div className="pane-corner">
+            {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <PrivacyPill key={`privacy-${activeId}`} tabKey={t.browserKey || t.id} /> : null })()}
             {tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
-            {prefs.chatButton && <button className={`corner-chat${showChat ? ' on' : ''}`} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z" /></svg>
-              {chatUnread > 0 ? <span className="corner-count">{chatUnread > 99 ? '99+' : chatUnread}</span> : <span>Chat</span>}</button>}
           </div>}
         </div>
 

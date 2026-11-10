@@ -26,7 +26,7 @@ function hydrate(raw: unknown): Prefs {
     // An icon added since the person arranged theirs (the bell) starts on its default side.
     toolbarRight: Array.isArray(p.toolbarRight) ? [...p.toolbarRight.filter((x: unknown) => typeof x === 'string' && DEFAULT_PREFS.toolbarOrder.includes(x)), ...DEFAULT_PREFS.toolbarRight.filter(x => Array.isArray(p.toolbarOrder) && !p.toolbarOrder.includes(x))] : DEFAULT_PREFS.toolbarRight,
     chatButton: p.chatButton !== false,
-    hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','todo','sessions','maximize','sidebar'].includes(item)) : [],
+    hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','todo','sessions','maximize','sidebar','chat'].includes(item)) : [],
     // Clamped on read as well as on write: a stale or hand-edited prefs file
     // must never be able to leave the rail off-screen or at zero width.
     railWidth: Math.min(RAIL_MAX, Math.max(RAIL_MIN, p.railWidth ?? RAIL_DEFAULT)),
@@ -45,6 +45,7 @@ function hydrate(raw: unknown): Prefs {
     skippedAccount: p.skippedAccount === true,
     agentMessages: p.agentMessages === 'allow' ? 'allow' : 'ask',
     tabSharing: p.tabSharing && typeof p.tabSharing === 'object' && !Array.isArray(p.tabSharing) ? Object.fromEntries(Object.entries(p.tabSharing).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'boolean').slice(-500)) as Record<string, boolean> : {},
+    tabModes: p.tabModes && typeof p.tabModes === 'object' && !Array.isArray(p.tabModes) ? Object.fromEntries(Object.entries(p.tabModes).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && ['shared', 'private', 'off'].includes(v as string)).slice(-500)) as Record<string, 'shared' | 'private' | 'off'> : {},
     folderSharing: p.folderSharing && typeof p.folderSharing === 'object' && !Array.isArray(p.folderSharing) ? Object.fromEntries(Object.entries(p.folderSharing).filter(([k, v]) => typeof k === 'string' && k.length < 1000 && ['shared', 'private', 'off'].includes(v as string)).slice(0, 200)) as Record<string, 'shared' | 'private' | 'off'> : {},
     worklogSkip: Array.isArray(p.worklogSkip) ? p.worklogSkip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 50) : [],
     groupByFolder: p.groupByFolder !== false,

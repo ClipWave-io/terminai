@@ -10,7 +10,7 @@ import type { FolderMode } from '../shared/types'
  *  shared   the partner sees it, reads it and can message it; the log shows its finished steps
  *  private  only you (your iPhone): the partner neither sees nor reaches it; the shared log says only "Private work"
  *  off      nothing leaves this Mac: not uploaded, not reachable from the phone; the shared log says only "Private work"
- * Order: a tab's own choice (Sync › Conversations), then the deepest folder rule, then a git repo rule (git:<origin>,
+ * Order: a tab's own choice (the selector beside its account, then Sync › Conversations), then the deepest folder rule, then a git repo rule (git:<origin>,
  * covering every clone and worktree of that repo), then the default, which is Off the record unless set to Shared.
  */
 const norm = (p: string) => resolve(p.startsWith('~') ? homedir() + p.slice(1) : p)
@@ -40,7 +40,8 @@ export function folderMode(cwd: string): FolderMode | null {
 /** What applies to a folder with no tab choice: its rule, else the default. */
 export const defaultMode = (cwd: string): FolderMode => folderMode(cwd) ?? (store.load().shareConversations ? 'shared' : 'off')
 export function tabMode(key: string, cwd: string): FolderMode {
-  const p = store.load(), own = p.tabSharing?.[key]
+  const p = store.load(), chosen = p.tabModes?.[key], own = p.tabSharing?.[key]
+  if (chosen) return chosen
   if (own !== undefined) return own ? 'shared' : 'private'
   return defaultMode(cwd)
 }

@@ -53,4 +53,13 @@
 .pane-corner .account-menu { position: static; }
 .corner-chat { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 11.5px; line-height: 1; padding: 4px 9px; color: var(--dim); background: color-mix(in srgb, var(--pane) 92%, transparent); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; box-shadow: 0 2px 8px var(--shadow); }
 .corner-chat:hover, .corner-chat.on { color: var(--fg); } .corner-chat.on { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.privacy-menu { position: relative; }
+.toolbar-chat { position: relative; } .toolbar-chat.on { color: var(--fg); }
+.toolbar-count { position: absolute; top: -4px; right: -6px; pointer-events: none; }
+.corner-privacy { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 11.5px; line-height: 1; padding: 4px 9px; color: var(--fg); background: color-mix(in srgb, var(--pane) 92%, transparent); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; box-shadow: 0 2px 8px var(--shadow); }
+.corner-privacy:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.privacy-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--dim); }
+.privacy-dot.shared { background: #2e9d5b; } .privacy-dot.private { background: #c8871a; } .privacy-dot.off { background: var(--dim); }
+.privacy-caret { font-size: 9px; color: var(--dim); }
+.privacy-hint { font-size: 11px; line-height: 1.35; color: var(--dim); white-space: normal; }
 .corner-count { min-width: 14px; padding: 1px 4px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; text-align: center; }
