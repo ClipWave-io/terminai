@@ -397,6 +397,8 @@ export interface Prefs {
   railTimes: boolean
   /** after a restart every conversation starts again at once (spaced out), not only the open and working ones */
   resumeAll: boolean
+  /** a soft chime in TerminAI for each new team chat message (besides the macOS notification) */
+  chatSound: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
   /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
@@ -456,6 +458,7 @@ export const DEFAULT_PREFS: Prefs = {
   railRecent: false,
   railTimes: false,
   resumeAll: false,
+  chatSound: true,
   tasksUser: 'ilai',
   todoHiddenColumns: [],
   todoProducts: [],

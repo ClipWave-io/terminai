@@ -1,4 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+
+/** A soft two-note chime for a new chat message, made with Web Audio (works whatever macOS does with notifications). */
+function chime(): void {
+  try {
+    const ctx = new AudioContext(), t = ctx.currentTime
+    for (const [f, d] of [[880, 0], [1320, 0.12]] as const) {
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(ctx.destination)
+      g.gain.setValueAtTime(0, t + d); g.gain.linearRampToValueAtTime(0.13, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35)
+      o.start(t + d); o.stop(t + d + 0.4)
+    }
+    setTimeout(() => void ctx.close(), 900)
+  } catch {}
+}
 import './teamchat.css'
 import { AccessPicker, Avatar, PeoplePanel, useProducts, type Access } from './Permissions'
 import { CallIcon, CallView, useCalls } from './Call'
@@ -33,12 +46,21 @@ const isImage = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name)
 
 export function TeamChat({ open, onClose, onUnread }: { open: boolean; onClose: () => void; onUnread: (n: number) => void }): JSX.Element | null {
   const [company, setCompany] = useState<{ id: string; role: string } | null>(null)
-  useEffect(() => { void window.term.workspace.state().then(s => { const c = s.identity?.companies[0]; setCompany(c ? { id: c.id, role: c.role } : null) }).catch(() => {}) }, [open])
+  // Find the workspace, and keep trying until it answers: one failed lookup at launch (a busy Mac, no network yet) used to
+  // leave the chat off until it was opened, so no unread count, no notification and no sound all day.
+  useEffect(() => {
+    let stop = false, timer = 0
+    const look = () => void window.term.workspace.state().then(s => { if (stop) return; const c = s.identity?.companies[0]; setCompany(c ? { id: c.id, role: c.role } : null); if (!c) timer = window.setTimeout(look, 60000) })
+      .catch(() => { if (!stop) timer = window.setTimeout(look, 10000) })
+    look(); return () => { stop = true; window.clearTimeout(timer) }
+  }, [open])
   if (!company) return open ? <aside className="tc"><header className="tc-head"><strong>Team</strong><button className="tc-x" aria-label="Close" onClick={onClose}><Ico n="close" /></button></header><p className="tc-empty">Sign in with Sync (people icon) to chat with your team.</p></aside> : null
   return <Team key={company.id} company={company.id} admin={company.role === 'owner' || company.role === 'admin'} open={open} onClose={onClose} onUnread={onUnread} />
 }
 
 function Team({ company, admin, open, onClose, onUnread }: { company: string; admin: boolean; open: boolean; onClose: () => void; onUnread: (n: number) => void }): JSX.Element | null {
+  const soundRef = useRef(true)
+  useEffect(() => { const load = () => void window.term.prefs.get().then(p => { soundRef.current = p.chatSound !== false }).catch(() => {}); load(); const t = window.setInterval(load, 30000); return () => window.clearInterval(t) }, [])
   const key = `tc:${company}`
   const [messages, setMessages] = useState<Message[]>(() => cache.get(`${key}:m`, []))
   const [people, setPeople] = useState<Person[]>(() => cache.get(`${key}:p`, []))
@@ -78,6 +100,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
             setMessages(prev => { const seen = new Set(prev.filter(m => !m.pending).map(m => m.id)); const next = [...prev.filter(m => !m.pending), ...r.messages.filter((m: Message) => !seen.has(m.id))].slice(-500); cache.set(`${key}:m`, next); return next })
             if (fresh.length && (!openRef.current || !document.hasFocus())) {
               const m = fresh.at(-1); void window.term.teamchat.notify(m.fromName, m.body || (m.file ? 'Sent a file' : ''))
+              if (soundRef.current) chime()
             }
           }
         } catch { if (stop) return; setOffline(true); await new Promise(r => setTimeout(r, 4000)) }

@@ -188,6 +188,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />
+      <div className="st-card"><Row label="Chat sound" hint="A soft chime in TerminAI for each new team chat message, even when macOS notifications are off or silent."><Toggle on={prefs.chatSound} set={v => onChange({ chatSound: v })} /></Row></div>
       <div className="st-card"><Row label="Notify when a chat is done" hint="A notice with its summary when you are not looking at that tab; click it to open the tab."><Toggle on={prefs.doneNotices} set={v => onChange({ doneNotices: v })} /></Row></div>
     </>),
     connections: () => page('Connections', 'Your bots and agents: your sessions ask them, and they reach your Shared sessions.', <>
