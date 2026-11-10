@@ -9,6 +9,9 @@ const REPO = path.join(__dirname, '..'), WORK = fs.mkdtempSync(path.join(os.tmpd
 const dir = path.join(WORK, 'userData'); fs.mkdirSync(dir); app.setPath('userData', dir)
 // Claude Code's daemon roster, as the relay reads it for background sessions.
 const ROSTER = path.join(WORK, 'roster.json'); process.env.TERMINAI_CLAUDE_ROSTER = ROSTER
+// Claude Code's own settings file, with fullscreen turned off after failed starts: the app says how to turn it back on.
+const CLAUDE_JSON = path.join(WORK, 'claude.json'); process.env.TERMINAI_CLAUDE_JSON = CLAUDE_JSON
+fs.writeFileSync(CLAUDE_JSON, JSON.stringify({ numStartups: 1, fullscreenAutoDisabled: { version: '9.9.9', at: 1794320459708, strikes: 2 } }))
 fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false } }))
 const SVC = 'TerminAI Claude account', A = crypto.randomUUID(), B = crypto.randomUUID()
 const LOGIN = 'sk-ant-oat01-FAKELOGINFORTESTONLY-LLLLLL'
@@ -57,7 +60,7 @@ function call(key, urlPath, { method = 'POST', body = '{"model":"x","stream":tru
   })
 }
 // A background session's request through the proxy: a child named `curl bg-spare` that the roster maps to `session`.
-const BG_CLIENT = `const http=require('http'),tls=require('tls'),fs=require('fs');const [relay,ca,login]=process.argv.slice(1);
+const BG_CLIENT = String.raw`const http=require('http'),tls=require('tls'),fs=require('fs');const [relay,ca,login]=process.argv.slice(1);
 console.log(process.pid);
 process.stdin.once('data',()=>{const u=new URL(relay);
 const r=http.request({host:u.hostname,port:u.port,method:'CONNECT',path:'api.anthropic.com:443',headers:{'proxy-authorization':'Basic '+Buffer.from('k9:tab').toString('base64')}});
@@ -66,13 +69,14 @@ let d='';t.on('data',c=>d+=c);t.on('end',()=>{console.log(d.split(' ')[1]);proce
 r.on('error',e=>{console.log('ERR '+e.message);process.exit(1)});r.end()})`
 const background = session => new Promise((resolve, reject) => {
   const c = spawn(process.execPath, ['-e', BG_CLIENT, relay, ca, LOGIN], { argv0: 'curl bg-spare', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
-  let out = '', go = false
+  let out = '', err = '', go = false
+  c.stderr.on('data', d => { err += d })
   c.stdout.on('data', d => {
     out += d
     if (!go && out.includes('\n')) { go = true; fs.writeFileSync(ROSTER, JSON.stringify({ proto: 1, workers: { w: { replPid: Number(out.split('\n')[0]), sessionId: session } } })); c.stdin.write('go\n') }
   })
   c.on('error', reject)
-  c.on('exit', () => resolve((out.split('\n')[1] || '').trim()))
+  c.on('exit', () => resolve((out.split('\n')[1] || '').trim() || `no answer: ${err.slice(0, 300)}`))
 })
 const tabOf = key => { try { return fs.readFileSync(path.join(dir, 'accounts', 'tabs', key), 'utf8') } catch { return '' } }
 const setTab = (key, id) => fs.writeFileSync(path.join(dir, 'accounts', 'tabs', key), id)
@@ -86,6 +90,9 @@ const cli = (...args) => new Promise((resolve, reject) => execFile(process.execP
 app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
   await waitFor('relay', () => fs.existsSync(path.join(dir, 'accounts', 'relay-url')), 10000)
   ;[relay, ca] = fs.readFileSync(path.join(dir, 'accounts', 'relay-url'), 'utf8').trim().split('\n')
+  const fsNotices = async () => (await win.webContents.executeJavaScript(`window.term.notices.list()`)).filter(n => n.title === 'Claude Code turned fullscreen off')
+  await waitFor('fullscreen hint', async () => (await fsNotices()).length === 1, 10000)
+  assert.match((await fsNotices())[0].body, /\/tui fullscreen/)
   assert.match(relay, /^http:\/\/127\.0\.0\.1:\d+$/)
   assert.ok(ca && fs.existsSync(ca), 'the relay names the CA its tabs trust')
   assert.equal(fs.readdirSync(path.dirname(ca)).sort().join(' '), 'ca.pem cert.pem key.pem', 'the CA key is gone once the certificate is signed')
@@ -160,7 +167,8 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   // still reaches the relay with the tab's key, and the menu moves the tab.
   fs.mkdirSync(path.join(WORK, 'fakebin'))
   execFileSync('clang', ['-O1', '-o', path.join(WORK, 'fakebin', 'claude'), path.join(__dirname, 'fixtures', 'fake-claude.c')])
-  const line = `export PATH="${WORK}/fakebin:$PATH" FAKE_CLAUDE_LOG=${LOG}; claude`
+  const SID = crypto.randomUUID()
+  const line = `export PATH="${WORK}/fakebin:$PATH" FAKE_CLAUDE_LOG=${LOG}; claude --session-id ${SID}`
   const { id } = JSON.parse(await cli('open', '--cwd', '/tmp', '--name', 'acct-e2e', '--command', line))
   await waitFor('fake claude', () => starts().length === 1, 15000)
   const key = /proxy=http:\/\/([^:\s]+):tab@127\.0\.0\.1:\d+ /.exec(starts()[0])?.[1]
@@ -179,15 +187,15 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   // A Claude Code background session (its daemon: the ← agent view) runs as `claude bg-spare`, here `curl bg-spare`,
   // started from another tab and carrying that tab's proxy key. It is opened too, and signed with the account of the
   // tab showing its conversation, found through the daemon's roster.
-  const sid = /sid=(\S+)/.exec(starts()[0])?.[1]
-  assert.ok(sid, starts()[0])
-  setTab('k9', B)
+  await waitFor('tab conversation', async () => (await win.webContents.executeJavaScript(`window.term.pty.agent(${JSON.stringify(id)})`))?.sessionId === SID, 10000)
+  // Here the tab is on Alpha and the key the session carries on the login (Beta is spent in this part of the test).
+  setTab('k9', 'login')
   let nb = seen.length
-  assert.equal(await background(sid), '200')
+  assert.equal(await background(SID), '200')
   assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'a background session is signed with the account of the tab showing its conversation')
   nb = seen.length
   assert.equal(await background('00000000-0000-4000-8000-000000000000'), '200')
-  assert.deepEqual(seen.slice(nb).map(s => s.by), ['B'], 'one that no tab shows keeps the key it was started with')
+  assert.deepEqual(seen.slice(nb).map(s => s.by), ['login'], 'one that no tab shows keeps the key it was started with')
 
   // A default for new tabs: a tab already open keeps where it is, a new one starts on the default.
   await cli('open', '--cwd', '/tmp', '--name', 'idle', '--command', 'sleep 60')
@@ -205,7 +213,7 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   await call('knew', '/v1/messages?beta=true')
   assert.deepEqual(seen.slice(nd).map(s => s.by), ['B'], 'a new tab starts on the default')
   assert.equal(fs.readFileSync(path.join(dir, 'accounts', 'default'), 'utf8'), B, 'the status line reads the default too')
-  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, background sessions signed with the account of the tab showing them, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
+  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, background sessions signed with the account of the tab showing them, a hint when Claude Code turned fullscreen off, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
   cleanup(); app.quit()
 })().catch(e => { console.error(e); cleanup(); app.exit(1) }) }))
 setTimeout(() => { console.error('e2e timeout'); cleanup(); app.exit(1) }, 120000).unref()

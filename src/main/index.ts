@@ -21,6 +21,7 @@ import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory, sleep as sleepTabs, wake as wakeTab } from './memory'
+import { watchFullscreenOff } from './fullscreen-hint'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -586,6 +587,7 @@ function registerIpc(): void {
     note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
     note.show()
   })
+  watchFullscreenOff()
   appIpc.handle('app:check-updates', () => checkForUpdatesNow(win, true))
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {
