@@ -52,7 +52,7 @@ export function watchGuard(onChange: (s: GuardState | null) => void, onPaused: (
 export type GuardDetails = GuardState & { at: string; sample: Record<string, number>; limits: Record<string, number>; events: { at: string; text: string }[] }
 // MacGuard's own defaults (macguard.py DEFAULTS) for the limits shown; its config.json overrides them.
 const LIMITS: Record<string, number> = { disk_warn_gb: 10, disk_crit_gb: 4, compressor_warn_gb: 6.5, compressor_crit_gb: 9.5, memlevel_warn: 25, memlevel_crit: 12,
-  swap_warn_gb: 6, load_warn_per_cpu: 4, gpu_warn_pct: 95, gate_disk_gb: 7, gate_memlevel: 20, gate_compressor_gb: 8, gate_max_sessions: 17, gate_count_memlevel: 35, gate_hard_max_sessions: 24, resume_hold_s: 120 }
+  swap_warn_gb: 6, load_warn_per_cpu: 4, gpu_warn_pct: 95, gate_disk_gb: 7, gate_memlevel: 20, gate_compressor_gb: 8, gate_max_sessions: 17, gate_count_memlevel: 45, gate_count_compressor_gb: 5, gate_hard_max_sessions: 24, resume_hold_s: 120 }
 const LEVEL: Record<string, string> = { ok: 'OK', attenzione: 'Warning', critico: 'Critical' }
 /** MacGuard's event log is in Italian (it is Livio's own tool); the panel shows it in the app's English. */
 function englishEvent(text: string): string | null {

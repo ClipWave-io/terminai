@@ -39,12 +39,12 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
     ['GPU', `${s.gpu_pct ?? '?'}%`, `warning above ${l.gpu_warn_pct}% for a minute`, s.gpu_pct > l.gpu_warn_pct ? 1 : 0],
   ]
   // The same check as `macguard gate 1`: one more session now?
-  const tight = s.mem_level < l.gate_count_memlevel || s.compressor_gb > l.compressor_warn_gb, cap = tight ? l.gate_max_sessions : l.gate_hard_max_sessions
+  const tight = s.mem_level < l.gate_count_memlevel || s.compressor_gb > l.gate_count_compressor_gb, cap = tight ? l.gate_max_sessions : l.gate_hard_max_sessions
   const critical = d.running && d.level === 2
   const resume = (what: string, ids: string[]) => critical && armed !== what ? setArmed(what) : act(what, () => window.term.macguard.resume(ids))
   const idleGb = idle.reduce((n, t) => n + t.mb, 0) / 1024
   const gate = [
-    d.sessions + 1 > cap && `${d.sessions} chats open, the limit is ${cap}${tight ? ' while memory is tight' : ''}`,
+    d.sessions + 1 > cap && `${d.sessions} chats open, the limit is ${cap}${tight ? ' unless memory is clearly free' : ''}`,
     s.disk_free_gb < l.gate_disk_gb && `free disk below ${l.gate_disk_gb} GB`,
     s.mem_level < l.gate_memlevel && `free memory below ${l.gate_memlevel}%`,
     s.compressor_gb > l.gate_compressor_gb && `compressed memory above ${l.gate_compressor_gb} GB`,
@@ -74,7 +74,7 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
     </section>
     <section className="mem guard-panel">
       <div className="mem-head"><strong>New sessions</strong><span className={`mem-level ${gate.length ? 'warning' : 'normal'}`}>{gate.length ? 'Better not' : 'OK to open'}</span></div>
-      <p className="hint">{d.sessions} chat{d.sessions === 1 ? '' : 's'} running. {gate.length ? `Opening another now: ${gate.join('; ')}.` : 'Another one can start now.'} The limit is {l.gate_hard_max_sessions} chats, {l.gate_max_sessions} while memory is tight.</p>
+      <p className="hint">{d.sessions} chat{d.sessions === 1 ? '' : 's'} running. {gate.length ? `Opening another now: ${gate.join('; ')}.` : 'Another one can start now.'} The limit is {l.gate_max_sessions} chats; {l.gate_hard_max_sessions} only while memory is clearly free (at least {l.gate_count_memlevel}% free and no more than {l.gate_count_compressor_gb} GB compressed).</p>
     </section>
     <section className="mem guard-panel">
       <div className="mem-head"><strong>What it did</strong><button className="btn" disabled={!!busy} onClick={() => act('restart', () => window.term.macguard.restart())}>{busy === 'restart' ? 'Restarting…' : 'Restart MacGuard'}</button></div>
