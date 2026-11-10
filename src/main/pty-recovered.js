@@ -323,6 +323,9 @@ function resize(id, cols, rows) {
 }
 // Shells killed whose exit event has not arrived yet: quitting waits for them (see before-quit).
 const exiting = new Set();
+// The folder of a killed shell, kept: until its exit reaches the window, the window still asks for the tab's folder,
+// and answering with the home folder got that saved as the tab's (after a restart those tabs opened in ~).
+const lastCwd = new Map();
 function exitsPending() {
   return exiting.size;
 }
@@ -335,6 +338,7 @@ function kill(id) {
     s.proc.kill();
   } catch {
   }
+  lastCwd.set(id, s.cwd);
   sessions.delete(id);
 }
 const CLOSE_GRACE_MS = 6e4;
@@ -712,7 +716,7 @@ function statusOf(id) {
   return Date.now() - s.lastDataAt < 2500 ? "working" : "waiting";
 }
 function cwdOf(id) {
-  return sessions.get(id)?.cwd ?? node_os.homedir();
+  return sessions.get(id)?.cwd ?? lastCwd.get(id) ?? node_os.homedir();
 }
 function claudeSessionOf(id) {
   try {
@@ -1027,7 +1031,7 @@ async function launchCommandFor(d) {
   // A Codex home with neither a state db nor a sessions folder says nothing either
   // way (its threads live where this process cannot see), so the saved id stands.
   const codexKnows = kind === "codex" && Boolean(codexStateDb() || node_fs.existsSync(node_path.join(codexHome(), "sessions")));
-  const tail = kind === "claude" ? id && claudeSessionExists(id) ? ["--resume", id] : ["--continue"] : id && (!codexKnows || await codexThreadExists(id)) ? ["resume", id] : [];
+  const tail = kind === "claude" ? id && claudeSessionExists(id) ? ["--resume", id] : d.fresh ? [] : ["--continue"] : id && (!codexKnows || await codexThreadExists(id)) ? ["resume", id] : [];
   return [head, ...rest.map(shellQuote), ...tail].join(" ");
 }
 // A Codex daemon that is restarting refuses clients until its running turns
