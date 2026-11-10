@@ -38,7 +38,8 @@ function hydrate(raw: unknown): Prefs {
     seenWelcome: p.seenWelcome === true,
     browserBeta: p.browserBeta === true,
     nightUpdates: p.nightUpdates !== false,
-    newTabAgent: p.newTabAgent === 'codex' || p.newTabAgent === 'none' ? p.newTabAgent : 'claude',
+    newTabAgent: p.newTabAgent === 'codex' || p.newTabAgent === 'none' || p.newTabAgent === 'custom' ? p.newTabAgent : 'claude',
+    newTabCommand: typeof p.newTabCommand === 'string' ? p.newTabCommand.replace(/[\r\n]/g, ' ').slice(0, 300) : '',
     doneNotices: p.doneNotices !== false,
     // Off the record unless chosen: a Mac that never said so shares nothing.
     shareConversations: p.shareConversations === true,
