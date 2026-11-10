@@ -74,7 +74,7 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
     </section>
     <section className="mem guard-panel">
       <div className="mem-head"><strong>New sessions</strong><span className={`mem-level ${gate.length ? 'warning' : 'normal'}`}>{gate.length ? 'Better not' : 'OK to open'}</span></div>
-      <p className="hint">{d.sessions} chats running. {gate.length ? `Opening another now: ${gate.join('; ')}.` : 'Another one can start now.'} The limit is {l.gate_hard_max_sessions} chats, {l.gate_max_sessions} while memory is tight.</p>
+      <p className="hint">{d.sessions} chat{d.sessions === 1 ? '' : 's'} running. {gate.length ? `Opening another now: ${gate.join('; ')}.` : 'Another one can start now.'} The limit is {l.gate_hard_max_sessions} chats, {l.gate_max_sessions} while memory is tight.</p>
     </section>
     <section className="mem guard-panel">
       <div className="mem-head"><strong>What it did</strong><button className="btn" disabled={!!busy} onClick={() => act('restart', () => window.term.macguard.restart())}>{busy === 'restart' ? 'Restarting…' : 'Restart MacGuard'}</button></div>
