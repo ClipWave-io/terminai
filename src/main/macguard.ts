@@ -25,11 +25,14 @@ export async function guardState(): Promise<GuardState | null> {
   return { running, level: Number(st.level ?? 0), paused: pausedOf(st) }
 }
 
-/** Resumes these tabs (none: every paused one). Waits for the guardian to do it, at most about 15 s. */
-export function resumeGuard(ids: string[]): Promise<void> {
+/** Resumes these tabs (none: every paused one). Waits for the guardian to do it, at most about 15 s, and fails when its
+ *  list still has them, so a button never looks like it worked when it did not. */
+export async function resumeGuard(ids: string[]): Promise<void> {
   const ok = ids.filter(id => /^[A-Za-z0-9_-]{1,120}$/.test(id))
-  return new Promise((resolve, reject) => execFile('/usr/bin/python3', ['-I', join(INSTALL, 'macguard.py'), '--home', HOME, 'resume', ...ok], { timeout: 30_000 },
+  await new Promise<void>((resolve, reject) => execFile('/usr/bin/python3', ['-I', join(INSTALL, 'macguard.py'), '--home', HOME, 'resume', ...ok], { timeout: 30_000 },
     (err, _out, stderr) => err ? reject(new Error(String(stderr).trim().split('\n').pop() || `macguard exited with ${err.code ?? err.signal}`)) : resolve()))
+  const left = (await guardState())?.paused.filter(p => !ok.length || ok.includes(p.id)) ?? []
+  if (left.length) throw new Error(`MacGuard still lists ${left.map(p => p.name).join(', ')} as paused`)
 }
 
 /** Every 3 s: `onChange` with the new state when it changed, `onPaused` for each tab the guardian has just paused. */
