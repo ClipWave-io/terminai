@@ -145,6 +145,17 @@ export async function migrate(pool) {
       );
       ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot text;
       ALTER TABLE manager_sessions ADD COLUMN IF NOT EXISTS app_version text;
+      -- Bot key limits: what it may do (full | reply | read), when the Mac asks before typing its message in
+      -- (every | risky | none; NULL follows the person's general setting), and which conversations it may use (NULL: every Shared one).
+      ALTER TABLE manager_bot_keys ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'full';
+      ALTER TABLE manager_bot_keys ADD COLUMN IF NOT EXISTS approval text;
+      ALTER TABLE manager_bot_keys ADD COLUMN IF NOT EXISTS conversations uuid[];
+      ALTER TABLE manager_agent_messages ADD COLUMN IF NOT EXISTS from_bot_key uuid;
+      -- A reply-only bot may answer into a conversation only while a question asked from it is open (30 minutes).
+      CREATE TABLE IF NOT EXISTS manager_bot_asks (key_id uuid NOT NULL REFERENCES manager_bot_keys ON DELETE CASCADE, conversation_id uuid NOT NULL, until timestamptz NOT NULL, PRIMARY KEY (key_id, conversation_id));
+      -- Everything a bot did: listed sessions, read one, messaged one.
+      CREATE TABLE IF NOT EXISTS manager_bot_activity (id bigserial PRIMARY KEY, key_id uuid NOT NULL REFERENCES manager_bot_keys ON DELETE CASCADE, action text NOT NULL, conversation_id uuid, title text, at timestamptz NOT NULL DEFAULT now());
+      CREATE INDEX IF NOT EXISTS manager_bot_activity_key ON manager_bot_activity(key_id, at DESC);
       -- Feedback from the app (Settings or the sidebar's feedback button), read by us on the operator page.
       CREATE TABLE IF NOT EXISTS manager_feedback (id uuid PRIMARY KEY, email text, message text NOT NULL, app_version text, created_at timestamptz NOT NULL DEFAULT now());
       -- Team files: one shared space, each file with who may see it (everyone, admins, or members of some products).

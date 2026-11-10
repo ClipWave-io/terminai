@@ -249,3 +249,20 @@
 .bm-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px 18px; border-top: 1px solid var(--border); }
 @keyframes bp-pop { from { opacity: 0; transform: translateY(4px) scale(.98) } to { opacity: 1; transform: none } }
 @keyframes bp-fade { from { opacity: 0 } to { opacity: 1 } }
+/* A bot's limits (in Add a bot and Permissions). */
+.bl { display: grid; gap: 16px; padding-top: 4px; }
+.bl-group, .bl-row { display: grid; gap: 8px; } .bl-title { font-size: 12px; font-weight: 600; color: var(--dim); } .bl-title small { font-weight: 400; }
+.bl-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bl-card { display: grid; gap: 4px; align-content: start; text-align: left; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--border); background: var(--pane); color: var(--fg); font: inherit; cursor: pointer; transition: border-color 120ms ease, background 120ms ease; }
+.bl-card:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.bl-card.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--pane)); box-shadow: 0 0 0 3px var(--selection); }
+.bl-card strong { font-size: 12.5px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .bl-card small { font-size: 11.5px; color: var(--dim); line-height: 1.4; }
+.bl-card em { font-style: normal; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.bl-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 10px; border: 1px solid var(--border); justify-self: start; }
+.bl-seg button { border: 0; background: none; color: var(--dim); font: inherit; font-size: 12px; padding: 5px 11px; border-radius: 8px; cursor: pointer; } .bl-seg button.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--fg); } .bl-seg button:disabled { opacity: .45; cursor: default; }
+.bl-convs { display: grid; gap: 4px; max-height: 170px; overflow-y: auto; padding: 6px; border-radius: 11px; border: 1px solid var(--border); background: var(--pane); }
+.bl-convs label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; font-size: 12.5px; cursor: pointer; } .bl-convs label:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); } .bl-convs label.on { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.bl-convs label span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .bl-convs small, .bl-none { color: var(--dim); font-size: 11.5px; } .bl-none { padding: 6px 8px; }
+.ba-list { list-style: none; margin: 0; padding: 0; display: grid; } .ba-list li { display: flex; align-items: center; gap: 10px; padding: 8px 2px; font-size: 12.5px; } .ba-list li + li { border-top: 1px solid var(--border); }
+.ba-list li > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ba-list b { font-weight: 600; } .ba-list small { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+.ba-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dim); } .ba-dot.read { background: var(--info); } .ba-dot.message { background: var(--warn); }

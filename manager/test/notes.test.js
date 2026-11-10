@@ -205,6 +205,25 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   // It may answer into its maker's own private tab (the id comes with an ask-grok question), never read it.
   assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabP.id,content:'general: pong'}})).status,200);
   assert.equal((await asBot(`/api/companies/${alpha.id}/conversations/${tabP.id}/messages`)).status,404);
+  // Limits: read-only cannot message; reply-only answers only where it was asked (30 min); a list of conversations narrows all.
+  const B=`/api/companies/${alpha.id}/bots/${bot.id}`;
+  assert.equal((await request(B,{token:a.body.token,method:'PATCH',data:{scope:'read'}})).status,200);
+  assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabB.id,content:'x'}})).status,403,'read-only');
+  assert.equal((await request(B,{token:a.body.token,method:'PATCH',data:{scope:'reply',approval:'every'}})).status,200);
+  assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabB.id,content:'x'}})).status,403,'not asked');
+  assert.equal((await request(`${B}/asked`,{token:a.body.token,method:'POST',data:{conversation:tabB.id}})).status,200);
+  assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabB.id,content:'general: the answer'}})).status,200,'asked, so it may answer');
+  const fromLimited=(await request(`/api/companies/${alpha.id}/agent/inbox`,{token:a.body.token})).body.messages.find(m=>m.content==='general: the answer');
+  assert.equal(fromLimited.botApproval,'every');assert.equal(fromLimited.botScope,'reply');
+  const tabC=(await request(`/api/companies/${alpha.id}/conversations/tab/key-c`,{token:a.body.token,method:'PUT',data:{title:'Other shared',visibility:'company'}})).body.conversation;
+  assert.equal((await request(B,{token:a.body.token,method:'PATCH',data:{conversations:[tabB.id],scope:'full'}})).status,200);
+  const narrowed=(await asBot(`/api/companies/${alpha.id}/conversations`)).body.conversations.map(c=>c.id);
+  assert.ok(narrowed.includes(tabB.id)&&!narrowed.includes(tabC.id),'only its conversations');
+  assert.equal((await asBot(`/api/companies/${alpha.id}/conversations/${tabC.id}/messages`)).status,404);
+  assert.equal((await asBot(`/api/companies/${alpha.id}/conversations/${tabB.id}/messages`)).status,200);
+  const act=(await request(`${B}/activity`,{token:a.body.token})).body.activity.map(x=>x.action);
+  assert.ok(act.includes('list')&&act.includes('message')&&act.includes('read'),'activity logged');
+  assert.equal((await request(B,{token:a.body.token,method:'PATCH',data:{days:0}})).status,200);
   await request(`/api/companies/${alpha.id}/bots/${bot.id}`,{token:a.body.token,method:'DELETE'});
   assert.equal((await asBot(`/api/companies/${alpha.id}/conversations`)).status,401,'revoked');
   // A password set from the app keeps its devices signed in.

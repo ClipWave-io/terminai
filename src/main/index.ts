@@ -305,7 +305,11 @@ app.whenReady().then(() => {
   void startControl(app.getPath('userData'), { askGrok: async a => {
       const tab = typeof a.tab === 'string' && ptys.liveIds().includes(a.tab) ? a.tab : activeTabId ?? ''
       const saved = store.load().tabs.find(t => t.ptyId === tab)
-      return botAsk(a.question, a.agent, a.bot, saved?.customTitle || saved?.name || saved?.title || 'TerminAI session', tab && bridge ? bridge.conversationFor(tab) : null)
+      const session = tab && bridge ? bridge.conversationFor(tab) : null
+      const r = await botAsk(a.question, a.agent, a.bot, saved?.customTitle || saved?.name || saved?.title || 'TerminAI session', session)
+      // A reply-only bot may now answer into this conversation (for 30 minutes).
+      if (r.keyId && session && bridge) await bridge.asked(r.keyId, session).catch(() => {})
+      return { ok: r.ok, bot: r.bot, note: r.note }
     }, wake: id => resumeLater(id) || wakeTab(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     log: {
@@ -721,12 +725,14 @@ function registerIpc(): void {
     tabName,
     wake: (tabId: string) => resumeLater(tabId) || wakeTab(tabId),
     waiting: (tabId: string) => laterResume.has(tabId),
-    approve: async (from, tab, text, tabId) => {
-      if (store.load().agentMessages === 'allow' || !win || win.isDestroyed()) return true
+    approve: async (from, tab, text, tabId, force) => {
+      // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.
+      if (!win || win.isDestroyed()) return !force
+      if (store.load().agentMessages === 'allow' && !force) return true
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
-      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: ['Allow', 'Decline', 'Always allow'], defaultId: 0, cancelId: 1,
-        message: `${from} wants to message “${tab}”`, detail: text.length > 600 ? text.slice(0, 597) + '…' : text })
-      if (response === 2) store.save({ ...store.load(), agentMessages: 'allow' })
+      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: force ? ['Allow', 'Decline'] : ['Allow', 'Decline', 'Always allow'], defaultId: 0, cancelId: 1,
+        message: `${from} wants to message “${tab}”`, detail: (text.length > 600 ? text.slice(0, 597) + '…' : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') })
+      if (response === 2 && !force) store.save({ ...store.load(), agentMessages: 'allow' })
       return response !== 1
     },
     notify: (title, body, tabId) => {

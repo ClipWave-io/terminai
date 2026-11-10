@@ -32,6 +32,14 @@ async function rawBody(req) {
   return Buffer.concat(chunks);
 }
 const publicFile = row => ({ id: row.id, name: row.name, mime: row.mime, size: row.size, createdAt: row.created_at });
+/** A bot key's limits from a request, over the current ones. */
+function botLimits(input, current) {
+  const scope = input.scope === undefined ? current.scope : enumValue(input.scope, ['full', 'reply', 'read'], 'access');
+  const approval = input.approval === undefined ? current.approval : input.approval === null ? null : enumValue(input.approval, ['every', 'risky', 'none'], 'approval');
+  const conversations = input.conversations === undefined ? current.conversations : input.conversations === null ? null
+    : (requireThat(Array.isArray(input.conversations) && input.conversations.length <= 200, 400, 'Invalid conversations.'), input.conversations.map(uuid));
+  return { scope, approval, conversations };
+}
 async function limit(db, key, max, seconds) {
   const { rows: [row] } = await db.query(`INSERT INTO manager_rate_limits(key,count,resets_at) VALUES($1,1,now()+$2 * interval '1 second')
     ON CONFLICT(key) DO UPDATE SET count=CASE WHEN manager_rate_limits.resets_at<=now() THEN 1 ELSE manager_rate_limits.count+1 END,
@@ -62,7 +70,7 @@ export function createApp(pool, config) {
   async function botAuth(req) {
     const key = req.headers.authorization?.match(/^Bearer tbot_([A-Za-z0-9_-]{43})$/)?.[1];
     if (!key) return null;
-    const { rows: [user] } = await pool.query(`SELECT u.*,k.id AS bot_id,k.name AS bot_name,k.company_id AS bot_company FROM manager_bot_keys k JOIN manager_users u ON u.id=k.user_id
+    const { rows: [user] } = await pool.query(`SELECT u.*,k.id AS bot_id,k.name AS bot_name,k.company_id AS bot_company,k.scope AS bot_scope,k.conversations AS bot_conversations FROM manager_bot_keys k JOIN manager_users u ON u.id=k.user_id
       WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())`, [digest(key)]);
     requireThat(user, 401, 'Invalid or revoked bot key.');
     void pool.query('UPDATE manager_bot_keys SET last_used_at=now() WHERE id=$1 AND (last_used_at IS NULL OR last_used_at<now()-interval \'1 minute\')', [user.bot_id]).catch(() => {});
@@ -544,6 +552,9 @@ export function createApp(pool, config) {
         const { rows:[member] }=await db.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
         requireThat(company&&member,404,'Company not found.');
         const admin=()=>requireThat(isAdmin(member),403,'Administrator access required.');
+        // A bot key limited to some conversations sees and reaches only those; every action it takes is logged.
+        const botMay=c=>!user.bot_id||!user.bot_conversations||user.bot_conversations.includes(c.id);
+        const botLog=(d,action,conversationId,title)=>d.query('INSERT INTO manager_bot_activity(key_id,action,conversation_id,title) VALUES($1,$2,$3,$4)',[user.bot_id,action,conversationId,title?String(title).slice(0,200):null]);
         // Product access: admins and members without a list see every product; a list limits tasks and notes to it.
         const sees=product=>isAdmin(member)||!member.products||member.products.includes(product||'');
         // Someone else's shared session: admins always; everyone only when the workspace says so.
@@ -638,7 +649,9 @@ export function createApp(pool, config) {
         if(tail==='/conversations'&&req.method==='GET') {
           const before=url.searchParams.get('before');if(before)requireThat(Number.isFinite(Date.parse(before)),400,'Invalid before cursor.');
           const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
-          return {conversations:rows.filter(r=>(!user.bot_id||r.visibility==='company')&&seesSession(r)).map(publicConversation)};
+          const shown=rows.filter(r=>(!user.bot_id||r.visibility==='company')&&seesSession(r)&&botMay(r));
+          if(user.bot_id)await botLog(db,'list',null,`${shown.length} sessions`);
+          return {conversations:shown.map(publicConversation)};
         }
         if(tail==='/conversations'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot create conversations.');
@@ -665,30 +678,58 @@ export function createApp(pool, config) {
           requireThat(member.role!=='viewer',403,'Viewers cannot message sessions.');
           const to=uuid(input.to),content=text(input.content,'Message',20000),from=input.from?uuid(input.from):null,replyTo=input.replyTo?uuid(input.replyTo):null;
           const {rows:[target]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2 AND source_key IS NOT NULL',[to,companyId]);
-          requireThat(target&&canReadConversation(target,member,user.id)&&seesSession(target)&&(!user.bot_id||target.visibility==='company'||target.owner_id===user.id),404,'That session is not shared with you.');
+          requireThat(target&&canReadConversation(target,member,user.id)&&seesSession(target)&&(!user.bot_id||target.visibility==='company'||target.owner_id===user.id)&&botMay(target),404,'That session is not shared with you.');
+          if(user.bot_id){
+            requireThat(user.bot_scope!=='read',403,'This bot key is read-only.');
+            if(user.bot_scope==='reply'){const {rowCount}=await db.query('SELECT 1 FROM manager_bot_asks WHERE key_id=$1 AND conversation_id=$2 AND until>now()',[user.bot_id,to]);requireThat(rowCount,403,'This bot key can only answer a question that session asked it in the last 30 minutes.');}
+            await botLog(db,'message',to,target.title);
+          }
           if(from){const {rowCount}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND owner_id=$2',[from,user.id]);requireThat(rowCount,400,'Not your session.');}
           if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2',[replyTo,user.id]);requireThat(rowCount,404,'No such message to answer.');}
           await limit(pool,`agent:${user.id}`,120,3600);
           const id=randomUUID();
-          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content,from_bot) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,companyId,user.id,from,to,replyTo,content,user.bot_name||null]);
+          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content,from_bot,from_bot_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,companyId,user.id,from,to,replyTo,content,user.bot_name||null,user.bot_id||null]);
           return {id,to,live:!!target.seen_at&&Date.now()-new Date(target.seen_at).getTime()<120000};
         }
         // Bot keys: made by any member for their own bots, listed and revoked by them.
-        if(tail==='/bots'&&req.method==='GET'){const {rows}=await db.query('SELECT id,name,created_at,expires_at,last_used_at FROM manager_bot_keys WHERE company_id=$1 AND user_id=$2 AND revoked_at IS NULL ORDER BY created_at DESC',[companyId,user.id]);return {bots:rows};}
+        if(tail==='/bots'&&req.method==='GET'){const {rows}=await db.query('SELECT id,name,created_at,expires_at,last_used_at,scope,approval,conversations FROM manager_bot_keys WHERE company_id=$1 AND user_id=$2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) ORDER BY created_at DESC',[companyId,user.id]);return {bots:rows};}
         if(tail==='/bots'&&req.method==='POST'){
           requireThat(member.role!=='viewer'&&!user.bot_id,403,'Not allowed.');
-          const name=text(input.name,'Name',60),days=Number.isInteger(input.days)&&input.days>0?Math.min(input.days,365):null,token=opaqueToken(),id=randomUUID();
-          await db.query(`INSERT INTO manager_bot_keys(id,company_id,user_id,name,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,${days?"now()+make_interval(days=>$6)":"NULL"})`,days?[id,companyId,user.id,name,digest(token),days]:[id,companyId,user.id,name,digest(token)]);
+          const name=text(input.name,'Name',60),days=Number.isInteger(input.days)&&input.days>0?Math.min(input.days,365):null,token=opaqueToken(),id=randomUUID(),limits=botLimits(input,{scope:'full',approval:null,conversations:null});
+          await db.query(`INSERT INTO manager_bot_keys(id,company_id,user_id,name,token_hash,scope,approval,conversations,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,${days?"now()+make_interval(days=>$9)":"NULL"})`,[id,companyId,user.id,name,digest(token),limits.scope,limits.approval,limits.conversations,...(days?[days]:[])]);
           await audit(db,companyId,user.id,'bot.created',id);
           return {id,name,key:`tbot_${token}`,api:`${origin}/api/companies/${companyId}`};
         }
         const botMatch=tail.match(/^\/bots\/([0-9a-f-]{36})$/);
+        // Its limits, changed by its maker: access, approval, conversations, and a new expiry (days from now, 0: never).
+        if(botMatch&&req.method==='PATCH'){
+          requireThat(!user.bot_id,403,'Not allowed.');
+          const {rows:[k]}=await db.query('SELECT * FROM manager_bot_keys WHERE id=$1 AND company_id=$2 AND user_id=$3 AND revoked_at IS NULL',[botMatch[1],companyId,user.id]);requireThat(k,404,'No such bot key.');
+          const l=botLimits(input,k),days=input.days===undefined?undefined:Number.isInteger(input.days)&&input.days>=0?Math.min(input.days,365):(requireThat(false,400,'Invalid expiry.'),0);
+          await db.query(`UPDATE manager_bot_keys SET scope=$1,approval=$2,conversations=$3${days===undefined?'':days?",expires_at=now()+make_interval(days=>$5)":",expires_at=NULL"} WHERE id=$4`,[l.scope,l.approval,l.conversations,k.id,...(days?[days]:[])]);
+          return {ok:true};
+        }
+        // A question this Mac sent the bot from a conversation: a reply-only bot may answer into it for 30 minutes.
+        const askMatch=tail.match(/^\/bots\/([0-9a-f-]{36})\/asked$/);
+        if(askMatch&&req.method==='POST'){
+          requireThat(!user.bot_id,403,'Not allowed.');
+          const cid=uuid(input.conversation),{rowCount:own}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND company_id=$2 AND owner_id=$3',[cid,companyId,user.id]);requireThat(own,404,'Not your session.');
+          const {rowCount}=await db.query('SELECT 1 FROM manager_bot_keys WHERE id=$1 AND company_id=$2 AND user_id=$3 AND revoked_at IS NULL',[askMatch[1],companyId,user.id]);requireThat(rowCount,404,'No such bot key.');
+          await db.query("INSERT INTO manager_bot_asks(key_id,conversation_id,until) VALUES($1,$2,now()+interval '30 minutes') ON CONFLICT (key_id,conversation_id) DO UPDATE SET until=excluded.until",[askMatch[1],cid]);
+          return {ok:true};
+        }
+        const actMatch=tail.match(/^\/bots\/([0-9a-f-]{36})\/activity$/);
+        if(actMatch&&req.method==='GET'){
+          requireThat(!user.bot_id,403,'Not allowed.');
+          const {rows}=await db.query('SELECT a.action,a.conversation_id,a.title,a.at FROM manager_bot_activity a JOIN manager_bot_keys k ON k.id=a.key_id WHERE a.key_id=$1 AND k.user_id=$2 ORDER BY a.at DESC LIMIT 200',[actMatch[1],user.id]);
+          return {activity:rows};
+        }
         if(botMatch&&req.method==='DELETE'){await db.query('UPDATE manager_bot_keys SET revoked_at=now() WHERE id=$1 AND company_id=$2 AND user_id=$3',[botMatch[1],companyId,user.id]);return {ok:true};}
         if(tail==='/agent/inbox'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,f.title AS from_title,m.from_conversation
-            FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation
+          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,f.title AS from_title,m.from_conversation,bk.approval AS bot_approval,bk.scope AS bot_scope
+            FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation LEFT JOIN manager_bot_keys bk ON bk.id=m.from_bot_key
             WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
-          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
+          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,botApproval:r.bot_approval??null,botScope:r.bot_scope??null,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
         }
         const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies)$/);
         if(agentMsg) {
@@ -705,7 +746,8 @@ export function createApp(pool, config) {
         if(conv) {
           const conversationId=uuid(conv[1]);
           const {rows:[conversation]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2',[conversationId,companyId]);
-          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company'),404,'Conversation not found.');
+          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company')&&botMay(conversation),404,'Conversation not found.');
+          if(user.bot_id&&req.method==='GET')await botLog(db,'read',conversationId,conversation.title);
           if(!conv[2]&&req.method==='GET')return {conversation:publicConversation(conversation)};
           // Its owner deletes it for good: its messages, and the agent messages to and from it, go with it.
           if(!conv[2]&&req.method==='DELETE'){requireThat(conversation.owner_id===user.id,403,'Only its owner can delete it.');await db.query('DELETE FROM manager_conversations WHERE id=$1',[conversationId]);return {ok:true};}

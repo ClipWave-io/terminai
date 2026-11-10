@@ -71,9 +71,11 @@ function fakeUuid(seed: string): string {
   return `${s.slice(0, 8)}-${s.slice(8, 12)}-4${s.slice(13, 16)}-8${s.slice(17, 20)}-${s.slice(20, 32)}`
 }
 
+/** A message that asks for something hard to undo, costly or secret: a bot set to "risky" asks the person first. */
+const RISKY = /\b(rm\s+-|delete|remove|drop\s+table|truncate|wipe|reset\s+--hard|force[- ]?push|push\s+--force|git\s+push|deploy|publish|release|merge|send\s+(an?\s+)?(email|mail|message|invoice)|transfer|pay(ment)?|purchase|buy|refund|subscribe|password|api[_ -]?key|secret|token|credential|sudo|chmod|chown|curl[^\n|]*\|\s*(ba|z)?sh|ssh\s|production|\bprod\b|revoke|cancel)/i
 export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void
   /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. */
-  approve?: (from: string, tab: string, text: string, tabId: string) => Promise<boolean>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean }) {
+  approve?: (from: string, tab: string, text: string, tabId: string, force?: boolean) => Promise<boolean>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
   const received = new Map<string, { from: string | null; fromName: string; bot?: boolean }>() // agent message id -> who sent it
@@ -137,8 +139,11 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
       // From the workspace only to a shared tab; from yourself (the iPhone app) to any of yours.
       if (!tab || modeOf(m.tab) === 'off' || (!m.self && !shared(m.tab))) { pending = true; continue }
-      if (!m.self && !m.replyTo && opts.approve && !asked.has(m.id)) {
-        asked.set(m.id, await opts.approve(m.fromName, opts.tabName(tab), m.content, tab))
+      // A bot's own setting decides: every message, risky ones only, or never; without one, the general setting.
+      const botRule = m.bot ? m.botApproval as 'every' | 'risky' | 'none' | null : null
+      const askIt = botRule === 'none' ? false : botRule === 'every' ? true : botRule === 'risky' ? RISKY.test(m.content) : !m.self && !m.replyTo
+      if (askIt && opts.approve && !asked.has(m.id)) {
+        asked.set(m.id, await opts.approve(m.fromName, opts.tabName(tab), m.content, tab, botRule === 'every' || botRule === 'risky'))
       }
       if (asked.get(m.id) === false) {
         await team.call(`/api/companies/${team.id}/agent/${m.id}/delivered`, 'POST', {})
@@ -207,5 +212,5 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     throw Error('usage: terminai team list|read|send|reply|replies')
   }
   // Sessions and turns go up every 5 seconds; messages come down at once (listen).
-  return { tick, command, conversationFor: (tabId: string): string | null => conversationOf.get(ptys.workspaceKeyOf(tabId)) ?? null, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }
+  return { tick, command, asked: async (keyId: string, conversation: string) => { const t = await opts.team(); if (t) await t.call(`/api/companies/${t.id}/bots/${keyId}/asked`, 'POST', { conversation }) }, conversationFor: (tabId: string): string | null => conversationOf.get(ptys.workspaceKeyOf(tabId)) ?? null, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }
 }

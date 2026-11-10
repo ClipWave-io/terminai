@@ -92,7 +92,7 @@ export async function botTest(id: unknown): Promise<BotPublic[]> {
   return bots.map(pub)
 }
 /** From a tab: returns at once; the answer comes later into that tab as a message from the bot. */
-export async function botAsk(question: unknown, agent: unknown, botName: unknown, from: string, sessionId: string | null): Promise<{ ok: true; bot: string; note: string }> {
+export async function botAsk(question: unknown, agent: unknown, botName: unknown, from: string, sessionId: string | null): Promise<{ ok: true; bot: string; keyId?: string; note: string }> {
   if (typeof question !== 'string' || !question.trim() || question.length > 20000) throw new Error('usage: terminai ask-grok "<question>" [--bot <name>] [--agent <name>]')
   const all = (await load()).filter(b => b.url)
   if (!all.length) throw new Error('No bot is connected: Settings › Connections › Add a bot.')
@@ -100,5 +100,5 @@ export async function botAsk(question: unknown, agent: unknown, botName: unknown
   const b = want ? all.find(x => x.name.toLowerCase() === want) ?? all.find(x => x.name.toLowerCase().includes(want)) : all.find(x => x.isDefault) ?? all[0]
   if (!b) throw new Error(`No connected bot named ${String(botName)}. Connected: ${all.map(x => x.name).join(', ')}.`)
   await post(b, { question: question.trim(), from, session_id: sessionId, agent: typeof agent === 'string' && agent.trim() ? agent.trim() : b.agent })
-  return { ok: true, bot: b.name, note: sessionId ? `Sent to ${b.name}. The answer arrives in this session as a message from the bot; do not wait for it in a loop.` : `Sent to ${b.name}, but this tab is Off the record or not synced yet, so the bot cannot answer into it: it answers in its own chat.` }
+  return { ok: true, bot: b.name, keyId: b.keyId, note: sessionId ? `Sent to ${b.name}. The answer arrives in this session as a message from the bot; do not wait for it in a loop.` : `Sent to ${b.name}, but this tab is Off the record or not synced yet, so the bot cannot answer into it: it answers in its own chat.` }
 }

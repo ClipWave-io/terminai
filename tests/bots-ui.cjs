@@ -38,6 +38,8 @@ if(!process.versions.electron){
   await js(`[...document.querySelectorAll('.bp-primary')].find(b=>b.textContent.includes('Add a bot')).click()`);await delay(300);
   await shot('bots-2-name');
   await js(`(()=>{const i=document.querySelector('.bm-field input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'Customer Support Bot');i.dispatchEvent(new Event('input',{bubbles:true}))})()`);await delay(100);
+  assert.ok(await js(`document.querySelector('.bl-card.on')?.textContent.includes('Reply only')`),'reply only by default');
+  await shot('bots-2b-limits');
   await js(`[...document.querySelectorAll('.bm-foot .bp-primary')][0].click()`);await delay(1200);
   assert.ok(await js(`!!document.querySelector('.bm-key code')`),'the key, shown once');
   await shot('bots-3-setup');
@@ -45,6 +47,8 @@ if(!process.versions.electron){
   await js(`[...document.querySelectorAll('.bm-foot .bp-ghost')][0].click()`);await delay(200);await js(`document.querySelector('.bm-head .bp-icon').click()`);await delay(600);
   assert.ok(await js(`[...document.querySelectorAll('.bp-list li')].some(l=>l.textContent.includes('Customer Support Bot')&&l.textContent.includes('Setup unfinished'))`),'unfinished bot listed');
   await js(`document.querySelector('.bp-list li:last-child .bp-icon').click()`);await delay(200);await shot('bots-5-menu');
+  await js(`[...document.querySelectorAll('.bp-menu button')].find(b=>b.textContent.startsWith('Permissions')).click()`);await delay(600);
+  assert.ok(await js(`!!document.querySelector('.bl-cards')`),'permissions popup');await shot('bots-6-permissions');
   console.log('PASS bots ui: list, Add a bot in three steps, key shown once, unfinished bot listed, row menu');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})}));
  setTimeout(()=>app.exit(1),70000).unref();require('../out/main/index.js');
