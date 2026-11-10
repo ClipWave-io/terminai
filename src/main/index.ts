@@ -10,7 +10,7 @@ import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-fi
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
-import { startUpdates, checkForUpdatesNow } from './updates'
+import { startUpdates, checkForUpdatesNow, updateReady, installUpdateNow } from './updates'
 import { notice, noticesWindow, noticesList, noticesRead, noticesClear } from './notices'
 import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
@@ -315,7 +315,10 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
-  void startControl(app.getPath('userData'), { askGrok: async a => {
+  void startControl(app.getPath('userData'), { update: async restart => {
+    if (restart) return installUpdateNow() ? { restarting: updateReady() } : { restarting: false, status: await checkForUpdatesNow(win, true) }
+    return { version: app.getVersion(), ready: updateReady() || null, status: updateReady() ? `TerminAI ${updateReady()} is downloaded: terminai update --restart installs it.` : await checkForUpdatesNow(win, true) }
+  }, askGrok: async a => {
       const tab = typeof a.tab === 'string' && ptys.liveIds().includes(a.tab) ? a.tab : activeTabId ?? ''
       const saved = store.load().tabs.find(t => t.ptyId === tab)
       const session = tab && bridge ? bridge.conversationFor(tab) : null

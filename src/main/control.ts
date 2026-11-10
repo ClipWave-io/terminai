@@ -17,8 +17,9 @@ type Deps={askGrok?:(a:any)=>Promise<unknown>;wake?:(id:string)=>Promise<boolean
     add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;
     request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
   log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>Promise<{context:string}|{}>}
-  team:(args:any)=>Promise<unknown>}
-const COMMANDS=['list','open','send','read','close','focus','show','task','log','team','ask-grok']
+  team:(args:any)=>Promise<unknown>
+  update?:(restart:boolean)=>Promise<unknown>}
+const COMMANDS=['list','open','send','read','close','focus','show','task','log','team','ask-grok','update']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -115,6 +116,7 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
     // The To-do from a tab: a task added to a page, a private list described, or a task started, done or reopened
     // (starting links the row to the tab, by the key that outlives a restart).
     case 'team':return d.team(a)
+    case 'update':if(!d.update)throw Error('Not ready yet');return d.update(a.restart===true)
     case 'ask-grok':if(!d.askGrok)throw Error('Not ready yet');return d.askGrok(a)
     case 'log':return a.action==='hook'?d.log.hook(a.session):d.log.day(a.day)
     case 'task':{

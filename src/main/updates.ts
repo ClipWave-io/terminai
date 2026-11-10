@@ -5,6 +5,11 @@ import { notice } from './notices'
 // Updates come from the GitHub releases of ClipWave-io/terminai (publish in package.json). A new version
 // downloads in the background; then a dialog offers to restart into it. Only the signed, installed app checks.
 let asking = false
+let ready = ''
+/** The version downloaded and waiting for a restart, '' when none. */
+export const updateReady = (): string => ready
+/** Restart into the downloaded version now (`terminai update --restart`); false when nothing is downloaded yet. */
+export function installUpdateNow(): boolean { if (!ready) return false; setTimeout(() => autoUpdater.quitAndInstall(), 300); return true }
 export function startUpdates(win: () => BrowserWindow | null, opts: { night: () => boolean; busy: () => boolean } = { night: () => false, busy: () => true }): void {
   if (!app.isPackaged || process.env.TERMINAI_TEST_BUILD) return
   // From TerminAI's server (it fetches GitHub's release through the API), so a GitHub download outage never blocks updates.
@@ -12,7 +17,6 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
   autoUpdater.autoDownload = true
   // Installed when the person clicks Restart now, when they quit, or at night by itself (Settings › Install updates at night).
   autoUpdater.autoInstallOnAppQuit = true
-  let ready = false
   // Between 3 and 6 at night, with nothing working or asking in any tab and nobody at the Mac for 10 minutes: restart into
   // the new version. The tabs come back after it (the open one at once, the others when opened).
   setInterval(() => {
@@ -20,7 +24,7 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
     if (ready && opts.night() && h >= 3 && h < 6 && !opts.busy() && powerMonitor.getSystemIdleTime() > 600) autoUpdater.quitAndInstall(true, true)
   }, 5 * 60_000)
   autoUpdater.on('update-downloaded', async info => {
-    ready = true
+    ready = info.version
     notice('update', `TerminAI ${info.version} is ready`, opts.night() ? 'It installs by itself tonight, or restart now from Settings.' : 'Restart TerminAI to update.', { open: 'updates' })
     if (asking) return
     asking = true
@@ -33,9 +37,13 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
     if (response === 0) autoUpdater.quitAndInstall()
   })
   autoUpdater.on('error', error => console.error('Update check failed:', String(error?.message ?? error).split('\n')[0]))
-  const check = () => void autoUpdater.checkForUpdates().catch(() => {})
+  // Every 15 minutes, and when the Mac wakes or unlocks: a new version shows up within minutes of its release. The feed
+  // answer is a few hundred bytes from terminai.xyz; the download only happens once per version.
+  const check = () => { if (!ready) void autoUpdater.checkForUpdates().catch(() => {}) }
   setTimeout(check, 10_000)
-  setInterval(check, 4 * 60 * 60 * 1000)
+  setInterval(check, 15 * 60 * 1000)
+  powerMonitor.on('resume', () => setTimeout(check, 5000))
+  powerMonitor.on('unlock-screen', () => setTimeout(check, 5000))
 }
 /** "Check for Updates…": the result as a short line for Settings (and a dialog from the menu when there is nothing new). */
 export async function checkForUpdatesNow(owner: BrowserWindow | null, quiet = false): Promise<string> {
