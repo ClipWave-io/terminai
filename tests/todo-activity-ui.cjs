@@ -34,13 +34,20 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await until(() => js(`!!document.querySelector('.todo-notice.mention')`), 'the in-window notice')
   assert.match(await js(`document.querySelector('.todo-notice').textContent`), /^TaggedMatteo’s AI tagged you in “Fix login”$/)
   await until(() => js(`!!document.querySelector('.todo-button-dot')`), 'the To-do button shows the change (the bell is inside the sheet)')
+  // The same change in the notification center: the bell in the top bar counts it, its panel lists it under To-do.
+  await until(() => js(`document.querySelector('.nc-count')?.textContent === '1'`), 'the bell counts it')
+  await js(`document.querySelector('.nc-bell').click()`); await delay(200)
+  assert.match(await js(`document.querySelector('.nc-list li')?.textContent || ''`), /Matteo’s AI tagged you in “Fix login”/)
+  fs.writeFileSync(path.join(os.tmpdir(), 'terminai-notices.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
+  await js(`[...document.querySelectorAll('.nc-filters button')].find(b => b.textContent.startsWith('Finished')).click()`); await delay(100)
+  assert.match(await js(`document.querySelector('.nc-list')?.textContent || ''`), /Nothing here yet/)
+  await js(`document.querySelector('.nc-bell').click()`); await delay(100)
 
   // The notice opens the sheet with the Activity panel: everyone's changes, his AI marked, the tag highlighted.
   await js(`document.querySelector('.todo-notice').click()`)
   await until(() => js(`document.querySelectorAll('.todo-activity-list li').length === 4`), 'four changes in Activity')
   const rows = await js(`[...document.querySelectorAll('.todo-activity-list li')].map(li => li.className + '|' + li.querySelector('.todo-activity-who').textContent + '|' + li.querySelector('.todo-activity-msg').textContent)`)
   assert.deepEqual(rows, ['fresh tagged|MatteoAI|edit Fix login', '|Ilai|add Call the university', '|Ilai|add Ship landing page', '|Ilai|add Fix login'])
-  await until(() => js(`!document.querySelector('.todo-bell-count')`), 'the bell clears once shown')
   assert.ok(prefs().todoActivitySeen, 'seen saved')
   assert.equal(await js(`document.querySelector('.todo-mention.me')?.textContent`), '@Ilai')
   assert.match(await js(`document.querySelector('.todo-row.fresh .todo-fresh').textContent`), /^edited by Matteo’s AI · /)

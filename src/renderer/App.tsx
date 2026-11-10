@@ -2,6 +2,7 @@ import { PaneResizeHandle } from './components/PaneResizeHandle'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { ProjectFilesPane } from './components/ProjectFilesPane'
 import { TeamChat } from './components/TeamChat'
+import { NoticeBell } from './components/NoticeCenter'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
@@ -65,9 +66,10 @@ export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const prefsRef = useRef(prefs); prefsRef.current = prefs
   const [showChat, setShowChat] = useState(false), [chatUnread, setChatUnread] = useState(0)
+  const [settingsSection, setSettingsSection] = useState('general')
   useEffect(() => window.term.teamchat.onOpen(() => setShowChat(true)), [])
   const [ready, setReady] = useState(false)
-  useEffect(() => window.term.window.onOpenSettings(() => setShowSettings(true)), [])
+  useEffect(() => window.term.window.onOpenSettings(section => { if (section) setSettingsSection(section); setShowSettings(true) }), [])
   // Signed in from the website's Open TerminAI: open Sync, which now shows the account.
   useEffect(() => window.term.workspace.onSignedIn(() => setShowTeam(true)), [])
   const [restored, setRestored] = useState(false)
@@ -128,6 +130,16 @@ export function App(): JSX.Element {
     setShowBrowser(!browserVisible); setBrowserOnly(false)
     setCompactPane(browserVisible ? showTerminal ? 'terminal' : showFiles ? 'files' : 'browser' : 'browser')
   }
+  /** A click on a notification: the tab that finished, the To-do (or its Activity), the chat, or Settings. */
+  const openNotice = (n: { target?: { tab?: string; open?: string } }) => {
+    const t = n.target
+    if (t?.tab && tabs.some(x => x.id === t.tab)) { setActiveId(t.tab); setShowTerminal(true); setCompactPane('terminal'); return }
+    if (t?.open === 'todos') setShowTodos(true)
+    else if (t?.open === 'activity') { patchPrefs({ todoActivity: true }); setShowTodos(true) }
+    else if (t?.open === 'chat') setShowChat(true)
+    else if (t?.open === 'memory') { setSettingsSection('memory'); setShowSettings(true) }
+    else if (t?.open === 'updates') { setSettingsSection('general'); setShowSettings(true) }
+  }
   /** A top-bar icon moved to a side, before `before` or at the end. */
   const moveTool = (id: string, side: 'left' | 'right', before?: string) => {
     if (id === before) return
@@ -161,6 +173,7 @@ export function App(): JSX.Element {
     }
     if (id === 'team') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
     if (id === 'settings') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
+    if (id === 'notices') return <NoticeBell key={id} drag={drag} onOpen={openNotice} />
     if (id === 'todo') return <button key={id} className="btn icon no-drag todo-button" {...drag} aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>
     if (id === 'maximize') return <button key={id} className="btn icon no-drag" {...drag} title="Maximise or restore window" aria-label="Maximise or restore window" onClick={() => void window.term.window.toggleMaximize()}>↗</button>
     if (id === 'sessions') return <button key={id} className="btn icon no-drag" {...drag} aria-label="All sessions" title="All sessions  ⌘G" onClick={() => setShowGrid(g => !g)}>⊞</button>
@@ -920,7 +933,7 @@ export function App(): JSX.Element {
       {showToolbar && <div className="toolbar-customize-backdrop" onClick={() => setShowToolbar(false)}>
         <section className="toolbar-customize" role="dialog" aria-label="Customize toolbar" onClick={event => event.stopPropagation()}>
           <strong>Customize toolbar</strong><p>Choose the icons to show and the side each sits on. You can also drag any icon to the other side.</p>
-          {prefs.toolbarOrder.map(item => <div key={item} className="tb-item"><label><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>
+          {prefs.toolbarOrder.map(item => <div key={item} className="tb-item"><label><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'notices' ? 'Notifications' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>
             <span className="tb-seg">{(['left', 'right'] as const).map(side => <button key={side} className={(side === 'right') === prefs.toolbarRight.includes(item) ? 'on' : ''} onClick={() => moveTool(item, side)}>{side === 'left' ? 'Left' : 'Right'}</button>)}</span></div>)}
           <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [], toolbarOrder: DEFAULT_PREFS.toolbarOrder, toolbarRight: DEFAULT_PREFS.toolbarRight })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
         </section>
@@ -977,9 +990,11 @@ export function App(): JSX.Element {
         onTab={id => { setActiveId(id); setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal'); setShowTodos(false) }} />}
       {showSettings && (
         <SettingsSheet
+          key={settingsSection}
+          initialSection={settingsSection as 'general'}
           prefs={prefs}
           onChange={patchPrefs}
-          onClose={() => setShowSettings(false)}
+          onClose={() => { setShowSettings(false); setSettingsSection('general') }}
           onCustomize={() => void customizeDesign()}
           tabs={tabs.map(t => ({ id: t.id, label: tabLabel(t) }))}
           onCloseTab={id => void closeTab(id)}

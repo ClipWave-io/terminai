@@ -571,11 +571,8 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         </div>}
         {user && team && (() => {
           const fresh = activity.filter(a => a.by !== user && (!prefs.activitySeen || a.at > prefs.activitySeen)).length
-          return <button className="todo-icon todo-head-bell" aria-pressed={prefs.activityOpen} aria-label={fresh ? `Activity, ${fresh} new` : 'Activity'} title="Activity: every edit, yours and theirs"
-            onClick={() => { if (view === 'notes' || view === 'log') setView(lastTasks.current); onPrefs({ todoActivity: !prefs.activityOpen }) }}>
-            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M4 11.5V7.2a4 4 0 0 1 8 0v4.3l1.2 1.2H2.8L4 11.5Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
-            {fresh > 0 && <span className="todo-bell-count" aria-hidden="true">{fresh > 99 ? '99+' : fresh}</span>}
-          </button>
+          return <button className="todo-head-activity" aria-pressed={prefs.activityOpen} aria-label={fresh ? `Activity, ${fresh} new` : 'Activity'} title="Activity: every edit, yours and theirs (new ones also reach the bell in the top bar)"
+            onClick={() => { if (view === 'notes' || view === 'log') setView(lastTasks.current); onPrefs({ todoActivity: !prefs.activityOpen }) }}>Activity{fresh > 0 ? ` · ${fresh}` : ''}</button>
         })()}
         <button className="todo-icon todo-head-close" aria-label="Close To-do" title="Close  Esc" onClick={onClose}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></button>

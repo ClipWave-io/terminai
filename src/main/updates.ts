@@ -1,5 +1,6 @@
 import { app, dialog, powerMonitor, type BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { notice } from './notices'
 
 // Updates come from the GitHub releases of ClipWave-io/terminai (publish in package.json). A new version
 // downloads in the background; then a dialog offers to restart into it. Only the signed, installed app checks.
@@ -20,6 +21,7 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
   }, 5 * 60_000)
   autoUpdater.on('update-downloaded', async info => {
     ready = true
+    notice('update', `TerminAI ${info.version} is ready`, opts.night() ? 'It installs by itself tonight, or restart now from Settings.' : 'Restart TerminAI to update.', { open: 'updates' })
     if (asking) return
     asking = true
     const options = { type: 'info' as const, buttons: ['Restart now', 'Later'], defaultId: 0, cancelId: 1,

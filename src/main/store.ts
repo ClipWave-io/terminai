@@ -19,8 +19,12 @@ function hydrate(raw: unknown): Prefs {
     // Files open on the right: moved there once, after that wherever the person drags them.
     paneOrder: p.filesRightV1 ? normalizePaneOrder(p.paneOrder) : [...normalizePaneOrder(p.paneOrder).filter(x => x !== 'files'), 'files'],
     filesRightV1: true,
-    toolbarOrder: (() => { const all = DEFAULT_PREFS.toolbarOrder, mine = Array.isArray(p.toolbarOrder) ? p.toolbarOrder.filter((x: unknown) => typeof x === 'string' && all.includes(x)) : []; return [...new Set([...mine, ...all])] })(),
-    toolbarRight: Array.isArray(p.toolbarRight) ? p.toolbarRight.filter((x: unknown) => typeof x === 'string' && DEFAULT_PREFS.toolbarOrder.includes(x)) : DEFAULT_PREFS.toolbarRight,
+    toolbarOrder: (() => { const all = DEFAULT_PREFS.toolbarOrder, mine = Array.isArray(p.toolbarOrder) ? p.toolbarOrder.filter((x: unknown) => typeof x === 'string' && all.includes(x)) : []
+      // A new icon goes where it sits by default: before the one that follows it there.
+      const out = [...mine]; for (const id of all) if (!out.includes(id)) { const next = all.slice(all.indexOf(id) + 1).find(x => out.includes(x)); out.splice(next ? out.indexOf(next) : out.length, 0, id) }
+      return out })(),
+    // An icon added since the person arranged theirs (the bell) starts on its default side.
+    toolbarRight: Array.isArray(p.toolbarRight) ? [...p.toolbarRight.filter((x: unknown) => typeof x === 'string' && DEFAULT_PREFS.toolbarOrder.includes(x)), ...DEFAULT_PREFS.toolbarRight.filter(x => Array.isArray(p.toolbarOrder) && !p.toolbarOrder.includes(x))] : DEFAULT_PREFS.toolbarRight,
     chatButton: p.chatButton !== false,
     hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','todo','sessions','maximize','sidebar'].includes(item)) : [],
     // Clamped on read as well as on write: a stale or hand-edited prefs file

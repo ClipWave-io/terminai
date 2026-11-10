@@ -1,3 +1,4 @@
+type Notice = { id: string; kind: 'done' | 'todo' | 'request' | 'chat' | 'agent' | 'memory' | 'update'; title: string; body: string; at: string; read: boolean; target?: { tab?: string; open?: 'todos' | 'activity' | 'chat' | 'memory' | 'updates' } }
 type BotInfo = { id: string; name: string; keyId?: string; host: string; agent: string; isDefault: boolean; status: { ok: boolean; at: string; error?: string } | null }
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
@@ -26,7 +27,7 @@ const api = {
     processInfo: (pid: number): Promise<import('../main/memoryDetail').ProcInfo> => ipcRenderer.invoke('memory:process', pid),
     stopProcess: (pid: number, force: boolean): Promise<string> => ipcRenderer.invoke('memory:stop', pid, force),
     storage: (): Promise<import('../main/memoryDetail').StorageReport> => ipcRenderer.invoke('memory:storage'),
-    onOpenSettings: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
+    onOpenSettings: (cb: (section?: string) => void): (() => void) => { const h = (_e: IpcRendererEvent, section?: string) => cb(section); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
     checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
   team: {
     agentMessages: (v?: 'ask' | 'allow'): Promise<'ask' | 'allow'> => ipcRenderer.invoke('team:agentMessages', v),
@@ -136,6 +137,12 @@ const api = {
   },
 
   /** Personal and shared to-dos; src/main/todos.ts does the files and the git sync. */
+  notices: {
+    list: (): Promise<Notice[]> => ipcRenderer.invoke('notices:list'),
+    read: (ids: string[] | 'all'): Promise<Notice[]> => ipcRenderer.invoke('notices:read', ids),
+    clear: (): Promise<Notice[]> => ipcRenderer.invoke('notices:clear'),
+    onNew: (cb: (n: Notice) => void): (() => void) => { const h = (_e: IpcRendererEvent, n: Notice) => cb(n); ipcRenderer.on('notices:new', h); return () => { ipcRenderer.removeListener('notices:new', h) } },
+  },
   teamchat: {
     chat: (company: string, after?: string, typing?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing),
     send: (company: string, body: string, fileId?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId),

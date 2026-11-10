@@ -11,6 +11,7 @@ import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow } from './updates'
+import { notice, noticesWindow, noticesList, noticesRead, noticesClear } from './notices'
 import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
@@ -264,11 +265,13 @@ function notifyPermission(ask = false): Promise<NotifyPermission> {
 }
 
 function tabDone(tabId: string, text: string): void {
-  if (!win || win.isDestroyed() || !Notification.isSupported() || !store.load().doneNotices) return
-  // Already in front of it: nothing to tell.
-  if (win.isFocused() && activeTabId === tabId) return
+  if (!win || win.isDestroyed()) return
   const tab = store.load().tabs.find(t => t.ptyId === tabId)
   const name = tab?.customTitle || tab?.name || tab?.title || basename(ptys.cwdOf(tabId)) || 'Session'
+  const looking = win.isFocused() && activeTabId === tabId
+  // In the notification center always (already read when you are looking at that tab); on macOS only when you are not.
+  notice('done', name, text, { tab: tabId }, looking)
+  if (!Notification.isSupported() || !store.load().doneNotices || looking) return
   const note = new Notification({ title: `Done · ${name}`, body: text.length > 220 ? `${text.slice(0, 217)}…` : text, silent: true })
   note.on('click', () => {
     if (!win || win.isDestroyed()) return
@@ -290,6 +293,7 @@ app.whenReady().then(() => {
   ]))
   // The first launch after installing: macOS shows its Allow question for TerminAI's notifications once.
   if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void notifyPermission().then(p => { if (p === 'notDetermined') void notifyPermission(true) }), 8000)
+  noticesWindow(() => win)
   startUpdates(() => win, { night: () => store.load().nightUpdates, busy: () => ptys.liveIds().some(id => ['working', 'question'].includes(ptys.statusOf(id))) })
   // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
   const legacyMarker = join(app.getPath('userData'), 'alive')
@@ -435,6 +439,7 @@ function registerIpc(): void {
   // A chat message as a Mac notification; clicking it opens the chat. Returns false when macOS has them off.
   appIpc.handle('notify:permission', (_e, ask: unknown) => notifyPermission(ask === true))
   appIpc.handle('team:notify', async (_e, title: unknown, body: unknown) => {
+    if (String(title) !== 'TerminAI') notice('chat', String(title), String(body), { open: 'chat' })
     if (!Notification.isSupported() || !['authorized', 'provisional'].includes(await notifyPermission())) return false
     const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
     n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
@@ -443,6 +448,9 @@ function registerIpc(): void {
   // Reading each folder once makes macOS ask for it (Files and Folders); true where TerminAI may read it.
   appIpc.handle('app:ask-folders', async () => Object.fromEntries(await Promise.all(['Downloads', 'Documents', 'Desktop'].map(async name => {
     try { await readdir(join(homedir(), name)); return [name, true] } catch { return [name, false] } }))))
+  appIpc.handle('notices:list', () => noticesList())
+  appIpc.handle('notices:read', (_e, ids) => noticesRead(ids))
+  appIpc.handle('notices:clear', () => noticesClear())
   appIpc.handle('bots:list', () => botList())
   appIpc.handle('bots:save', (_e, v) => botSave(v))
   appIpc.handle('bots:remove', (_e, id) => botRemove(id))
@@ -544,6 +552,7 @@ function registerIpc(): void {
     if (!Notification.isSupported()) return
     const tabName = (id: string) => { const t = store.load().tabs.find(x => x.ptyId === id); return t?.customTitle || t?.name || t?.title || basename(ptys.cwdOf(id)) || 'Session' }
     const top = r.tabs.slice(0, 3).map(t => `${tabName(t.id)} ${(t.mb / 1024).toFixed(1)} GB`).join(', ')
+    notice('memory', r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', `Using most: ${top}.`, { open: 'memory' })
     const note = new Notification({ title: r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', body: `Close a few sessions before apps get closed. Using most: ${top}.` })
     note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
     note.show()
@@ -626,6 +635,7 @@ function registerIpc(): void {
       // A request from the partner: its own notice, answered from the notice (Accept, or Reply to add a message).
       for (const t of requests ?? []) {
         if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: `${name} asks${t.request?.urgent ? ' (urgent)' : ''}: ${t.title}`, mention: true })
+        notice('request', `${t.request?.urgent ? 'Urgent request' : 'Request'} from ${name}`, t.title, { open: 'todos' })
         if (!Notification.isSupported()) continue
         const n = new Notification({ title: `${t.request?.urgent ? 'Urgent request' : 'Request'} from ${name}`, body: t.title + (t.notes ? `\n${t.notes.slice(0, 140)}` : ''),
           actions: [{ type: 'button', text: 'Accept' }, { type: 'button', text: 'Decline' }], hasReply: true, replyPlaceholder: 'Accept with a message', closeButtonText: 'Later' })
@@ -637,6 +647,7 @@ function registerIpc(): void {
       for (const t of answered ?? []) {
         if (!Notification.isSupported()) continue
         const ok = t.request?.status === 'accepted'
+        notice('request', `${name} ${ok ? 'accepted' : 'declined'} your request`, `${t.title}${t.request?.reply ? ` · “${t.request.reply}”` : ''}`, { open: 'todos' })
         new Notification({ title: `${name} ${ok ? 'accepted' : 'declined'} your request`, body: `${t.title}${t.request?.reply ? `\n“${t.request.reply}”` : ''}` }).show()
       }
       if ((requests?.length || answered?.length) && count === (requests?.length ?? 0) + (answered?.length ?? 0)) return
@@ -645,6 +656,7 @@ function registerIpc(): void {
         : changed.length === 1 && !removed.length ? `${ai} changed “${changed[0].title}”` : removed.length === 1 && !changed.length ? `${name} deleted “${removed[0]}”` : `${ai} changed ${count} shared tasks`
       // Inside TerminAI too, top right: the system notice is easy to miss while working in a tab.
       if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: body, mention: !!mentioned?.length })
+      notice('todo', 'To-do', body, { open: 'activity' })
       if (!Notification.isSupported()) return
       const note = new Notification({ title: 'To-do', body })
       note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
@@ -736,6 +748,7 @@ function registerIpc(): void {
       return response !== 1
     },
     notify: (title, body, tabId) => {
+      notice('agent', title, body, { tab: tabId })
       if (!Notification.isSupported()) return
       const note = new Notification({ title, body, silent: true })
       note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('tab:request', { reqId: `notice-${Date.now()}`, kind: 'focus', input: { id: tabId } }) })

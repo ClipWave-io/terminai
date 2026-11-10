@@ -34,6 +34,7 @@ interface Props {
   tabs: { id: string; label: string }[]
   onCloseTab: (id: string) => void
   onOpenTab: (id: string) => void
+  initialSection?: SettingsSection
 }
 
 /** Every binding registered in App.tsx's keydown handler, grouped for reading. */
@@ -79,7 +80,7 @@ interface ElevenVoice {
   description: string
 }
 
-export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onCloseTab, onOpenTab }: Props): JSX.Element {
+export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onCloseTab, onOpenTab, initialSection }: Props): JSX.Element {
   const [voices, setVoices] = useState<string[]>([])
   const [hasEleven, setHasEleven] = useState(false)
   const [elevenVoices, setElevenVoices] = useState<ElevenVoice[]>([])
@@ -135,7 +136,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       .catch(() => setElevenError('preview failed'))
   }
 
-  const [section, setSection] = useState<SettingsSection>('general')
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'general')
   const patchVoice = (p: Partial<Prefs['voice']>): void =>
     onChange({ voice: { ...prefs.voice, ...p } })
 
