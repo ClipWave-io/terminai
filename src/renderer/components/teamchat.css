@@ -107,3 +107,14 @@
 .call.beside, .call-toast.beside { right: calc(min(420px, 100vw - 16px) + 20px); }
 .call.beside.big { width: min(900px, calc(100vw - 480px)); }
 @media (max-width: 860px) { .call.beside, .call-toast.beside { right: 16px; } }
+/* Call window: a top strip to drag it by, with pop out, bigger and minimize; minimized it is a small pill. */
+.call-top { display: flex; align-items: center; gap: 2px; margin: -4px -4px 0; cursor: grab; user-select: none; }
+.call-top:active { cursor: grabbing; }
+.call-grip { flex: 1; height: 14px; background: radial-gradient(circle, color-mix(in srgb, var(--dim) 60%, transparent) 1px, transparent 1.5px) 0 50% / 6px 6px repeat-x; opacity: .7; }
+.call-tool { border: 0; background: none; color: var(--dim); padding: 4px; border-radius: 6px; display: grid; place-items: center; cursor: pointer; }
+.call-tool:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.call.mini { width: max-content; max-width: 420px; display: flex; flex-direction: row; flex-wrap: nowrap; white-space: nowrap; grid-template-columns: none; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-radius: 999px; cursor: grab; }
+.call-mini-text { display: grid; line-height: 1.2; min-width: 0; margin-right: 4px; } .call-mini-text strong { font-size: 12.5px; } .call-mini-text small { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.call-dot { width: 8px; height: 8px; border-radius: 50%; background: #30a46c; box-shadow: 0 0 0 3px color-mix(in srgb, #30a46c 25%, transparent); flex: none; }
+.call-btn.small { width: 30px; height: 30px; }
+.call-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

@@ -8,7 +8,7 @@ import { Avatar } from './Permissions'
  * With more than two people each pair connects directly (a mesh), which is fine for a small team.
  */
 type Signal = { seq: string; from: string; fromName: string; to: string | null; callId: string; kind: string; data: any }
-type PeerState = { name: string; stream: MediaStream; state: RTCPeerConnectionState | 'new'; video: boolean; screen: boolean; muted: boolean }
+type PeerState = { name: string; stream: MediaStream; state: RTCPeerConnectionState | 'new'; video: boolean; screen: boolean; muted: boolean; since?: number }
 type Phase = 'idle' | 'outgoing' | 'incoming' | 'live'
 type Incoming = { callId: string; from: string; fromName: string; video: boolean }
 
@@ -18,7 +18,7 @@ const I: Record<string, string> = {
   mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM5 11a7 7 0 0 0 14 0M12 18v3',
   micOff: 'M3 3l18 18M9 9v3a3 3 0 0 0 5 2.2M15 9.5V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.3 5.5M19 11a7 7 0 0 1-.6 2.8M12 18v3',
   videoOff: 'M3 3l18 18M15 11V7H8M3 7v10h12v-2M15 10l6-3v10l-3-1.5',
-  screen: 'M3 4h18v12H3ZM8 20h8M12 16v4', hang: 'M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2a10 10 0 0 0-5 0v2l-3 1.5Z',
+  screen: 'M3 4h18v12H3ZM8 20h8M12 16v4', min: 'M5 12h14', expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5', pop: 'M14 4h6v6M20 4l-8 8M18 14v6H4V6h6', hang: 'M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-2a10 10 0 0 0-5 0v2l-3 1.5Z',
 }
 export const CallIcon = ({ n, s = 18 }: { n: keyof typeof I; s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={I[n]} /></svg>
 const newId = () => `c-${crypto.randomUUID()}`
@@ -29,11 +29,11 @@ function useRing(on: boolean, incoming: boolean): void {
   useEffect(() => {
     if (!on) return
     let ctx: AudioContext | null = null
-    try { ctx = new AudioContext() } catch { return }
+    try { ctx = new AudioContext(); void ctx.resume() } catch { return }
     const beep = () => {
       if (!ctx) return
       const t = ctx.currentTime, g = ctx.createGain(); g.connect(ctx.destination)
-      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(incoming ? 0.12 : 0.05, t + 0.05); g.gain.setValueAtTime(incoming ? 0.12 : 0.05, t + 0.9); g.gain.linearRampToValueAtTime(0, t + 1)
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(incoming ? 0.2 : 0.1, t + 0.05); g.gain.setValueAtTime(incoming ? 0.2 : 0.1, t + 0.9); g.gain.linearRampToValueAtTime(0, t + 1)
       for (const [f, d] of [[440, 0], [480, 0]] as const) { const o = ctx.createOscillator(); o.frequency.value = f; o.connect(g); o.start(t + d); o.stop(t + 1) }
     }
     beep(); const id = setInterval(beep, incoming ? 2500 : 4000)
@@ -88,13 +88,14 @@ export function useCalls(company: string, me: string, names: (id: string) => str
     const pc = new RTCPeerConnection({ iceServers: c.ice ?? [] })
     c.pcs.set(id, pc)
     const stream = new MediaStream(); c.streams.set(id, stream)
-    setPeers(prev => ({ ...prev, [id]: { name: namesRef.current(id), stream, state: 'new', video: false, screen: false, muted: false } }))
+    setPeers(prev => ({ ...prev, [id]: { name: namesRef.current(id), stream, state: 'new', video: false, screen: false, muted: false, since: Date.now() } }))
     if (initiator) {
       const a = c.local?.getAudioTracks()[0] ?? null, v = c.screen ?? c.camera
       pc.addTransceiver(a ?? 'audio', { direction: 'sendrecv', streams: c.local ? [c.local] : [] })
       pc.addTransceiver(v ?? 'video', { direction: 'sendrecv', streams: c.local ? [c.local] : [] })
     }
-    pc.ontrack = e => { if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track); setPeers(prev => prev[id] ? { ...prev, [id]: { ...prev[id], stream } } : prev) }
+    // Each new track makes a new MediaStream: a player handed a stream before its tracks came may never start playing them.
+    pc.ontrack = e => { if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track); const fresh = new MediaStream(stream.getTracks()); e.track.onunmute = () => setPeers(prev => prev[id] ? { ...prev, [id]: { ...prev[id], stream: new MediaStream(stream.getTracks()) } } : prev); setPeers(prev => prev[id] ? { ...prev, [id]: { ...prev[id], stream: fresh } } : prev) }
     pc.onicecandidate = e => { if (e.candidate) void send('ice', id, e.candidate.toJSON()) }
     pc.onconnectionstatechange = () => {
       patchPeer(id, { state: pc.connectionState })
@@ -114,6 +115,16 @@ export function useCalls(company: string, me: string, names: (id: string) => str
     const c = r.current
     if (s.kind === 'ring') {
       if (c.done.has(s.callId)) return
+      // Both pressed call at once: one call, not two "busy". The lower id answers the other's call; the other just waits for it.
+      if (c.callId && c.phase === 'outgoing' && !c.pcs.size && !c.incoming) {
+        if (meRef.current < s.from) {
+          const mine = c.callId; clearTimeout(c.ringTimer); c.done.add(mine)
+          void window.term.teamchat.callSend(company, { callId: mine, kind: 'hangup' }).catch(() => {})
+          c.callId = s.callId; c.caller = false; setPhase('live')
+          await send('accept', null, { video: !!c.camera })
+        }
+        return
+      }
       if (c.callId || c.incoming) { if (c.callId !== s.callId && c.incoming?.callId !== s.callId) void window.term.teamchat.callSend(company, { callId: s.callId, kind: 'decline', to: s.from, data: { busy: true } }).catch(() => {}); return }
       const inc = { callId: s.callId, from: s.from, fromName: s.fromName, video: !!s.data?.video }
       setIncoming(inc); setPhase('incoming')
@@ -212,23 +223,42 @@ export function useCalls(company: string, me: string, names: (id: string) => str
 }
 export type Calls = ReturnType<typeof useCalls>
 
-function Media({ stream, muted, mirror, className }: { stream: MediaStream; muted?: boolean; mirror?: boolean; className?: string }): JSX.Element {
+function Media({ stream, muted, mirror, className, ref: outer }: { stream: MediaStream; muted?: boolean; mirror?: boolean; className?: string; ref?: React.RefObject<HTMLVideoElement | null> }): JSX.Element {
   const ref = useRef<HTMLVideoElement>(null)
-  useEffect(() => { const v = ref.current; if (v && v.srcObject !== stream) { v.srcObject = stream; void v.play().catch(() => {}) } })
+  useEffect(() => { const v = ref.current; if (outer) outer.current = v; if (v && v.srcObject !== stream) { v.srcObject = stream; void v.play().catch(() => {}) } })
   return <video ref={ref} className={className} autoPlay playsInline muted={muted} style={mirror ? { transform: 'scaleX(-1)' } : undefined} />
 }
 function Sound({ stream }: { stream: MediaStream }): JSX.Element {
   const ref = useRef<HTMLAudioElement>(null)
-  useEffect(() => { const a = ref.current; if (a && a.srcObject !== stream) { a.srcObject = stream; void a.play().catch(() => {}) } })
+  useEffect(() => {
+    const a = ref.current; if (!a) return
+    if (a.srcObject !== stream) a.srcObject = stream
+    // Start it, and again whenever it is paused with sound to play (a track that arrived late, a device change).
+    const go = () => { if (a.paused && stream.getAudioTracks().length) void a.play().catch(() => {}) }
+    go(); const t = window.setInterval(go, 1000); return () => window.clearInterval(t)
+  }, [stream])
   return <audio ref={ref} autoPlay />
 }
 
 /** The call window: a floating card over the app, whether the chat is open or not. */
+/** The call window: a floating card over the app. Drag it by its top, shrink it to a pill, make it big, or pop the
+ *  picture out into macOS's own small floating window (picture in picture, over every app). */
 export function CallView({ calls, title, beside = false }: { calls: Calls; title: string; beside?: boolean }): JSX.Element | null {
   const { phase, incoming, peers, local, media, since, ended } = calls
   const [, tick] = useState(0)
-  useEffect(() => { if (phase !== 'live') return; const id = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(id) }, [phase])
-  const [big, setBig] = useState(false)
+  useEffect(() => { if (phase === 'idle') return; const id = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(id) }, [phase])
+  const [big, setBig] = useState(false), [mini, setMini] = useState(false)
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const card = useRef<HTMLDivElement>(null), remote = useRef<HTMLVideoElement | null>(null)
+  useEffect(() => { if (phase === 'idle') { setPos(null); setMini(false); setBig(false) } }, [phase])
+  const drag = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button') || !card.current) return
+    const r0 = card.current.getBoundingClientRect(), dx = e.clientX - r0.left, dy = e.clientY - r0.top
+    const move = (m: MouseEvent) => setPos({ x: Math.max(4, Math.min(window.innerWidth - r0.width - 4, m.clientX - dx)), y: Math.max(4, Math.min(window.innerHeight - 60, m.clientY - dy)) })
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); e.preventDefault()
+  }
+  const style = pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined
   if (phase === 'idle' && !incoming) return ended ? <div className={`call-toast${beside ? ' beside' : ''}`} role="status">{ended}</div> : null
   if (phase === 'incoming' && incoming) return <div className={`call card incoming${beside ? ' beside' : ''}`} data-state="incoming" role="dialog" aria-label={`Call from ${incoming.fromName}`}>
     <div className="call-who"><Avatar id={incoming.from} name={incoming.fromName} size={44} /><div><strong>{incoming.fromName}</strong><small>{incoming.video ? 'Video call' : 'Voice call'}</small></div></div>
@@ -240,15 +270,34 @@ export function CallView({ calls, title, beside = false }: { calls: Calls; title
   </div>
   const list = Object.entries(peers), live = list.some(([, p]) => p.state === 'connected')
   const shown = list.find(([, p]) => p.video && p.stream.getVideoTracks().length)
-  const status = phase === 'outgoing' ? 'Ringing…' : !live ? 'Connecting…' : list.some(([, p]) => p.state === 'disconnected') ? 'Reconnecting…' : since ? timer(Date.now() - since) : ''
-  return <div className={`call card${beside ? ' beside' : ''}${big ? ' big' : ''}${shown ? ' has-video' : ''}`} data-state={live ? 'live' : phase} role="dialog" aria-label="Call">
-    {list.map(([id, p]) => <Sound key={id} stream={p.stream} />)}
+  // 20 s without a connection: say why instead of "Connecting…" forever.
+  const stuck = !live && phase === 'live' && list.length > 0 && list.every(([, p]) => p.state === 'failed' || Date.now() - (p.since ?? Date.now()) > 20000)
+  const status = phase === 'outgoing' ? 'Ringing…' : stuck ? 'Cannot connect: a VPN or this network blocks direct calls' : !live ? 'Connecting…' : list.some(([, p]) => p.state === 'disconnected') ? 'Reconnecting…' : since ? timer(Date.now() - since) : ''
+  const name = list.length ? list.map(([, p]) => p.name.split(' ')[0]).join(', ') : title
+  const pop = () => { const v = remote.current; if (!v) return; if (document.pictureInPictureElement) void document.exitPictureInPicture().catch(() => {}); else void v.requestPictureInPicture().catch(() => {}) }
+  const sounds = list.map(([id, p]) => <Sound key={id} stream={p.stream} />)
+  if (mini) return <div ref={card} className={`call card mini${beside && !pos ? ' beside' : ''}`} style={style} data-state={live ? 'live' : phase} role="dialog" aria-label="Call" onMouseDown={drag}>
+    {sounds}
+    {shown && <Media className="call-hidden" stream={shown[1].stream} muted ref={remote} />}
+    <span className="call-dot" /><div className="call-mini-text"><strong>{name}</strong><small>{status}</small></div>
+    <button className={`call-btn small${media.muted ? ' off' : ''}`} title={media.muted ? 'Unmute' : 'Mute'} aria-label={media.muted ? 'Unmute' : 'Mute'} onClick={calls.toggleMute}><CallIcon n={media.muted ? 'micOff' : 'mic'} s={15} /></button>
+    <button className="call-btn small" title="Show the call" aria-label="Show the call" onClick={() => setMini(false)}><CallIcon n="expand" s={15} /></button>
+    <button className="call-btn small end" title="Hang up" aria-label="Hang up" onClick={calls.hangup}><CallIcon n="hang" s={15} /></button>
+  </div>
+  return <div ref={card} className={`call card${beside && !pos ? ' beside' : ''}${big ? ' big' : ''}${shown ? ' has-video' : ''}`} style={style} data-state={live ? 'live' : phase} role="dialog" aria-label="Call">
+    {sounds}
+    <div className="call-top" onMouseDown={drag} title="Drag to move">
+      <span className="call-grip" aria-hidden="true" />
+      {shown && <button className="call-tool" title="Pop out into a small window over every app" aria-label="Pop out" onClick={pop}><CallIcon n="pop" s={14} /></button>}
+      <button className="call-tool" title={big ? 'Smaller' : 'Bigger'} aria-label={big ? 'Smaller' : 'Bigger'} onClick={() => setBig(b => !b)}><CallIcon n={big ? 'shrink' : 'expand'} s={14} /></button>
+      <button className="call-tool" title="Minimize" aria-label="Minimize" onClick={() => setMini(true)}><CallIcon n="min" s={14} /></button>
+    </div>
     <div className="call-stage" onDoubleClick={() => setBig(b => !b)}>
-      {shown ? <Media className="call-remote" stream={shown[1].stream} muted />
+      {shown ? <Media className="call-remote" stream={shown[1].stream} muted ref={remote} />
         : <div className="call-faces">{(list.length ? list.map(([id, p]) => [id, p.name] as const) : [['', title] as const]).map(([id, n]) => <Avatar key={id || n} id={id || n} name={n} size={56} />)}</div>}
       {local && media.video && <Media className="call-self" stream={local} muted mirror />}
     </div>
-    <div className="call-who slim"><div><strong>{list.length ? list.map(([, p]) => p.name.split(' ')[0]).join(', ') : title}</strong>
+    <div className="call-who slim"><div><strong>{name}</strong>
       <small>{status}{list.some(([, p]) => p.muted) ? ' · muted' : ''}{shown?.[1].screen ? ' · sharing screen' : ''}</small></div></div>
     <div className="call-bar">
       <button className={`call-btn${media.muted ? ' off' : ''}`} title={media.muted ? 'Unmute' : 'Mute'} aria-label={media.muted ? 'Unmute' : 'Mute'} onClick={calls.toggleMute}><CallIcon n={media.muted ? 'micOff' : 'mic'} /></button>

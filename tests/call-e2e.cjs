@@ -18,7 +18,7 @@ if(!process.versions.electron){
   const ice=await call(`/api/companies/${company}/call/ice`,{token:ilai.token});assert.ok(ice.iceServers?.length,'ice servers');
   const run=role=>new Promise((res,rej)=>{const p=cp.spawn(path.resolve('node_modules/.bin/electron'),[__filename],{env:{...process.env,ROLE:role,TEAM_URL:url,TEAM_EMAIL:`${role==='caller'?'ilai':'matteo'}${tag}@example.test`,TEAM_PW:pw},stdio:'inherit'});
    const t=setTimeout(()=>{p.kill();rej(new Error(role+' timed out'))},110000);p.on('exit',c=>{clearTimeout(t);c===0?res():rej(new Error(`${role} exited ${c}`))})});
-  try{await Promise.all([run('caller'),run('callee')]);console.log('PASS calls: ring, answer with video, picture and sound both ways, mute shown, hang up on both')}
+  try{await Promise.all([run('caller'),run('callee')]);console.log('PASS calls: ring, answer with video, picture and sound both ways, mute shown, hang up on both; both calling at once makes one call; minimize and restore')}
   finally{server.kill()}
  })().catch(e=>{console.error(e);server.kill();process.exit(1)});
 }else{
@@ -33,7 +33,12 @@ if(!process.versions.electron){
   await js(`window.term.workspace.login({url:${JSON.stringify(process.env.TEAM_URL)},email:${JSON.stringify(process.env.TEAM_EMAIL)},password:${JSON.stringify(process.env.TEAM_PW)}})`);
   await js(`document.querySelector('[aria-label^="Team chat"]').click()`);
   const remoteOk=`(()=>{const v=document.querySelector('.call-remote');return !!v&&v.videoWidth>0&&v.currentTime>0})()`;
-  const soundOk=`[...document.querySelectorAll('.call audio')].some(a=>a.srcObject&&a.srcObject.getAudioTracks().some(t=>t.readyState==='live'))`;
+  // Sound really plays: the player runs (not paused, time moving) on a live audio track.
+  const soundOk=`[...document.querySelectorAll('.call audio')].some(a=>!a.paused&&a.currentTime>0.5&&a.srcObject&&a.srcObject.getAudioTracks().some(t=>t.readyState==='live'&&!t.muted))`;
+  // Both press call at the same moment (at the next whole 4 s on the clock): one call connects, nobody hears "busy".
+  const bothCall=async()=>{await delay(4000-Date.now()%4000+500);await js(`document.querySelector('.tc-calls [aria-label="Voice call"]').click()`);
+   await until(`document.querySelector('.call')?.dataset.state==='live'`,'both calling: connected');
+   assert.ok(!/another call|declined/.test(await js(`document.body.innerText`)),'no busy');await until(soundOk,'sound in the merged call')};
   if(role==='caller'){
    await until(`!!document.querySelector('.tc-calls [aria-label="Video call"]')`,'call button');
    await delay(1500);// the callee's signal poll is running by now
@@ -44,6 +49,10 @@ if(!process.versions.electron){
    await delay(1500);await js(`document.querySelector('.call [aria-label="Mute"]').click()`);
    await delay(6000);await js(`document.querySelector('.call [aria-label="Hang up"]').click()`);
    await until(`!document.querySelector('.call.card')`,'ended here');
+   await bothCall();
+   await js(`document.querySelector('.call [aria-label="Minimize"]').click()`);await until(`!!document.querySelector('.call.mini')`,'minimized');await shot('5-mini');
+   await js(`document.querySelector('.call [aria-label="Show the call"]').click()`);await until(`!document.querySelector('.call.mini')&&!!document.querySelector('.call-top')`,'shown again');
+   await delay(1000);await js(`document.querySelector('.call [aria-label="Hang up"]').click()`);await until(`!document.querySelector('.call.card')`,'second call ended');
   }else{
    await until(`document.querySelector('.call')?.dataset.state==='incoming'`,'incoming call',60000);await shot('2-incoming');
    assert.match(await js(`document.querySelector('.call').textContent`),/Ilai Bachrach.*Video call/);
@@ -52,6 +61,8 @@ if(!process.versions.electron){
    await until(remoteOk,'remote picture');await until(soundOk,'remote sound');
    await until(`/muted/.test(document.querySelector('.call-who.slim small')?.textContent||'')`,'mute shown');await shot('4-muted');
    await until(`!document.querySelector('.call.card')`,'ended by the other side');
+   await bothCall();
+   await until(`!document.querySelector('.call.card')`,'second call ended by the other side');
   }
   console.log(`ok ${role}`);app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})}));
