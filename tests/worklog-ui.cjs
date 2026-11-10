@@ -9,8 +9,9 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   try {
     await delay(1200); win.setSize(1400, 860); await delay(300)
     await js(`document.querySelector('.todo-button').click()`); await delay(500)
-    await js(`[...document.querySelectorAll('.todo-seg button')].find(b => b.textContent === 'Log').click()`); await delay(2500)
-    const text = await js(`document.querySelector('.wlog')?.innerText || ''`)
+    await js(`[...document.querySelectorAll('.todo-seg button')].find(b => b.textContent === 'Log').click()`)
+    // Today's transcripts can take a while on a busy Mac: wait for the log, not a fixed time.
+    let text = ''; for (let i = 0; i < 80 && !/working time|No conversations this day/.test(text); i++) { await delay(250); text = await js(`document.querySelector('.wlog')?.innerText || ''`) }
     assert.match(text, /working time|No conversations this day/)
     fs.writeFileSync(path.join(os.tmpdir(), 'terminai-worklog.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
     console.log(`PASS work log tab: ${text.split('\n').slice(0, 3).join(' | ')} · ${path.join(os.tmpdir(), 'terminai-worklog.png')}`)
