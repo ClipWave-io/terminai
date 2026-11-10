@@ -320,7 +320,7 @@ export function App(): JSX.Element {
     } else if (start) {
       // A tab you open starts the agent chosen in Settings, by default Claude Code with permissions skipped.
       const agent = prefsRef.current.newTabAgent
-      const cmd = agent === 'claude' ? 'claude --dangerously-skip-permissions' : agent === 'codex' ? 'codex --dangerously-bypass-approvals-and-sandbox' : ''
+      const cmd = agent === 'claude' ? 'claude --dangerously-skip-permissions' : agent === 'codex' ? 'codex --dangerously-bypass-approvals-and-sandbox' : agent === 'custom' ? prefsRef.current.newTabCommand.trim() : ''
       if (cmd) window.term.pty.exec(id, cmd)
     }
     return id
