@@ -881,7 +881,13 @@ export function App(): JSX.Element {
               onTitle={(title) => setTitle(tab.id, title)}
             />
           ))}
-          {terminalVisible && tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
+          {/* Bottom right of the terminal: the tab's Claude account, and the team chat beside it. */}
+          {terminalVisible && <div className="pane-corner">
+            {tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
+            {prefs.chatButton && <button className={`corner-chat${showChat ? ' on' : ''}`} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z" /></svg>
+              {chatUnread > 0 ? <span className="corner-count">{chatUnread > 99 ? '99+' : chatUnread}</span> : <span>Chat</span>}</button>}
+          </div>}
         </div>
 
         {showBrowser && prefs.browserBeta && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
@@ -961,8 +967,6 @@ export function App(): JSX.Element {
       })()}
 
       <TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} />
-      {prefs.chatButton && <button className={`tc-fab${showChat ? ' on' : ''}`} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
-        <PaneIcon kind="chat" />{chatUnread > 0 && <span className="tc-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>}
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
       {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
