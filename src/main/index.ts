@@ -617,7 +617,7 @@ function registerIpc(): void {
     }
     // Restored conversations start one every 1.5 s, so twenty Claude Codes never start at the same moment.
     if (resume && line) {
-      const at = Math.max(Date.now(), nextResume); nextResume = at + 1500
+      const at = Math.max(Date.now(), nextResume); nextResume = at + 3000
       setTimeout(() => startAgent(id, line, { carryOn: resume.continue === true }), at - Date.now())
       return
     }

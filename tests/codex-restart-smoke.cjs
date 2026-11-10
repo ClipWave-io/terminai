@@ -14,7 +14,7 @@ if(!process.versions.electron){
  console.log('PASS real app restart: detects Codex process/thread, persists exact ID/options, relaunches same thread without local rollout file');
 }else{
  const {app}=require('electron'),root=process.env.TEST_ROOT,profile=path.join(root,'profile'),phase=process.env.TEST_PHASE;app.setPath('userData',profile);fs.mkdirSync(profile,{recursive:true});
- if(phase==='first')fs.writeFileSync(path.join(profile,'prefs.json'),JSON.stringify({seenWelcome:true,tabs:[],voice:{enabled:false}}));
+ if(phase==='first')fs.writeFileSync(path.join(profile,'prefs.json'),JSON.stringify({seenWelcome:true,tabs:[],voice:{enabled:false},newTabAgent:'none'}));
  const delay=ms=>new Promise(r=>setTimeout(r,ms));
  app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
    await delay(1800);

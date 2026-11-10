@@ -395,6 +395,8 @@ export interface Prefs {
   railRecent: boolean
   /** each conversation in the sidebar shows when it was last active */
   railTimes: boolean
+  /** after a restart every conversation starts again at once (spaced out), not only the open and working ones */
+  resumeAll: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
   /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
@@ -453,6 +455,7 @@ export const DEFAULT_PREFS: Prefs = {
   groupByFolder: true,
   railRecent: false,
   railTimes: false,
+  resumeAll: false,
   tasksUser: 'ilai',
   todoHiddenColumns: [],
   todoProducts: [],

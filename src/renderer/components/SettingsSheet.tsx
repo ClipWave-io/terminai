@@ -161,6 +161,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Sidebar" hint={<><span className="kbd">⌥⌘S</span> to flip · <span className="kbd">⌘S</span> to hide</>}>
         <select value={prefs.railSide} onChange={e => onChange({ railSide: e.target.value as RailSide })}><option value="left">Left</option><option value="right">Right</option></select></Row>
       <Row label="Group by folder" hint="Sessions sit under the folder they are in."><Toggle on={prefs.groupByFolder} set={v => onChange({ groupByFolder: v })} /></Row>
+      <Row label="Resume every conversation" hint="After a restart, start all of them again instead of only the open one and the ones that were working (the others start when you open them). Slow with many tabs."><Toggle on={prefs.resumeAll} set={v => onChange({ resumeAll: v })} /></Row>
       <Row label="Sort by last active" hint="The conversation that did something most recently comes first, and folders by their newest one."><Toggle on={prefs.railRecent} set={v => onChange({ railRecent: v })} /></Row>
       <Row label="Show when each was last active" hint="The time under each conversation in the sidebar, like 5 min ago or yesterday 14:30."><Toggle on={prefs.railTimes} set={v => onChange({ railTimes: v })} /></Row>
       <Row label="Font size" hint={<><span className="kbd">⌘+</span> / <span className="kbd">⌘−</span></>}>

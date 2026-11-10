@@ -52,6 +52,7 @@ function hydrate(raw: unknown): Prefs {
     groupByFolder: p.groupByFolder !== false,
     railRecent: p.railRecent === true,
     railTimes: p.railTimes === true,
+    resumeAll: p.resumeAll === true,
     // A Mac where someone picked Ilai or Matteo keeps the shared page; anyone else gets private lists under a fixed local key.
     teamTasks: p.teamTasks ?? (p.tasksUser === 'livio' || p.tasksUser === 'ilai'),
     tasksUser: p.tasksUser === 'livio' || p.tasksUser === 'ilai' ? p.tasksUser : 'ilai',

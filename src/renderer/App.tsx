@@ -409,9 +409,11 @@ export function App(): JSX.Element {
     }
 
     restoring.current = true
-    try { for (const raw of savedTabs) {
-      // Every conversation comes back by itself after a restart, as before 0.3.27 (main spaces the starts out).
-      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: false }
+    try { for (const [i, raw] of savedTabs.entries()) {
+      // After a restart the open tab and the ones that were working come back at once; the rest start when opened (or
+      // messaged). Starting all of them at once (52 tabs: 52 Claude Codes, each with its MCP servers and its whole history)
+      // froze the Mac for minutes and could sign Claude out. Settings › Resume every conversation brings back the old way.
+      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: !prefsRef.current.resumeAll && i < savedTabs.length - 1 && !raw.wasWorking }
       const running = t.ptyId ? live.get(t.ptyId) : undefined
       if (running) {
         taken.add(running.id)
