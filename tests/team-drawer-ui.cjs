@@ -34,9 +34,9 @@ if(!process.versions.electron){
   await js(`document.querySelector('[aria-label^="Team chat"]').click()`);
   for(let i=0;i<40&&!await js(`document.querySelectorAll('.tc-msg').length>=3`);i++)await delay(250);
   assert.equal(await js(`document.querySelectorAll('.tc-msg').length`),3,'three messages');
-  assert.ok(await js(`document.querySelectorAll('.tc-faces .pp-avatar').length>=2`),'faces of the team in the header');
+  assert.ok(await js(`document.querySelectorAll('.tc-faces .pp-avatar').length>=1`),'faces of the people in this chat (Sofia, limited to mm.org, is not in the team chat)');
   // Ilai's message: Matteo wrote after it, so his app has it: two grey ticks (not read yet: not blue).
-  assert.ok(await js(`[...document.querySelectorAll('.tc-msg.mine')].some(m=>m.querySelector('.tc-ticks:not(.read) svg path')?.getAttribute('d').startsWith('M2 12.5'))`),'two grey ticks once it is on their Mac');
+  assert.ok(await js(`[...document.querySelectorAll('.tc-msg.mine')].some(m=>m.querySelector('.tc-ticks svg path')?.getAttribute('d').startsWith('M2 12.5'))`),'two ticks once it is on their Macs (blue: everyone in this chat read it)');
   // The drawer resizes from its left edge.
   const w0=await js(`document.querySelector('.tc').getBoundingClientRect().width`);
   await js(`(()=>{const h=document.querySelector('.tc-resize'),r=h.getBoundingClientRect();h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:r.left+2,clientY:300}));window.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left-150,clientY:300}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`);await delay(200);

@@ -133,7 +133,11 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
   throw Error('Unknown command')
 }
 
+/** Opens a tab running a command, as `terminai open` does (the onboarding's installer uses it). */
+let depsRef:Deps|null=null
+export function openCommandTab(cwd:string,name:string,command:string,background=false):Promise<unknown>{if(!depsRef)throw Error('Not ready yet');return run('open',{cwd,name,command,background},depsRef)}
 export async function startControl(directory:string,deps:Deps) {
+  depsRef=deps
   mkdirSync(directory,{recursive:true})
   const token=randomBytes(32).toString('hex'),file=join(directory,'control.json')
   const server=createServer(async(req,res)=>{

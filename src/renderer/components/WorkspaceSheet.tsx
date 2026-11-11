@@ -1,4 +1,4 @@
-import { Permissions } from './Permissions'
+import { Permissions, ProductPicker, useProducts } from './Permissions'
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { DEFAULT_WORKSPACE_URL, inviteTokenOf } from '../../shared/workspace'
@@ -150,13 +150,17 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
   const [allowed, setAllowed] = useState('')
   const allow = async () => { try { await window.term.workspace.request('/api/auth/device/approve', 'POST', { code: code.trim() }); setAllowed(code.trim().toUpperCase()); setCode('') } catch (e) { onError(e) } }
   const rename = async () => { if (!name.trim() || name.trim() === me.name) return; try { await window.term.workspace.request('/api/me', 'PATCH', { name: name.trim() }); onRenamed(name.trim()) } catch (e) { onError(e) } }
+  // What the newcomer gets: a role, and for members and viewers the products they see (none picked: all of them).
+  const owner = state.identity!.companies.find(c => base.endsWith(c.id))?.role === 'owner'
+  const [role, setRole] = useState<'admin' | 'member' | 'viewer'>('member')
+  const [products, setProducts] = useState<string[]>([])
+  const options = useProducts(products)
+  const terms = () => ({ role, ...(role !== 'admin' && products.length ? { products } : {}) })
   const linkInvite = async () => {
-    // The owner's links make admins (like the owner's partner); anyone else's, members.
-    const make = (role: string) => window.term.workspace.request(`${base}/invites/link`, 'POST', { role })
-    try { const v = await make(admin ? 'admin' : 'member').catch(() => make('member')); setLink(v.inviteUrl); setCopied(false) } catch (e) { onError(e) }
+    try { const v = await window.term.workspace.request(`${base}/invites/link`, 'POST', terms()); setLink(v.inviteUrl); setCopied(false) } catch (e) { onError(e) }
   }
   const invite = async () => {
-    try { const v = await window.term.workspace.request(`${base}/invites`, 'POST', { email: email.trim(), role: admin ? 'admin' : 'member' }); setLink(v.inviteUrl); setCopied(false); onInvited() } catch (e) { onError(e) }
+    try { const v = await window.term.workspace.request(`${base}/invites`, 'POST', { email: email.trim(), ...terms() }); setLink(v.inviteUrl); setCopied(false); onInvited() } catch (e) { onError(e) }
   }
   return <div className="team-page members">
     <header><div><h2>Members</h2><p>Everyone here shares the To-do, the notes and the conversations you share.</p></div></header>
@@ -174,6 +178,11 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
       {<form className="m-card m-form" onSubmit={e => { e.preventDefault(); void invite() }}>
         <h3>Invite someone</h3>
         <p>A link anyone can open for 24 hours to join, or one just for an email. No password needed.</p>
+        <div className="m-terms">
+          <label>Joins as <select value={role} onChange={e => setRole(e.target.value as 'member')}>{owner && <option value="admin">Admin (sees everything)</option>}<option value="member">Member</option><option value="viewer">Viewer (read only)</option></select></label>
+          {role !== 'admin' && <div className="m-products"><span>Products they see</span><ProductPicker value={products} onChange={setProducts} options={options} />
+            <small>{products.length ? `Only ${products.join(', ')}: its tasks, notes, files and chat.` : 'None picked: every product.'}</small></div>}
+        </div>
         <button type="button" className="btn primary" onClick={() => void linkInvite()}>Create invite link (24 h)</button>
         <div className="m-inline"><input type="email" required placeholder="name@email.com" value={email} onChange={e => setEmail(e.target.value)} /><button className="btn" type="submit">Link for this email</button></div>
         {link && <div className="m-link"><code>{link}</code>

@@ -351,3 +351,6 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-req-ask.urgent { background: color-mix(in srgb, #e8a900 18%, transparent); } .todo-req-ask b { font-weight: 600; }
 .todo-req-ask button { border: 0; border-radius: 7px; padding: 2px 9px; font: inherit; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; }
 .todo-req-ask button + button { background: var(--surface); color: var(--fg); } .todo-req-ask input { height: 22px; width: 160px; border-radius: 6px; border: 1px solid var(--border); background: var(--pane); color: var(--fg); font: inherit; padding: 0 6px; }
+/* More people than fit: the columns keep a readable width and the row slides sideways, snapping to a column. */
+.todo-main > .todo-cols:not(.single) { overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 6px; }
+.todo-main > .todo-cols:not(.single) > .todo-col { scroll-snap-align: start; }

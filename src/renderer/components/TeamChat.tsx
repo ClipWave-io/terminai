@@ -72,7 +72,14 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   // Opening a file or picture in the Files pane closes the drawer, so the file is not hidden behind it.
   useEffect(() => { const h = () => onClose(); window.addEventListener('tc:opened-in-pane', h); return () => window.removeEventListener('tc:opened-in-pane', h) }, [onClose])
   useEffect(() => { const load = () => void window.term.prefs.get().then(p => { soundRef.current = p.chatSound !== false }).catch(() => {}); load(); const t = window.setInterval(load, 30000); return () => window.clearInterval(t) }, [])
-  const key = `tc:${company}`
+  // Channels: the whole team ('') and one per product. Someone limited to some products has only those.
+  const [channel, setChannel] = useState<string>(() => cache.get(`tc:${company}:channel`, ''))
+  const [channels, setChannels] = useState<{ team: boolean; channels: string[] }>(() => cache.get(`tc:${company}:channels`, { team: true, channels: [] }))
+  useEffect(() => {
+    const load = () => void window.term.teamchat.channels(company).then(c => { setChannels(c); cache.set(`tc:${company}:channels`, c); if (!c.team && !c.channels.includes(channel) && c.channels[0]) pick(c.channels[0]) }).catch(() => {})
+    load(); const t = window.setInterval(load, 60000); return () => window.clearInterval(t)
+  }, [company]) // eslint-disable-line react-hooks/exhaustive-deps
+  const key = `tc:${company}${channel ? `:${channel}` : ''}`
   const [messages, setMessages] = useState<Message[]>(() => cache.get(`${key}:m`, []))
   const [people, setPeople] = useState<Person[]>(() => cache.get(`${key}:p`, []))
   const [me, setMe] = useState<string>(() => cache.get(`${key}:me`, ''))
@@ -85,6 +92,11 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const peopleRef = useRef(people); peopleRef.current = people
   const meRef = useRef(me); meRef.current = me
   const msgsRef = useRef(messages); msgsRef.current = messages
+  const pick = (c: string) => {
+    if (c === channel) return
+    const k = `tc:${company}${c ? `:${c}` : ''}`
+    known.current = new Set(); setMessages(cache.get(`${k}:m`, [])); setLastRead(cache.get(`${k}:read`, '')); setChannel(c); cache.set(`tc:${company}:channel`, c)
+  }
 
   // The long poll: each answer brings what is new, then the next call waits for more (or for typing to change).
   useEffect(() => {
@@ -97,7 +109,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
           const mine = msgsRef.current.filter(m => m.from === meRef.current && !m.pending), last = mine.at(-1)
           const others = peopleRef.current.filter(p => p.id !== meRef.current)
           const pending = last && others.some(p => !p.seenAt || p.seenAt < last.at) ? last.at : undefined
-          const r = await window.term.teamchat.chat(company, after, typing, pending)
+          const r = await window.term.teamchat.chat(company, after, typing, pending, channel)
           if (stop) return
           setOffline(false); setMe(r.me); cache.set(`${key}:me`, r.me); setPeople(r.people); cache.set(`${key}:p`, r.people)
           typing = r.people.filter((p: Person) => p.typing).map((p: Person) => p.id).join(',')
@@ -119,7 +131,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
     }
     void run()
     return () => { stop = true }
-  }, [company]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [company, channel]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Read: everything up to the newest message once the chat is in view.
   const newest = messages.at(-1)?.at ?? ''
@@ -130,7 +142,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const send = async (body: string, fileId?: string) => {
     const temp: Message = { id: `tmp-${Date.now()}`, body, at: new Date().toISOString(), from: meRef.current, fromName: 'You', file: null, pending: true }
     if (!fileId) setMessages(prev => [...prev, temp])
-    try { await window.term.teamchat.send(company, body, fileId) } catch { setMessages(prev => prev.map(m => m.id === temp.id ? { ...m, body: `${m.body}`, fromName: 'failed' } : m)) }
+    try { await window.term.teamchat.send(company, body, fileId, channel) } catch { setMessages(prev => prev.map(m => m.id === temp.id ? { ...m, body: `${m.body}`, fromName: 'failed' } : m)) }
   }
   const share = async (paths: string[]) => {
     for (const path of paths) { try { const { file } = await window.term.teamchat.upload(company, path, 'all', [], true); await send('', file.id) } catch (e) { alertLine(String((e as Error).message ?? e)) } }
@@ -156,6 +168,10 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
       </span>}
       <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
+    {view === 'chat' && channels.channels.length > 0 && <div className="tc-channels" role="tablist" aria-label="Chats">
+      {channels.team && <button role="tab" aria-selected={channel === ''} className={channel === '' ? 'on' : ''} onClick={() => pick('')}>Team</button>}
+      {channels.channels.map(c => <button key={c} role="tab" aria-selected={channel === c} className={channel === c ? 'on' : ''} onClick={() => pick(c)}>{c}</button>)}
+    </div>}
     {notice && <div className="tc-notice">{notice}</div>}
     {view === 'chat' ? <Chat company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
       : view === 'files' ? <Files company={company} admin={admin} me={me} onError={alertLine} />

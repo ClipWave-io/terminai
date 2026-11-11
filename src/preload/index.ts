@@ -143,9 +143,14 @@ const api = {
     clear: (): Promise<Notice[]> => ipcRenderer.invoke('notices:clear'),
     onNew: (cb: (n: Notice) => void): (() => void) => { const h = (_e: IpcRendererEvent, n: Notice) => cb(n); ipcRenderer.on('notices:new', h); return () => { ipcRenderer.removeListener('notices:new', h) } },
   },
+  agents: {
+    status: (): Promise<{ claude: boolean; codex: boolean }> => ipcRenderer.invoke('agents:status'),
+    install: (which: ('claude' | 'codex')[]): Promise<boolean> => ipcRenderer.invoke('agents:install', which),
+  },
   teamchat: {
-    chat: (company: string, after?: string, typing?: string, pending?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing, pending),
-    send: (company: string, body: string, fileId?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId),
+    chat: (company: string, after?: string, typing?: string, pending?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing, pending, channel),
+    channels: (company: string): Promise<{ team: boolean; channels: string[] }> => ipcRenderer.invoke('team:channels', company),
+    send: (company: string, body: string, fileId?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId, channel),
     signal: (company: string, kind: 'typing' | 'read'): Promise<void> => ipcRenderer.invoke('team:signal', company, kind),
     call: (company: string, after?: string): Promise<any> => ipcRenderer.invoke('team:call', company, after),
     callSend: (company: string, signal: object): Promise<any> => ipcRenderer.invoke('team:call-send', company, signal),

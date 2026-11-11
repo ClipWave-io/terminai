@@ -1,14 +1,14 @@
 import { readdir } from 'node:fs/promises'
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification, systemPreferences, desktopCapturer, session } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
-import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamChannels, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow, updateReady, installUpdateNow } from './updates'
 import { notice, noticesWindow, noticesList, noticesRead, noticesClear } from './notices'
@@ -16,7 +16,7 @@ import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
 import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-guide'
-import { startControl, controlReply } from './control'
+import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
@@ -441,8 +441,9 @@ function registerIpc(): void {
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
   appIpc.handle('workspace:attach', (_event, note, file) => workspaceAttach(note, file))
-  appIpc.handle('team:chat', (_e, company, after, typing, pending) => teamChat(company, after, typing, pending))
-  appIpc.handle('team:send', (_e, company, body, fileId) => teamSend(company, body, fileId))
+  appIpc.handle('team:chat', (_e, company, after, typing, pending, channel) => teamChat(company, after, typing, pending, channel))
+  appIpc.handle('team:channels', (_e, company) => teamChannels(company))
+  appIpc.handle('team:send', (_e, company, body, fileId, channel) => teamSend(company, body, fileId, channel))
   appIpc.handle('team:signal', (_e, company, kind) => teamSignal(company, kind))
   appIpc.handle('team:call', (_e, company, after) => teamCall(company, after))
   appIpc.handle('team:call-send', (_e, company, signal) => teamCallSend(company, signal))
@@ -460,6 +461,22 @@ function registerIpc(): void {
     const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
     n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
     n.show(); return true
+  })
+  // Onboarding › Your agents: which of Claude Code and Codex this Mac has, and a tab that installs the missing ones.
+  appIpc.handle('agents:status', () => {
+    const dirs = [...(process.env.PATH ?? '').split(':'), join(homedir(), '.local/bin'), join(homedir(), '.claude/local'), '/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.npm-global/bin')]
+    const has = (bin: string) => dirs.some(d => { try { return !!d && statSync(join(d, bin)).isFile() } catch { return false } })
+    return { claude: has('claude'), codex: has('codex') }
+  })
+  appIpc.handle('agents:install', async (_e, which: unknown) => {
+    const want = Array.isArray(which) ? which.filter((w): w is 'claude' | 'codex' => w === 'claude' || w === 'codex') : []
+    if (!want.length) return false
+    // Claude Code's official installer (no Node needed); Codex through Homebrew when present, else npm.
+    const steps = want.map(w => w === 'claude' ? 'curl -fsSL https://claude.ai/install.sh | bash'
+      : 'if command -v brew >/dev/null; then brew install codex; else npm install -g @openai/codex; fi')
+    const cmd = `${steps.join(' && ')} && echo && echo "Done. Type ${want.includes('claude') ? 'claude' : 'codex'} to sign in and start."`
+    await openCommandTab(homedir(), want.length > 1 ? 'Installing Claude Code and Codex' : want[0] === 'claude' ? 'Installing Claude Code' : 'Installing Codex', cmd, false)
+    return true
   })
   appIpc.handle('team:files', (_e, company) => teamFiles(company))
   appIpc.handle('team:file-change', (_e, company, id, change) => teamFileChange(company, id, change))

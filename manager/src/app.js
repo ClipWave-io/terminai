@@ -46,6 +46,12 @@ async function limit(db, key, max, seconds) {
     resets_at=CASE WHEN manager_rate_limits.resets_at<=now() THEN now()+$2*interval '1 second' ELSE manager_rate_limits.resets_at END RETURNING count`, [digest(key), seconds]);
   requireThat(row.count <= max, 429, 'Too many requests. Try again later.');
 }
+/** The products an invitation limits the newcomer to: none for an admin, null for all, else the given names. */
+const inviteProducts = (value, role) => {
+  if (role === 'admin' || value === undefined || value === null) return null;
+  requireThat(Array.isArray(value) && value.length <= 20 && value.every(p => typeof p === 'string' && p.trim() && p.length <= 100), 400, 'Invalid products.');
+  return value.length ? [...new Set(value.map(p => p.trim()))] : null;
+};
 const signalOf = r => ({ seq: String(r.seq), from: r.from_user, fromName: r.from_name, to: r.to_user, callId: r.call_id, kind: r.kind, data: r.data, at: r.created_at });
 /** STUN finds each Mac's public address; TURN relays when a network blocks direct connections (Cloudflare or any TURN server, from env). */
 let iceCache = null;
@@ -324,7 +330,7 @@ export function createApp(pool, config) {
                 await db.query('INSERT INTO manager_users(id,email,name,password_hash) VALUES($1,$2,$3,$4)', [user.id, user.email, user.name, input.password ? await hashPassword(input.password) : '']);
               }
             }
-            await db.query("INSERT INTO manager_memberships(company_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [link.company_id, user.id, link.role]);
+            await db.query("INSERT INTO manager_memberships(company_id,user_id,role,products) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", [link.company_id, user.id, link.role, link.role === 'admin' ? null : link.products]);
             await audit(db, link.company_id, user.id, 'invite_link.used', link.id);
             return signedInResponse(req, res, db, user, input);
           }
@@ -341,7 +347,7 @@ export function createApp(pool, config) {
             const passwordHash = input.password ? await hashPassword(input.password) : '';
             await db.query('INSERT INTO manager_users(id,email,name,password_hash) VALUES($1,$2,$3,$4)',[user.id,user.email,user.name,passwordHash]);
           }
-          await db.query('INSERT INTO manager_memberships(company_id,user_id,role,classification) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[locked.company_id,user.id,locked.role,locked.classification]);
+          await db.query('INSERT INTO manager_memberships(company_id,user_id,role,classification,products) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[locked.company_id,user.id,locked.role,locked.classification,locked.role==='admin'?null:locked.products]);
           await db.query('UPDATE manager_invites SET accepted_at=now() WHERE id=$1',[locked.id]);
           await audit(db,locked.company_id,user.id,'invite.accepted',locked.id);
           return signedInResponse(req,res,db,user,input);
@@ -518,25 +524,38 @@ export function createApp(pool, config) {
           if (closed) return;
           return json(res, 200, { after: rows.length ? String(rows.at(-1).seq) : after, signals: rows.map(signalOf) });
         }
+        // Chat channels: '' the whole team, or a product's. Someone limited to some products sees only those products' chats.
+        const limited = !adminish && Array.isArray(member.products);
+        const channels = limited ? member.products : null;
+        const channelOf = v => { const c = typeof v === 'string' ? v.trim().slice(0, 100) : ''; requireThat(!limited || (c && channels.includes(c)), 403, 'You are not in that chat.'); return c; };
+        if (kind === 'chat' && sub === 'channels' && req.method === 'GET') {
+          const { rows } = await pool.query("SELECT channel, max(created_at) AS last FROM manager_chat WHERE company_id=$1 AND channel<>'' GROUP BY channel", [companyId]);
+          const { rows: ps } = await pool.query('SELECT DISTINCT unnest(products) AS p FROM manager_memberships WHERE company_id=$1 AND products IS NOT NULL', [companyId]);
+          const all = [...new Set([...rows.map(r => r.channel), ...ps.map(r => r.p)])].filter(c => !limited || channels.includes(c)).sort();
+          return json(res, 200, { team: !limited, channels: all, last: Object.fromEntries(rows.map(r => [r.channel, r.last])) });
+        }
         if (kind === 'chat' && !sub && req.method === 'GET') {
           // Long poll: answers at once when there is something newer than `after`, else waits up to `wait` seconds.
+          const channel = channelOf(url.searchParams.get('channel'));
           const after = url.searchParams.get('after'), wait = Math.min(25, Math.max(0, Number(url.searchParams.get('wait')) || 0));
           requireThat(!after || Number.isFinite(Date.parse(after)), 400, 'Invalid cursor.');
           await seen();
           const fetchNew = () => pool.query(`SELECT c.id,c.body,c.created_at,c.from_user,u.name AS from_name,f.id AS fid,f.name AS fname,f.mime,f.size,f.access,f.products,f.created_by
               FROM manager_chat c JOIN manager_users u ON u.id=c.from_user LEFT JOIN manager_team_files f ON f.id=c.file_id
-              WHERE c.company_id=$1 AND ($2::timestamptz IS NULL OR date_trunc('milliseconds', c.created_at)>$2) ORDER BY c.created_at DESC LIMIT 200`, [companyId, after || null]).then(r => r.rows.reverse());
+              WHERE c.company_id=$1 AND c.channel=$3 AND ($2::timestamptz IS NULL OR date_trunc('milliseconds', c.created_at)>$2) ORDER BY c.created_at DESC LIMIT 200`, [companyId, after || null, channel]).then(r => r.rows.reverse());
           let rows = await fetchNew(), closed = false; req.on('close', () => { closed = true });
           const typingKey = async () => (await pool.query("SELECT string_agg(user_id::text,',') AS t FROM manager_presence WHERE company_id=$1 AND user_id<>$2 AND typing_until>now()", [companyId, user.id])).rows[0].t || '';
           const typing0 = url.searchParams.get('typing') ?? '';
           // Delivered ticks: the sender's poll also answers once every other member's app has fetched since its newest unticked message.
           const pending = url.searchParams.get('pending'); requireThat(!pending || Number.isFinite(Date.parse(pending)), 400, 'Invalid cursor.');
-          const delivered = async () => !!pending && !(await pool.query('SELECT 1 FROM manager_memberships m LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND m.user_id<>$2 AND (p.seen_at IS NULL OR p.seen_at<$3) LIMIT 1', [companyId, user.id, pending])).rowCount;
+          // Who is in this chat: admins, members of every product, and for a product's chat its members.
+          const inChat = `(m.role IN ('owner','admin') OR m.products IS NULL${channel ? ' OR $CH = ANY(m.products)' : ''})`;
+          const delivered = async () => !!pending && !(await pool.query(`SELECT 1 FROM manager_memberships m LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND m.user_id<>$2 AND (p.seen_at IS NULL OR p.seen_at<$3) AND ${inChat.replace('$CH', '$4')} LIMIT 1`, channel ? [companyId, user.id, pending, channel] : [companyId, user.id, pending])).rowCount;
           const until = Date.now() + wait * 1000;
           while (!rows.length && !closed && Date.now() < until && (await typingKey()) === typing0 && !(await delivered())) { await new Promise(r => setTimeout(r, 600)); rows = await fetchNew(); }
           if (closed) return;
           const { rows: people } = await pool.query(`SELECT u.id,u.name,p.seen_at,p.read_at,(p.typing_until>now()) AS typing FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id
-            LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1`, [companyId]);
+            LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND ${inChat.replace('$CH', '$2')}`, channel ? [companyId, channel] : [companyId]);
           return json(res, 200, { messages: rows.map(r => ({ id: r.id, body: r.body, at: r.created_at, from: r.from_user, fromName: r.from_name,
               file: r.fid ? (canSee({ access: r.access, products: r.products, created_by: r.created_by }) ? { id: r.fid, name: r.fname, mime: r.mime, size: r.size } : { hidden: true }) : null })),
             people: people.map(p => ({ id: p.id, name: p.name, seenAt: p.seen_at, readAt: p.read_at, typing: !!p.typing && p.id !== user.id, online: !!p.seen_at && Date.now() - new Date(p.seen_at).getTime() < 60000 })), me: user.id });
@@ -546,11 +565,12 @@ export function createApp(pool, config) {
           if (sub === 'typing') { await seen(true); return json(res, 200, { ok: true }); }
           if (sub === 'read') { await seen(); await pool.query('UPDATE manager_presence SET read_at=now(),seen_at=now() WHERE company_id=$1 AND user_id=$2', [companyId, user.id]); return json(res, 200, { ok: true }); }
           requireThat(!sub && member.role !== 'viewer', 403, 'Viewers cannot write in the chat.');
+          const channel = channelOf(input.channel);
           const bodyText = typeof input.body === 'string' ? input.body.slice(0, 8000) : '', fileId = input.fileId ? uuid(input.fileId) : null;
           requireThat(bodyText.trim() || fileId, 400, 'Write something.');
           if (fileId) { const { rowCount } = await pool.query('SELECT 1 FROM manager_team_files WHERE id=$1 AND company_id=$2', [fileId, companyId]); requireThat(rowCount, 404, 'File not found.'); }
           await limit(pool, `chat:${user.id}`, 600, 3600);
-          const { rows: [row] } = await pool.query('INSERT INTO manager_chat(id,company_id,from_user,body,file_id) VALUES($1,$2,$3,$4,$5) RETURNING id,created_at', [randomUUID(), companyId, user.id, bodyText, fileId]);
+          const { rows: [row] } = await pool.query('INSERT INTO manager_chat(id,company_id,from_user,body,file_id,channel) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,created_at', [randomUUID(), companyId, user.id, bodyText, fileId, channel]);
           await seen(); await pool.query("UPDATE manager_presence SET typing_until=NULL,seen_at=now(),read_at=now() WHERE company_id=$1 AND user_id=$2", [companyId, user.id]);
           return json(res, 200, { id: row.id, at: row.created_at });
         }
@@ -672,16 +692,18 @@ export function createApp(pool, config) {
           const token=opaqueToken(),id=randomUUID();
           // Reissuing an invitation invalidates previous unused tokens for that address.
           await db.query('UPDATE manager_invites SET revoked_at=now() WHERE company_id=$1 AND email=$2 AND accepted_at IS NULL AND revoked_at IS NULL',[companyId,accountEmail]);
-          await db.query("INSERT INTO manager_invites(id,company_id,email,role,classification,token_hash,created_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '48 hours')",[id,companyId,accountEmail,role,classification,digest(token),user.id]);
+          const products=inviteProducts(input.products,role);
+          await db.query("INSERT INTO manager_invites(id,company_id,email,role,classification,token_hash,created_by,expires_at,products) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '48 hours',$8)",[id,companyId,accountEmail,role,classification,digest(token),user.id,products]);
           await audit(db,companyId,user.id,'invite.created',id);return {id,token,inviteUrl:`${origin}/#invite=${token}`,expiresInHours:48};
         }
         if(tail==='/invites/link'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot invite people.');
           const role=enumValue(input.role??'member',['admin','member','viewer'],'role');if(role==='admin')owner();
           const hours=Math.min(168,Math.max(1,Number.isInteger(input.hours)?input.hours:24)),token=opaqueToken(),id=randomUUID();
-          await db.query(`INSERT INTO manager_invite_links(id,company_id,token_hash,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,now()+make_interval(hours=>$6))`,[id,companyId,digest(token),role,user.id,hours]);
+          const products=inviteProducts(input.products,role);
+          await db.query(`INSERT INTO manager_invite_links(id,company_id,token_hash,role,created_by,expires_at,products) VALUES($1,$2,$3,$4,$5,now()+make_interval(hours=>$6),$7)`,[id,companyId,digest(token),role,user.id,hours,products]);
           await audit(db,companyId,user.id,'invite_link.created',id);
-          return {id,token,inviteUrl:`${origin}/#invite=${token}`,expiresInHours:hours,role};
+          return {id,token,inviteUrl:`${origin}/#invite=${token}`,expiresInHours:hours,role,products};
         }
         if(tail==='/invites'&&req.method==='GET') {
           admin();const {rows}=await db.query('SELECT id,email,role,classification,expires_at,accepted_at,revoked_at FROM manager_invites WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100',[companyId]);return {invites:rows};

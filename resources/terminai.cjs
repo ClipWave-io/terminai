@@ -83,7 +83,7 @@ function map(){
 function request(command,flags,words){
  if(command==='update')return {restart:flags.restart===true};
  if(command==='ask-grok')return {question:words.join(' '),agent:flags.agent,bot:flags.bot,tab:process.env.TERMINAI_TAB_ID};
- if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),tab:process.env.TERMINAI_TAB_ID};
+ if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),products:flags.products,as:flags.as,tab:process.env.TERMINAI_TAB_ID};
  if(command==='log')return words[0]==='hook'?{action:'hook',session:flags.session}:{action:'day',day:words[0]};
  if(command==='task'){
   const action=words[0];

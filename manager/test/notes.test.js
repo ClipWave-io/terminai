@@ -261,14 +261,16 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   await request(`/api/companies/${alpha.id}/chat/read`,{token:mo.body.token,method:'POST',data:{}});
   assert.ok((await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token})).body.people.find(x=>x.name.startsWith('Mo'))?.readAt,'read receipt without an earlier visit');
   await request(`/api/companies/${alpha.id}/chat/typing`,{token:a.body.token,method:'POST',data:{}});
-  const c0=(await request(`/api/companies/${alpha.id}/chat`,{token:p1.body.token})).body;
+  // Pia is limited to products: she has their chats, not the team one.
+  assert.equal((await request(`/api/companies/${alpha.id}/chat`,{token:p1.body.token})).status,403);
+  const c0=(await request(`/api/companies/${alpha.id}/chat?channel=mm.org`,{token:p1.body.token})).body;
   assert.ok(c0.people.find(x=>x.id===c0.people.find(y=>y.name==='Ada')?.id)?.typing,'Ada is typing');
-  const waiting=request(`/api/companies/${alpha.id}/chat?after=${encodeURIComponent(new Date().toISOString())}&wait=10&typing=${encodeURIComponent(c0.people.filter(x=>x.typing).map(x=>x.id).join(','))}`,{token:p1.body.token});
+  const waiting=request(`/api/companies/${alpha.id}/chat?channel=mm.org&after=${encodeURIComponent(new Date().toISOString())}&wait=10&typing=${encodeURIComponent(c0.people.filter(x=>x.typing).map(x=>x.id).join(','))}`,{token:p1.body.token});
   await new Promise(r=>setTimeout(r,700));
-  assert.equal((await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'Review the NDA asap please'}})).status,200);
-  await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'',fileId:fAdm.id}});
+  assert.equal((await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'Review the NDA asap please',channel:'mm.org'}})).status,200);
+  await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token,method:'POST',data:{body:'',fileId:fAdm.id,channel:'mm.org'}});
   const woke=(await waiting).body; assert.ok(woke.messages.some(m=>m.body==='Review the NDA asap please'),'long poll wakes up');
-  const chatAll=(await request(`/api/companies/${alpha.id}/chat`,{token:p1.body.token})).body.messages;
+  const chatAll=(await request(`/api/companies/${alpha.id}/chat?channel=mm.org`,{token:p1.body.token})).body.messages;
   assert.ok(chatAll.find(m=>m.file)?.file.hidden,'a file she may not see stays hidden in the chat');
   await request(`/api/companies/${alpha.id}/chat/read`,{token:p1.body.token,method:'POST',data:{}});
   const seenBy=(await request(`/api/companies/${alpha.id}/chat`,{token:a.body.token})).body.people.find(x=>x.name!=='Ada'&&x.readAt);

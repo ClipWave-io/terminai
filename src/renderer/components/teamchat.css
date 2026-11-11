@@ -122,3 +122,9 @@
 .tc-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 2; }
 .tc-resize:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .tc-who small { white-space: nowrap; }
+/* Chat per product: Team for everyone, then one chat per product. */
+.tc-channels { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.tc-channels button { flex: none; border: 1px solid var(--border); background: none; color: var(--dim); font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.tc-channels button.on { color: var(--fg); background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+/* The role dropdown inside the Sync window: its general padding pushed the text out of the 28 px box. */
+.team-sheet .pp-select, .pp-select { height: 30px; padding: 0 24px 0 9px; line-height: 28px; max-width: 130px; }

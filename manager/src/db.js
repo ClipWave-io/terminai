@@ -177,6 +177,12 @@ export async function migrate(pool) {
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
         seen_at timestamptz NOT NULL DEFAULT now(), typing_until timestamptz, read_at timestamptz, PRIMARY KEY (company_id,user_id)
       );
+      -- Invitations can limit the newcomer to some products from the start (NULL: all of them).
+      ALTER TABLE manager_invites ADD COLUMN IF NOT EXISTS products text[];
+      ALTER TABLE manager_invite_links ADD COLUMN IF NOT EXISTS products text[];
+      -- Chat channels: '' is the whole team; a product name is that product's chat, for its members and admins.
+      ALTER TABLE manager_chat ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT '';
+      CREATE INDEX IF NOT EXISTS manager_chat_channel ON manager_chat(company_id,channel,created_at);
       -- Calls: the offers, answers and network candidates two Macs pass each other to connect directly (kept a few minutes).
       CREATE TABLE IF NOT EXISTS manager_call_signals (
         seq bigserial PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,

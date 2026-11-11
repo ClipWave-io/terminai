@@ -587,7 +587,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         {team && sync?.error && <p className="todo-error" role="alert">{/Failed to connect|Could not resolve|timed out|unable to access/.test(sync.error)
           ? 'Can’t reach GitHub right now, so Matteo’s Mac gets your changes later. Your phone and the website still sync.' : `Shared sync: ${sync.error}`}</p>}
         <div className="todo-main">
-        <div className={`todo-cols${view === 'private' || shownColumns.length === 1 ? ' single' : ''}`} style={view === 'shared' && shownColumns.length === 2 ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
+        <div className={`todo-cols${view === 'private' || shownColumns.length === 1 ? ' single' : ''}`} style={view === 'shared' && shownColumns.length > 1 ? { gridTemplateColumns: `repeat(${shownColumns.length}, minmax(300px, 1fr))` } : undefined}>
           {shownColumns.map(col => <section key={col.key} className="todo-col" aria-label={col.label} data-col={col.key}>
             {col === privateNotes ? <div className="todo-at private todo-pages" role="group" aria-label="Private lists">
               <button className="todo-icon todo-page-turn" aria-label="Previous list" title="Previous list" disabled={at === 0} onClick={() => goPage(at - 1)}><Arrow back /></button>

@@ -19,7 +19,7 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
   const [typed, setTyped] = useState(0)
   useEffect(() => { if (step !== 0) return; const t = window.setInterval(() => setTyped(n => n >= LINES.length ? n : n + 1), 650); return () => window.clearInterval(t) }, [step])
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); if (e.key === 'Enter' && step < 3) setStep(s => s + 1) }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); if (e.key === 'Enter' && step < 4 && step !== 2) setStep(s => s + 1) }
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
   }, [step, onDismiss])
   return <div className="onb" role="dialog" aria-modal="true" aria-label="Welcome to TerminAI">
@@ -42,7 +42,8 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
         <PermissionsSetup />
         <button className="onb-primary" onClick={() => setStep(2)}>Continue</button>
       </>}
-      {step === 2 && <>
+      {step === 2 && <Agents onNext={() => setStep(3)} />}
+      {step === 3 && <>
         <div className="onb-icons" aria-hidden="true"><span>✓</span><span>✎</span><span>◷</span></div>
         <h1>Notes, tasks and agent logs</h1>
         <p className="onb-lead">A To-do and notes next to your sessions, and a daily log of what your agents finished. On your Mac they work right away; sign in to have them on your iPhone and the web, and to share them with your team.</p>
@@ -53,11 +54,11 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
         </ul>
         <div className="onb-row">
           <button className="onb-primary" onClick={() => { onDismiss(); onSignIn() }}>Set up sync</button>
-          <button className="onb-ghost" onClick={() => setStep(3)}>Skip for now</button>
+          <button className="onb-ghost" onClick={() => setStep(4)}>Skip for now</button>
         </div>
         <small className="onb-foot">Free. You can sign in any time from the people icon.</small>
       </>}
-      {step === 3 && <>
+      {step === 4 && <>
         <div className="onb-wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ animationDelay: `${i * 90}ms` }} />)}</div>
         <h1>Talk instead of typing</h1>
         <p className="onb-lead">TerminAI reads each finished step aloud. To speak your prompts, add LocalFlow: hold fn, talk, and your words appear in any app. On your Mac, offline and completely free.</p>
@@ -66,8 +67,33 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
           <a className="onb-ghost" href="https://terminai.xyz/localflow" target="_blank" rel="noreferrer">Get LocalFlow</a>
         </div>
       </>}
-      <div className="onb-dots" aria-hidden="true">{[0, 1, 2, 3].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
+      <div className="onb-dots" aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
     </div>
     <button className="onb-skip" onClick={onDismiss}>Skip</button>
   </div>
+}
+
+/** Your agents: Claude Code (ticked) and Codex, installed now in a tab you can watch when this Mac does not have them. */
+function Agents({ onNext }: { onNext: () => void }): JSX.Element {
+  const [has, setHas] = useState<{ claude: boolean; codex: boolean } | null>(null)
+  const [pick, setPick] = useState({ claude: true, codex: false })
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void window.term.agents.status().then(h => { setHas(h); setPick({ claude: !h.claude, codex: false }) }).catch(() => setHas({ claude: false, codex: false })) }, [])
+  const missing = (['claude', 'codex'] as const).filter(a => pick[a] && has && !has[a])
+  const go = async () => { if (missing.length) { setBusy(true); await window.term.agents.install([...missing]).catch(() => false) } onNext() }
+  const row = (a: 'claude' | 'codex', name: string, what: string) => <label className={`onb-agent${has?.[a] ? ' done' : ''}`}>
+    <input type="checkbox" checked={!!has?.[a] || pick[a]} disabled={!has || has[a]} onChange={e => setPick(p => ({ ...p, [a]: e.target.checked }))} />
+    <span><b>{name}</b><small>{has?.[a] ? 'Already on this Mac' : what}</small></span></label>
+  return <>
+    <h1>Your AI agents</h1>
+    <p className="onb-lead">TerminAI runs them in its tabs. Tick what to install now: it opens a tab that installs it, then you sign in there with your account.</p>
+    <div className="onb-agents">
+      {row('claude', 'Claude Code', "Anthropic's agent. Sign in with a Claude Pro or Max plan.")}
+      {row('codex', 'Codex', "OpenAI's agent. Sign in with ChatGPT.")}
+    </div>
+    <div className="onb-row">
+      <button className="onb-primary" disabled={!has || busy} onClick={() => void go()}>{missing.length ? `Install ${missing.length === 2 ? 'both' : missing[0] === 'claude' ? 'Claude Code' : 'Codex'}` : 'Continue'}</button>
+      {missing.length > 0 && <button className="onb-ghost" onClick={onNext}>Not now</button>}
+    </div>
+  </>
 }

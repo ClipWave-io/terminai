@@ -1,3 +1,4 @@
+import { teamUpload } from './workspace'
 import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -223,7 +224,14 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       if (typeof a.id !== 'string') throw Error('usage: terminai team replies <message id>')
       return team.call(`${base}/agent/${a.id}/replies`)
     }
-    throw Error('usage: terminai team list|read|send|reply|replies')
+    // A file into the team's shared Files (on the TerminAI server), for everyone or only some products' members.
+    if (a.action === 'upload') {
+      if (typeof a.id !== 'string' || !a.id.startsWith('/')) throw Error('usage: terminai team upload <absolute file path> [--products A,B] [--as <name>]')
+      const products = typeof a.products === 'string' ? a.products.split(',').map((p: string) => p.trim()).filter(Boolean) : []
+      const { file } = await teamUpload(team.id, a.id, products.length ? 'products' : 'all', products, false, typeof a.as === 'string' ? a.as : undefined)
+      return { ok: true, id: file.id, name: file.name, access: file.access, products: file.products }
+    }
+    throw Error('usage: terminai team list|read|send|reply|replies|upload')
   }
   // Sessions and turns go up every 5 seconds; messages come down at once (listen).
   return { tick, command, asked: async (keyId: string, conversation: string) => { const t = await opts.team(); if (t) await t.call(`/api/companies/${t.id}/bots/${keyId}/asked`, 'POST', { conversation }) }, conversationFor: (tabId: string): string | null => conversationOf.get(ptys.workspaceKeyOf(tabId)) ?? null, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }

@@ -12,6 +12,8 @@ import { notice } from './notices'
 const FILE = process.env.TERMINAI_CLAUDE_JSON || join(homedir(), '.claude.json')
 
 export function watchFullscreenOff(): void {
+  // Test runs read this Mac's real settings otherwise: only the tests that point it at their own file get the notice.
+  if (process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_CLAUDE_JSON) return
   let mtime = 0, told = ''
   const check = async (): Promise<void> => {
     try {
