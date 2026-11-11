@@ -1,6 +1,7 @@
 import { PaneResizeHandle } from './components/PaneResizeHandle'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { ProjectFilesPane } from './components/ProjectFilesPane'
+import { ChatButton } from './components/ChatButton'
 import { TeamChat } from './components/TeamChat'
 import { NoticeBell } from './components/NoticeCenter'
 import { BrowserPane } from './components/BrowserPane'
@@ -916,9 +917,7 @@ export function App(): JSX.Element {
           {terminalVisible && <div className="pane-corner">
             {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <PrivacyPill key={`privacy-${activeId}`} tabKey={t.browserKey || t.id} /> : null })()}
             {tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
-            {prefs.chatButton && <button className={`corner-chat${showChat ? ' on' : ''}${chatUnread > 0 ? ' unread' : ''}`} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z" /></svg>
-              Chat{chatUnread > 0 && <span className="corner-count">{chatUnread > 99 ? '99+' : chatUnread}</span>}</button>}
+            {prefs.chatButton && <ChatButton open={showChat} unread={chatUnread} onToggle={() => setShowChat(v => !v)} />}
           </div>}
         </div>
 

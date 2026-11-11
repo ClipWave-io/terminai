@@ -12,6 +12,14 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
   assert.equal(await side('Sync'),false);assert.equal(await side('To-do'),true);
   assert.equal(await js(`!!document.querySelector('.topbar [aria-label^="Team chat"]')`),true,'chat in the toolbar');
   assert.ok(await js(`!!document.querySelector('.corner-chat')`),'chat button bottom right');
+  // Drag the chat button to the top left, shrink it, put it back.
+  await js(`(()=>{const b=document.querySelector('.cb'),r=b.getBoundingClientRect();b.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.left+5,clientY:r.top+5}));for(const [x,y] of [[r.left-20,r.top-20],[300,200],[200,150]])window.dispatchEvent(new MouseEvent('mousemove',{clientX:x,clientY:y}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`);await delay(300);
+  assert.ok(await js(`document.querySelector('.cb').classList.contains('moved')&&document.querySelector('.cb').getBoundingClientRect().top<200`),'chat button moved anywhere');
+  await js(`document.querySelector('[aria-label="Smaller chat button"]').click()`);await delay(200);
+  assert.ok(await js(`document.querySelector('.corner-chat').classList.contains('mini')`),'small round chat button');
+  if(shots)fs.writeFileSync(path.join(shots,'chat-button-moved.png'),(await win.webContents.capturePage()).toPNG());
+  await js(`document.querySelector('[aria-label="Bigger chat button"]').click()`);await js(`document.querySelector('[aria-label="Put the chat button back"]').click()`);await delay(300);
+  assert.ok(await js(`!document.querySelector('.cb').classList.contains('moved')`),'back in its place');
   await js(`document.querySelector('[aria-label="Customize toolbar"]').click()`);await delay(300);
   await js(`[...document.querySelectorAll('.tb-item')].find(r=>r.textContent.startsWith('Sync')).querySelector('.tb-seg button:last-child').click()`);await delay(400);
   assert.equal(await side('Sync'),true,'moved right from the panel');

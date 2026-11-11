@@ -37,6 +37,10 @@ if(!process.versions.electron){
   assert.ok(await js(`document.querySelectorAll('.tc-faces .pp-avatar').length>=2`),'faces of the team in the header');
   // Ilai's message: Matteo wrote after it, so his app has it: two grey ticks (not read yet: not blue).
   assert.ok(await js(`[...document.querySelectorAll('.tc-msg.mine')].some(m=>m.querySelector('.tc-ticks:not(.read) svg path')?.getAttribute('d').startsWith('M2 12.5'))`),'two grey ticks once it is on their Mac');
+  // The drawer resizes from its left edge.
+  const w0=await js(`document.querySelector('.tc').getBoundingClientRect().width`);
+  await js(`(()=>{const h=document.querySelector('.tc-resize'),r=h.getBoundingClientRect();h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:r.left+2,clientY:300}));window.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left-150,clientY:300}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`);await delay(200);
+  assert.ok(await js(`document.querySelector('.tc').getBoundingClientRect().width`)>w0+100,'drawer wider');
   await shot('1-chat');
   await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Files').click()`);
   for(let i=0;i<30&&!await js(`document.querySelectorAll('.tc-frow').length===3`);i++)await delay(200);

@@ -64,3 +64,14 @@
 .privacy-hint { font-size: 11px; line-height: 1.35; color: var(--dim); white-space: normal; }
 .corner-count { min-width: 14px; padding: 1px 4px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; text-align: center; }
 .corner-chat.unread { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+/* The chat button: draggable anywhere; on hover, small buttons to shrink it and to put it back. */
+.cb { position: relative; display: inline-flex; align-items: center; gap: 4px; cursor: grab; }
+.cb:active { cursor: grabbing; }
+.cb.moved { position: fixed; }
+.corner-chat.mini { padding: 6px; border-radius: 50%; }
+.corner-chat.mini .corner-count { position: absolute; top: -5px; right: -5px; }
+.cb-tools { display: inline-flex; gap: 3px; opacity: 0; transition: opacity .12s; }
+.cb:hover .cb-tools { opacity: 1; }
+.cb-tools button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); background: color-mix(in srgb, var(--pane) 92%, transparent); color: var(--dim); cursor: pointer; padding: 0; }
+.cb-tools button:hover { color: var(--fg); }
+.corner-chat.mini { position: relative; }

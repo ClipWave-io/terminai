@@ -118,3 +118,7 @@
 .call-dot { width: 8px; height: 8px; border-radius: 50%; background: #30a46c; box-shadow: 0 0 0 3px color-mix(in srgb, #30a46c 25%, transparent); flex: none; }
 .call-btn.small { width: 30px; height: 30px; }
 .call-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+/* The drawer's left edge resizes it. */
+.tc-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 2; }
+.tc-resize:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.tc-who small { white-space: nowrap; }

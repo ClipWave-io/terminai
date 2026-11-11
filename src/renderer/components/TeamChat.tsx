@@ -37,6 +37,7 @@ const P: Record<string, string> = {
 }
 const Ico = ({ n, s = 16 }: { n: keyof typeof P; s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={P[n]} /></svg>
 const images = new Map<string, Promise<string>>()
+const openInPane = (company: string, id: string, name: string) => window.term.teamchat.open(company, id, name, 'pane').then(() => { window.dispatchEvent(new Event('tc:opened-in-pane')) })
 const size = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 const dayLabel = (iso: string) => { const d = new Date(iso), t = new Date(); const y = new Date(t); y.setDate(t.getDate() - 1)
@@ -60,6 +61,16 @@ export function TeamChat({ open, onClose, onUnread }: { open: boolean; onClose: 
 
 function Team({ company, admin, open, onClose, onUnread }: { company: string; admin: boolean; open: boolean; onClose: () => void; onUnread: (n: number) => void }): JSX.Element | null {
   const soundRef = useRef(true)
+  // Its width: drag the left edge (double-click it for the default), kept on this Mac.
+  const [width, setWidth] = useState<number>(() => cache.get('tc:width', 420))
+  const resize = (e: React.MouseEvent) => {
+    e.preventDefault(); const x0 = e.clientX, w0 = width
+    const move = (m: MouseEvent) => setWidth(Math.max(320, Math.min(window.innerWidth - 120, w0 + x0 - m.clientX)))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.cursor = ''; setWidth(w => { cache.set('tc:width', w); return w }) }
+    document.body.style.cursor = 'ew-resize'; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
+  // Opening a file or picture in the Files pane closes the drawer, so the file is not hidden behind it.
+  useEffect(() => { const h = () => onClose(); window.addEventListener('tc:opened-in-pane', h); return () => window.removeEventListener('tc:opened-in-pane', h) }, [onClose])
   useEffect(() => { const load = () => void window.term.prefs.get().then(p => { soundRef.current = p.chatSound !== false }).catch(() => {}); load(); const t = window.setInterval(load, 30000); return () => window.clearInterval(t) }, [])
   const key = `tc:${company}`
   const [messages, setMessages] = useState<Message[]>(() => cache.get(`${key}:m`, []))
@@ -133,7 +144,8 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const typingNow = others.filter(p => p.typing)
   const title = others.length === 1 ? others[0].name : others.length ? others.map(p => p.name.split(' ')[0]).join(', ') : 'Team'
   const sub = offline ? 'connecting…' : typingNow.length ? `${typingNow.map(p => p.name.split(' ')[0]).join(', ')} ${typingNow.length > 1 ? 'are' : 'is'} typing…` : others.length === 1 ? lastSeen(others[0]) : others.length ? `${others.filter(p => p.online).length} of ${others.length} online` : 'Invite someone from Sync › Members'
-  return <><CallView calls={calls} title={callTitle} beside /><aside className="tc" aria-label="Team chat">
+  return <><CallView calls={calls} title={callTitle} beside /><aside className="tc" aria-label="Team chat" style={{ width }}>
+    <div className="tc-resize" title="Drag to resize" onMouseDown={resize} onDoubleClick={() => { setWidth(420); cache.set('tc:width', 420) }} />
     <header className="tc-head">
       <span className="tc-faces" aria-hidden="true">{(others.length ? others : people).slice(0, 4).map(p => <Avatar key={p.id} id={p.id} name={p.name} size={30} online={p.online} />)}</span>
       <div className="tc-who"><strong>{title}</strong><small className={typingNow.length ? 'typing' : ''}>{sub}</small></div>
@@ -194,7 +206,7 @@ function Chat({ company, messages, me, others, onSend, onShare }: { company: str
 function Attachment({ company, file }: { company: string; file: ChatFile }): JSX.Element {
   if ('hidden' in file) return <span className="tc-file hidden"><Ico n="lock" s={14} /> A file you have no access to</span>
   if (isImage(file.name)) return <LazyImage company={company} file={file} />
-  return <button className="tc-file" onClick={() => void window.term.teamchat.open(company, file.id, file.name, 'pane')}>
+  return <button className="tc-file" onClick={() => void openInPane(company, file.id, file.name)}>
     <span className="tc-file-ico">{/\.(mp4|mov)$/i.test(file.name) ? <Ico n="play" /> : /\.(mp3|m4a|wav)$/i.test(file.name) ? <Ico n="note" /> : (file.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
     <span className="tc-file-name">{file.name}<small>{size(file.size)} · click to open</small></span></button>
 }
@@ -211,7 +223,7 @@ function LazyImage({ company, file }: { company: string; file: { id: string; nam
     }
     void load(3); return () => { stop = true }
   }, [company, file.id, file.name])
-  return <button className="tc-img" title={`${file.name} · click to open in Files`} onClick={() => void window.term.teamchat.open(company, file.id, file.name, 'pane')}>
+  return <button className="tc-img" title={`${file.name} · click to open in Files`} onClick={() => void openInPane(company, file.id, file.name)}>
     {src ? <img src={src} alt={file.name} /> : <span className="tc-img-wait">{failed ? `${file.name} · click to open` : `Loading · ${size(file.size)}`}</span>}</button>
 }
 
@@ -245,7 +257,7 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
       {shown.map(f => {
         const mine = admin || f.by === me
         return <div key={f.id}><div className="tc-frow">
-          <button className="tc-fmain" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'pane').catch(e => onError(String(e.message ?? e)))} title="Open (downloads it the first time)">
+          <button className="tc-fmain" onClick={() => void openInPane(company, f.id, f.name).catch(e => onError(String(e.message ?? e)))} title="Open (downloads it the first time)">
             <span className="tc-file-ico">{isImage(f.name) ? <Ico n="image" /> : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
             <span className="tc-file-name">{f.name}<small>{size(f.size)} · {f.byName ?? 'someone'} · {dayLabel(f.createdAt)}</small></span></button>
           {editing === f.id ? null
