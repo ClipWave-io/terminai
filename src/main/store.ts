@@ -55,6 +55,8 @@ function hydrate(raw: unknown): Prefs {
     railTimes: p.railTimes === true,
     resumeAll: p.resumeAll === true,
     chatSound: p.chatSound !== false,
+    autoSleep: p.autoSleep !== false,
+    autoSleepReserve: [10, 15, 20, 25].includes(Number(p.autoSleepReserve)) ? Number(p.autoSleepReserve) : 15,
     // A Mac where someone picked Ilai or Matteo keeps the shared page; anyone else gets private lists under a fixed local key.
     teamTasks: p.teamTasks ?? (p.tasksUser === 'livio' || p.tasksUser === 'ilai'),
     tasksUser: p.tasksUser === 'livio' || p.tasksUser === 'ilai' ? p.tasksUser : 'ilai',

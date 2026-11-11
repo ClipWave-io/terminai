@@ -1376,3 +1376,8 @@ textarea.card-notes.editing {
 .fb-anchor { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 1101; }
 .fb-anchor .fb-panel { position: static; width: 300px; }
 .fb-fixed { position: relative; z-index: 1101; }
+/* Asleep: a hollow ring with a small moon instead of the status dot, and the row dimmed. Awake rows keep their colored dot. */
+.tab-dot.asleep { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--dim) 80%, transparent); position: relative; }
+.tab-dot.asleep::after { content: ''; position: absolute; inset: 1.5px; border-radius: 50%; box-shadow: inset -2px -1px 0 0 color-mix(in srgb, var(--dim) 80%, transparent); transform: rotate(-30deg); }
+.tab.is-asleep .tab-title { color: color-mix(in srgb, var(--fg) 55%, var(--dim)); }
+.tab.is-asleep .tab-title::after { content: 'asleep'; margin-left: 6px; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); opacity: .8; vertical-align: 1px; }

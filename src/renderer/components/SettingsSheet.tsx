@@ -187,6 +187,11 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Volume"><input type="range" min={0} max={1} step={0.05} value={prefs.voice.volume} onChange={e => patchVoice({ volume: Number(e.target.value) })} /></Row>
     </div>),
     memory: () => page('Memory', 'What your sessions and the rest of the Mac use, and what to put to sleep.', <>
+      <div className="st-card">
+        <Row label="Auto sleep" hint="When free memory drops below the share on the right, idle sessions go to sleep by themselves, biggest first. Never the open tab or one that is working; each comes back when you open it."><Toggle on={prefs.autoSleep} set={v => onChange({ autoSleep: v })} /></Row>
+        {prefs.autoSleep && <Row label="Keep free" hint="How much of the Mac's memory to keep free for everything else.">
+          <select value={prefs.autoSleepReserve} onChange={e => onChange({ autoSleepReserve: Number(e.target.value) })}>{[10, 15, 20, 25].map(n => <option key={n} value={n}>{n}%</option>)}</select></Row>}
+      </div>
       <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />

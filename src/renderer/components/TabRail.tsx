@@ -57,8 +57,11 @@ export function activeAgo(at: number, now = Date.now()): string {
 
 /** Green: free to use. Yellow: busy. Blue: it stopped and wants you. Accent
  * with a "?": it stopped on a prompt and needs an answer. */
+/** Asleep: the tab has a Claude Code or Codex conversation but nothing runs (put to sleep, or not started since a restart). */
+const asleep = (tab: TabInfo) => !!tab.agent && !tab.agentAlive && !tab.exited && tab.status !== 'working'
 function dotClass(tab: TabInfo, speaking: boolean): string {
   if (tab.exited) return 'tab-dot exited'
+  if (asleep(tab)) return 'tab-dot asleep'
   if (speaking) return 'tab-dot speaking'
   return `tab-dot ${tab.status}`
 }
@@ -146,6 +149,7 @@ export function TabRail({
         dragOver === i && dragFrom !== null && dragFrom !== i ? 'dropping' : '',
         dragFrom === i ? 'dragging' : '',
         tab.hidden ? 'is-hidden' : '',
+        asleep(tab) ? 'is-asleep' : '',
         incoming[tab.id] ? 'incoming' : '',
       ]
         .filter(Boolean)
@@ -188,7 +192,7 @@ export function TabRail({
     >
       <span
         className={dotClass(tab, tab.id === speakingId)}
-        title={tab.id === speakingId ? 'Speaking its summary' : DOT_TITLE[tab.status]}
+        title={tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. It starts when you open it.' : DOT_TITLE[tab.status]}
       >{!tab.exited && tab.id !== speakingId && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tabLabel(tab)}{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}

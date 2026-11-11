@@ -20,7 +20,7 @@ import { startControl, controlReply } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
-import { memoryReport, watchMemory, sleep as sleepTabs, wake as wakeTab } from './memory'
+import { memoryReport, watchMemory, autoSleep, sleep as sleepTabs, wake as wakeTab } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
@@ -586,6 +586,12 @@ function registerIpc(): void {
     const note = new Notification({ title: r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', body: `Close a few sessions before apps get closed. Using most: ${top}.` })
     note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
     note.show()
+  }, r => {
+    const p = store.load(); if (!p.autoSleep) return
+    const slept = autoSleep(r, p.autoSleepReserve, activeTabId)
+    if (!slept.length) return
+    const tabName = (id: string) => { const t = store.load().tabs.find(x => x.ptyId === id); return t?.customTitle || t?.name || t?.title || basename(ptys.cwdOf(id)) || 'Session' }
+    notice('memory', `${slept.length} idle ${slept.length === 1 ? 'session' : 'sessions'} put to sleep`, `To keep ${p.autoSleepReserve}% of memory free: ${slept.map(tabName).join(', ')}. Each comes back when you open it.`, { open: 'memory' })
   })
   watchFullscreenOff()
   appIpc.handle('app:check-updates', () => checkForUpdatesNow(win, true))

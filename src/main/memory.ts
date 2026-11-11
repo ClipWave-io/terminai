@@ -40,10 +40,29 @@ export async function memoryReport(): Promise<MemoryReport> {
     swapMb: Math.round(Number(/used = ([\d.]+)M/.exec(swap)?.[1] ?? 0)), apps }
 }
 
+/**
+ * Auto sleep (Settings › Memory): when less than `reserve` percent of the Mac's memory is free, idle sessions go to sleep,
+ * biggest first, until the shortfall is covered. Never the open tab, never one working or asking a question; a sleeping
+ * tab comes back where it was when opened. Returns the tabs it put to sleep.
+ */
+export function autoSleep(r: MemoryReport, reserve: number, keep: string | null): string[] {
+  const freeMb = r.totalMb - r.usedMb, want = r.totalMb * reserve / 100
+  if (freeMb >= want && r.pressure === 'normal') return []
+  let short = Math.max(want - freeMb, r.pressure === 'normal' ? 0 : r.totalMb * 0.05)
+  const picked: string[] = []
+  for (const t of r.tabs) {
+    if (short <= 0) break
+    if (!t.idle || t.asleep || t.id === keep || t.mb < 150) continue
+    picked.push(t.id); short -= t.mb
+  }
+  return picked.length ? (sleep(picked), picked) : []
+}
+
 /** Every minute; a notice when pressure rises, again at most every 20 minutes while it stays high. */
-export function watchMemory(warn: (report: MemoryReport) => void): void {
+export function watchMemory(warn: (report: MemoryReport) => void, auto?: (report: MemoryReport) => void): void {
   let last = 0, lastLevel: MemoryReport['pressure'] = 'normal'
   setInterval(() => void memoryReport().then(r => {
+    auto?.(r)
     const worse = r.pressure !== 'normal' && (r.pressure !== lastLevel || Date.now() - last > 20 * 60_000)
     lastLevel = r.pressure
     if (worse) { last = Date.now(); warn(r) }
