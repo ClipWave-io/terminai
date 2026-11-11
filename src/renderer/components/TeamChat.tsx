@@ -239,8 +239,13 @@ function LazyImage({ company, file }: { company: string; file: { id: string; nam
     }
     void load(3); return () => { stop = true }
   }, [company, file.id, file.name])
-  return <button className="tc-img" title={`${file.name} · click to open in Files`} onClick={() => void openInPane(company, file.id, file.name)}>
-    {src ? <img src={src} alt={file.name} /> : <span className="tc-img-wait">{failed ? `${file.name} · click to open` : `Loading · ${size(file.size)}`}</span>}</button>
+  const [big, setBig] = useState(false)
+  return <>
+    <button className="tc-img" title={`${file.name} · click to view`} onClick={() => src ? setBig(true) : void openInPane(company, file.id, file.name)}>
+      {src ? <img src={src} alt={file.name} /> : <span className="tc-img-wait">{failed ? `${file.name} · click to open` : `Loading · ${size(file.size)}`}</span>}</button>
+    {big && <Viewer src={src} name={file.name} onClose={() => setBig(false)}
+      onFiles={() => { setBig(false); void openInPane(company, file.id, file.name) }} onFinder={() => void window.term.teamchat.open(company, file.id, file.name, 'reveal')} />}
+  </>
 }
 
 const ACCESS: Record<TeamFile['access'], string> = { all: 'Everyone', admins: 'Admins only', products: 'Products' }
@@ -289,5 +294,17 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
       </div>
       })}
     </div>
+  </div>
+}
+
+/** A picture from the chat, big over the app: Open in Files puts it in the Files pane, Esc or a click outside closes it. */
+function Viewer({ src, name, onClose, onFiles, onFinder }: { src: string; name: string; onClose: () => void; onFiles: () => void; onFinder: () => void }): JSX.Element {
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }; window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true) }, [onClose])
+  return <div className="tc-viewer" role="dialog" aria-label={name} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="tc-viewer-bar"><span>{name}</span>
+      <button className="tc-btn" onClick={onFiles}>Open in Files</button>
+      <button className="tc-link" title="Show in Finder" aria-label="Show in Finder" onClick={onFinder}><Ico n="reveal" s={15} /></button>
+      <button className="tc-link" title="Close  Esc" aria-label="Close" onClick={onClose}><Ico n="close" s={16} /></button></div>
+    <img src={src} alt={name} />
   </div>
 }

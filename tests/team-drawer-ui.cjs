@@ -17,6 +17,10 @@ if(!process.versions.electron){
   await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'Hey, did you see the NDA comments?'}});
   await call(`/api/companies/${company}/chat`,{token:ilai.token,method:'POST',data:{body:'Yes, v2 is in Downloads. Can you review it asap?'}});
   await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'On it, give me 20 minutes.'}});
+  // Matteo sends a picture in the chat (a 1x1 PNG).
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==','base64');
+  const pic=await (await fetch(`${url}/api/companies/${company}/files?name=screen.png&type=image/png&chat=1`,{method:'POST',headers:{Authorization:`Bearer ${matteo.token}`,'Content-Type':'application/octet-stream'},body:png})).json();
+  await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'',fileId:pic.file.id}});
   await call(`/api/companies/${company}/chat`,{token:sofia.token});// Sofia's app fetched them too: delivered to everyone
   const up=async(name,q)=>fetch(`${url}/api/companies/${company}/files?name=${name}&type=application/pdf${q}`,{method:'POST',headers:{Authorization:`Bearer ${ilai.token}`,'Content-Type':'application/octet-stream'},body:Buffer.from('%PDF-1.4 x')});
   await up('NDA%20-%20Sofia%20v2.pdf','&access=admins');await up('Outreach%20sheet.pdf','&access=products&products=mm.org');await up('Brand%20guide.pdf','');
@@ -32,8 +36,8 @@ if(!process.versions.electron){
   const shot=async n=>{if(!shots)return;await delay(500);fs.writeFileSync(path.join(shots,n+'.png'),(await win.webContents.capturePage()).toPNG())};
   await js(`window.term.workspace.login({url:${JSON.stringify(process.env.TEAM_URL)},email:${JSON.stringify(process.env.TEAM_EMAIL)},password:${JSON.stringify(process.env.TEAM_PW)}})`);
   await js(`document.querySelector('[aria-label^="Team chat"]').click()`);
-  for(let i=0;i<40&&!await js(`document.querySelectorAll('.tc-msg').length>=3`);i++)await delay(250);
-  assert.equal(await js(`document.querySelectorAll('.tc-msg').length`),3,'three messages');
+  for(let i=0;i<40&&!await js(`document.querySelectorAll('.tc-msg').length>=4`);i++)await delay(250);
+  assert.equal(await js(`document.querySelectorAll('.tc-msg').length`),4,'three messages and a picture');
   assert.ok(await js(`document.querySelectorAll('.tc-faces .pp-avatar').length>=1`),'faces of the people in this chat (Sofia, limited to mm.org, is not in the team chat)');
   // Ilai's message: Matteo wrote after it, so his app has it: two grey ticks (not read yet: not blue).
   assert.ok(await js(`[...document.querySelectorAll('.tc-msg.mine')].some(m=>m.querySelector('.tc-ticks svg path')?.getAttribute('d').startsWith('M2 12.5'))`),'two ticks once it is on their Macs (blue: everyone in this chat read it)');
@@ -42,6 +46,13 @@ if(!process.versions.electron){
   await js(`(()=>{const h=document.querySelector('.tc-resize'),r=h.getBoundingClientRect();h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:r.left+2,clientY:300}));window.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left-150,clientY:300}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`);await delay(200);
   assert.ok(await js(`document.querySelector('.tc').getBoundingClientRect().width`)>w0+100,'drawer wider');
   await shot('1-chat');
+  // A picture opens big over the app, with Open in Files; Escape closes it.
+  for(let i=0;i<40&&!await js(`!!document.querySelector('.tc-img img')`);i++)await delay(250);
+  await js(`document.querySelector('.tc-img').click()`);await delay(300);
+  assert.ok(await js(`!!document.querySelector('.tc-viewer img')&&[...document.querySelectorAll('.tc-viewer button')].some(b=>b.textContent==='Open in Files')`),'picture popup with Open in Files');
+  await shot('1b-picture');
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
+  assert.ok(await js(`!document.querySelector('.tc-viewer')`),'Escape closes it');
   await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Files').click()`);
   for(let i=0;i<30&&!await js(`document.querySelectorAll('.tc-frow').length===3`);i++)await delay(200);
   assert.equal(await js(`document.querySelectorAll('.tc-frow').length`),3);
