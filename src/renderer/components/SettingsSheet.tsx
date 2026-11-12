@@ -189,11 +189,9 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Preview" hint="Hear the current engine and voice."><button className="btn" onClick={preview}>Play sample</button></Row>
       <Row label="Volume"><input type="range" min={0} max={1} step={0.05} value={prefs.voice.volume} onChange={e => patchVoice({ volume: Number(e.target.value) })} /></Row>
     </div>),
-    memory: () => page('Memory', 'What your sessions and the rest of the Mac use, and what to put to sleep.', <>
+    memory: () => page('Memory', 'What your sessions and the rest of the Mac use.', <>
       <div className="st-card">
-        <Row label="Auto sleep" hint="When free memory drops below the share on the right, idle sessions go to sleep by themselves, biggest first. Never the open tab or one that is working; each comes back when you open it."><Toggle on={prefs.autoSleep} set={v => onChange({ autoSleep: v })} /></Row>
-        {prefs.autoSleep && <Row label="Keep free" hint="How much of the Mac's memory to keep free for everything else.">
-          <select value={prefs.autoSleepReserve} onChange={e => onChange({ autoSleepReserve: Number(e.target.value) })}>{[10, 15, 20, 25].map(n => <option key={n} value={n}>{n}%</option>)}</select></Row>}
+
       </div>
       <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
     macguard: () => page('MacGuard', 'This Mac\'s memory guardian: what it measures, the chats it paused, and what it did.', <GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} />),
@@ -259,7 +257,7 @@ function AppVersion(): JSX.Element {
 }
 
 /** Memory: the Mac's pressure, TerminAI's own use, and each session's, biggest first (memory.ts). An idle Claude Code or
- *  Codex still holds its memory while it waits; Sleep closes it and opening the tab brings the conversation back. */
+ *  Codex still holds its memory while it waits; MacGuard pauses the heaviest when the Mac gets critical. */
 function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; label: string }[]; onCloseTab: (id: string) => void; onOpenTab: (id: string) => void }): JSX.Element {
   const [r, setR] = useState<Awaited<ReturnType<typeof window.term.window.memory>> | null>(null)
   const [all, setAll] = useState(false)
@@ -267,8 +265,7 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
   useEffect(() => { load(); const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [])
   if (!r) return <></>
   const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
-  const max = Math.max(1, ...r.tabs.map(t => t.mb)), idle = r.tabs.filter(t => t.idle)
-  const sleep = (ids: string[]) => void window.term.window.sleep(ids).then(() => window.setTimeout(load, 2500))
+  const max = Math.max(1, ...r.tabs.map(t => t.mb))
   const other = Math.max(0, r.usedMb - r.tabsMb - r.appMb - r.macosMb - r.compressedMb), free = Math.max(0, r.totalMb - r.usedMb)
   const parts: [string, number, string][] = [['TerminAI sessions', r.tabsMb, 'var(--accent)'], ['TerminAI app', r.appMb, 'color-mix(in srgb, var(--accent) 55%, var(--pane))'],
     ['Other apps', other, 'hsl(265 40% 62%)'], ['macOS', r.macosMb, 'var(--dim)'], ['Compressed', r.compressedMb, 'var(--warn)'], ['Free', free, 'transparent']]
@@ -282,12 +279,11 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
       {parts.map(([n, mb, c]) => <span key={n}><i style={{ background: c, outline: c === 'transparent' ? '1px solid var(--border)' : undefined }} />{n} <b>{gb(mb)}</b></span>)}</div>
     <p className="hint">{r.pressure === 'normal' ? `${gb(r.usedMb)} of ${gb(r.totalMb)} in use.` : `${gb(r.usedMb)} of ${gb(r.totalMb)} in use: ${why}. `}
       {r.pressure !== 'normal' && <>Biggest other apps: {r.apps.slice(0, 3).map(a => `${a.name} ${gb(a.mb)}`).join(', ')}. </>}
-      Idle sessions hold memory too, and the numbers below leave out the part macOS compressed. <b>Sleep</b> closes one; opening the tab brings it back.</p>
-    {idle.length > 0 && <button className="btn mem-sleep" onClick={() => sleep(idle.map(t => t.id))}>Sleep {idle.length} idle {idle.length === 1 ? 'session' : 'sessions'} · frees ~{gb(idle.reduce((n, t) => n + t.mb, 0))}</button>}
+      Idle sessions hold memory too, and the numbers below leave out the part macOS compressed.</p>
     <div className="mem-list">{(all ? r.tabs : r.tabs.slice(0, 8)).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
-      <span className="mem-name" title={tab?.label}>{tab?.label ?? 'Session'}{t.asleep && <em className="mem-tag"> · asleep</em>}</span>
+      <span className="mem-name" title={tab?.label}>{tab?.label ?? 'Session'}</span>
       <span className="mem-track"><i style={{ width: `${Math.max(2, (t.mb / max) * 100)}%` }} /></span><em>{gb(t.mb)}</em>
-      <span className="mem-acts">{tab && <>{t.idle ? <button className="todo-link" onClick={() => sleep([t.id])}>Sleep</button> : <span />}<button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
+      <span className="mem-acts">{tab && <><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
     </div> })}</div>
     {r.tabs.length > 8 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${r.tabs.length}`}</button>}
   </section>

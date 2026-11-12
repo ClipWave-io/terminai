@@ -1292,7 +1292,7 @@ textarea.card-notes.editing {
 .mem-track { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
 .mem-track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .mem-list em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
-.mem-list .mem-acts { display: grid; grid-template-columns: 44px 40px 44px; gap: 8px; justify-items: start; }
+.mem-list .mem-acts { display: grid; grid-template-columns: 40px 44px; gap: 8px; justify-items: start; }
 /* Settings › Connections › Grok Bot */
 .gk { margin: 4px 0 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--pane) 60%, transparent); display: grid; gap: 8px; }
 .gk-head { display: flex; justify-content: space-between; align-items: center; }
@@ -1384,8 +1384,8 @@ textarea.card-notes.editing {
 .fb-anchor { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 1101; }
 .fb-anchor .fb-panel { position: static; width: 300px; }
 .fb-fixed { position: relative; z-index: 1101; }
-/* Asleep: a hollow ring with a small moon instead of the status dot, and the row dimmed. Awake rows keep their colored dot. */
+/* Not started (its conversation waits since a restart): a hollow ring with a small moon instead of the status dot, and the row dimmed. Awake rows keep their colored dot. */
 .tab-dot.asleep { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--dim) 80%, transparent); position: relative; }
 .tab-dot.asleep::after { content: ''; position: absolute; inset: 1.5px; border-radius: 50%; box-shadow: inset -2px -1px 0 0 color-mix(in srgb, var(--dim) 80%, transparent); transform: rotate(-30deg); }
 .tab.is-asleep .tab-title { color: color-mix(in srgb, var(--fg) 55%, var(--dim)); }
-.tab.is-asleep .tab-title::after { content: 'asleep'; margin-left: 6px; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); opacity: .8; vertical-align: 1px; }
+.tab.is-asleep .tab-title::after { content: 'not started'; margin-left: 6px; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); opacity: .8; vertical-align: 1px; }

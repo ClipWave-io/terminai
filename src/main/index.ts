@@ -20,7 +20,7 @@ import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
-import { memoryReport, watchMemory, autoSleep, sleep as sleepTabs, wake as wakeTab } from './memory'
+import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
 import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard } from './macguard'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
@@ -344,7 +344,7 @@ app.whenReady().then(() => {
       // A reply-only bot may now answer into this conversation (for 30 minutes).
       if (r.keyId && session && bridge) await bridge.asked(r.keyId, session).catch(() => {})
       return { ok: r.ok, bot: r.bot, note: r.note }
-    }, wake: id => resumeLater(id) || wakeTab(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
+    }, wake: id => resumeLater(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     log: {
       day: async (day) => {
@@ -593,8 +593,7 @@ function registerIpc(): void {
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())
-  appIpc.handle('memory:sleep', (_e, ids: unknown) => sleepTabs(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []))
-  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? resumeLater(id) || wakeTab(id) : false)
+  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? resumeLater(id) : false)
   appIpc.handle('memory:detail', () => memoryDetail())
   appIpc.handle('memory:process', (_e, pid: unknown) => processInfo(Number(pid)))
   appIpc.handle('memory:stop', (_e, pid: unknown, force: unknown) => Number.isInteger(pid) && Number(pid) > 1 ? stopProcess(Number(pid), force === true) : 'Not a process.')
@@ -620,12 +619,6 @@ function registerIpc(): void {
     const note = new Notification({ title: r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', body: `Close a few sessions before apps get closed. Using most: ${top}.` })
     note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
     note.show()
-  }, r => {
-    const p = store.load(); if (!p.autoSleep) return
-    const slept = autoSleep(r, p.autoSleepReserve, activeTabId)
-    if (!slept.length) return
-    const tabName = (id: string) => { const t = store.load().tabs.find(x => x.ptyId === id); return t?.customTitle || t?.name || t?.title || basename(ptys.cwdOf(id)) || 'Session' }
-    notice('memory', `${slept.length} idle ${slept.length === 1 ? 'session' : 'sessions'} put to sleep`, `To keep ${p.autoSleepReserve}% of memory free: ${slept.map(tabName).join(', ')}. Each comes back when you open it.`, { open: 'memory' })
   })
   watchFullscreenOff()
   // MacGuard paused a chat to keep the Mac from freezing: the tab says so, with Resume, and the bell has it (a click opens the tab).
@@ -822,7 +815,7 @@ function registerIpc(): void {
   bridge = createBridge({
     team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
     tabName,
-    wake: (tabId: string) => resumeLater(tabId) || wakeTab(tabId),
+    wake: (tabId: string) => resumeLater(tabId),
     waiting: (tabId: string) => laterResume.has(tabId),
     approve: async (from, tab, text, tabId, force) => {
       // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.

@@ -15,11 +15,8 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
   const [error, setError] = useState('')
   // At Critical a Resume is asked twice: the chat it frees cannot be paused again for a while.
   const [armed, setArmed] = useState('')
-  // Idle chats that could be put to sleep (TerminAI's own Sleep): never the one open behind this sheet.
-  const [idle, setIdle] = useState<{ id: string; mb: number }[]>([])
-  const loadIdle = () => void window.term.window.memory().then(r => setIdle(r.tabs.filter(t => t.idle && !t.asleep && t.id !== activeTab))).catch(() => {})
   const load = () => void window.term.macguard.details().then(setD).catch(() => setD(null))
-  useEffect(() => { load(); loadIdle(); const t = window.setInterval(load, 3000), u = window.setInterval(loadIdle, 15000); return () => { window.clearInterval(t); window.clearInterval(u) } }, [])
+  useEffect(() => { load(); const t = window.setInterval(load, 3000); return () => window.clearInterval(t) }, [])
   const act = (what: string, run: () => Promise<unknown>) => {
     setBusy(what); setError('')
     setArmed('')
@@ -42,7 +39,6 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
   const tight = s.mem_level < l.gate_count_memlevel || s.compressor_gb > l.gate_count_compressor_gb, cap = tight ? l.gate_max_sessions : l.gate_hard_max_sessions
   const critical = d.running && d.level === 2
   const resume = (what: string, ids: string[]) => critical && armed !== what ? setArmed(what) : act(what, () => window.term.macguard.resume(ids))
-  const idleGb = idle.reduce((n, t) => n + t.mb, 0) / 1024
   const gate = [
     d.sessions + 1 > cap && `${d.sessions} chats open, the limit is ${cap}${tight ? ' unless memory is clearly free' : ''}`,
     s.disk_free_gb < l.gate_disk_gb && `free disk below ${l.gate_disk_gb} GB`,
@@ -66,11 +62,6 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
         <button className="btn primary" disabled={!!busy} onClick={() => resume(p.id, [p.id])}>{busy === p.id ? 'Resuming…' : armed === p.id ? 'Still critical: resume anyway?' : 'Resume'}</button></div>)}
       {error && <p className="hint guard-error">Could not do it: {error}</p>}
       <p className="hint">A chat you resume here is not paused again for {Math.round(l.resume_hold_s / 60)} minutes{critical ? ', even though the Mac is still critical' : ''}.</p>
-    </section>
-    <section className="mem guard-panel">
-      <div className="mem-head"><strong>Free memory without pausing</strong>
-        <button className="btn" disabled={!!busy || !idle.length} onClick={() => act('sleep', () => window.term.window.sleep(idle.map(t => t.id)).then(() => new Promise(r => window.setTimeout(r, 2500))).then(loadIdle))}>{busy === 'sleep' ? 'Putting to sleep…' : idle.length ? `Sleep ${idle.length} idle chat${idle.length > 1 ? 's' : ''} (about ${idleGb.toFixed(1)} GB)` : 'No idle chats'}</button></div>
-      <p className="hint">A pause only stops a chat from growing; sleeping an idle one gives its memory back. Sleep quits the agent in that tab and the conversation comes back when you open it. <b>Timers and background jobs started inside those chats stop for good</b>, so do it by hand, never by itself.</p>
     </section>
     <section className="mem guard-panel">
       <div className="mem-head"><strong>New sessions</strong><span className={`mem-level ${gate.length ? 'warning' : 'normal'}`}>{gate.length ? 'Better not' : 'OK to open'}</span></div>

@@ -22,7 +22,7 @@ export async function memoryReport(): Promise<MemoryReport> {
   }
   const tree = (pid: number): number => { let kb = rss.get(pid) ?? 0; for (const c of kids.get(pid) ?? []) kb += tree(c); return kb }
   const tabs = ptys.liveIds().map(id => { const a = ptys.agentOf(id), st = ptys.statusOf(id)
-    return { id, mb: Math.round(tree(ptys.pidOf(id) || 0) / 1024), idle: a.alive && st !== 'working' && st !== 'question', asleep: asleep.has(id) && !a.alive } }).sort((a, b) => b.mb - a.mb)
+    return { id, mb: Math.round(tree(ptys.pidOf(id) || 0) / 1024), idle: a.alive && st !== 'working' && st !== 'question', asleep: false } }).sort((a, b) => b.mb - a.mb)
   const appMb = Math.round(app.getAppMetrics().reduce((n, p) => n + (p.memory?.workingSetSize ?? 0), 0) / 1024)
   const n = Number(level.trim())
   // The Mac as macOS counts it (vm_stat pages): in use = app memory + wired (macOS itself) + compressed; the rest is free or cache.
@@ -40,59 +40,13 @@ export async function memoryReport(): Promise<MemoryReport> {
     swapMb: Math.round(Number(/used = ([\d.]+)M/.exec(swap)?.[1] ?? 0)), apps }
 }
 
-/**
- * Auto sleep (Settings › Memory): when less than `reserve` percent of the Mac's memory is free, idle sessions go to sleep,
- * biggest first, until the shortfall is covered. Never the open tab, never one working or asking a question; a sleeping
- * tab comes back where it was when opened. Returns the tabs it put to sleep.
- */
-export function autoSleep(r: MemoryReport, reserve: number, keep: string | null): string[] {
-  const freeMb = r.totalMb - r.usedMb, want = r.totalMb * reserve / 100
-  if (freeMb >= want && r.pressure === 'normal') return []
-  let short = Math.max(want - freeMb, r.pressure === 'normal' ? 0 : r.totalMb * 0.05)
-  const picked: string[] = []
-  for (const t of r.tabs) {
-    if (short <= 0) break
-    if (!t.idle || t.asleep || t.id === keep || t.mb < 150) continue
-    picked.push(t.id); short -= t.mb
-  }
-  return picked.length ? (sleep(picked), picked) : []
-}
 
 /** Every minute; a notice when pressure rises, again at most every 20 minutes while it stays high. */
-export function watchMemory(warn: (report: MemoryReport) => void, auto?: (report: MemoryReport) => void): void {
+export function watchMemory(warn: (report: MemoryReport) => void): void {
   let last = 0, lastLevel: MemoryReport['pressure'] = 'normal'
   setInterval(() => void memoryReport().then(r => {
-    auto?.(r)
     const worse = r.pressure !== 'normal' && (r.pressure !== lastLevel || Date.now() - last > 20 * 60_000)
     lastLevel = r.pressure
     if (worse) { last = Date.now(); warn(r) }
   }).catch(() => {}), 60_000)
-}
-
-/**
- * Sleep: an idle Claude Code or Codex in a tab is closed (it holds its memory while it waits for you); the tab keeps
- * the conversation, and opening it brings the conversation back where it was (wake).
- */
-const asleep = new Set<string>()
-export function sleep(ids: string[]): number {
-  let n = 0
-  for (const id of ids) {
-    const a = ptys.agentOf(id), st = ptys.statusOf(id)
-    if (!a.alive || st === 'working' || st === 'question') continue
-    ptys.write(id, '\x15'); ptys.write(id, a.kind === 'codex' ? '/quit\r' : '/exit\r'); asleep.add(id); n++
-    // Once it has quit: a clean screen saying so, not the terminal replies the agent left behind.
-    const note = `clear; printf '\\n  \\033[2mAsleep to save memory. It comes back when you open this tab.\\033[0m\\n\\n'`
-    let tries = 0
-    const check = () => { if (!asleep.has(id) || ++tries > 40) return; if (!ptys.agentOf(id).alive && ptys.atShellPrompt(id)) ptys.execWhenReady(id, note); else setTimeout(check, 750) }
-    setTimeout(check, 1500)
-  }
-  return n
-}
-export async function wake(id: string): Promise<boolean> {
-  // Only tabs put to sleep here: a Claude Code someone quit on purpose stays quit.
-  const a = ptys.agentOf(id)
-  if (!asleep.has(id) || !a.kind || a.alive || !ptys.atShellPrompt(id)) return false
-  asleep.delete(id)
-  ptys.execWhenReady(id, await ptys.resumeCommandFor({ kind: a.kind, sessionId: a.sessionId, args: a.args, cwd: ptys.cwdOf(id) }))
-  return true
 }

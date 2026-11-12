@@ -59,7 +59,7 @@ export function activeAgo(at: number, now = Date.now()): string {
 
 /** Green: free to use. Yellow: busy. Blue: it stopped and wants you. Accent
  * with a "?": it stopped on a prompt and needs an answer. */
-/** Asleep: the tab has a Claude Code or Codex conversation but nothing runs (put to sleep, or not started since a restart). */
+/** Not started: the tab has a Claude Code or Codex conversation but nothing runs yet (since a restart; it starts when opened). */
 const asleep = (tab: TabInfo) => !!tab.agent && !tab.agentAlive && !tab.exited && tab.status !== 'working'
 function dotClass(tab: TabInfo, speaking: boolean): string {
   if (tab.exited) return 'tab-dot exited'

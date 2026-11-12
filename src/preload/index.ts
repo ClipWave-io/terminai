@@ -22,7 +22,6 @@ const api = {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     feedback: (text: string, email?: string): Promise<'sent' | 'mail'> => ipcRenderer.invoke('app:feedback', text, email),
     memory: (): Promise<import('../main/memory').MemoryReport> => ipcRenderer.invoke('memory:report'),
-    sleep: (ids: string[]): Promise<number> => ipcRenderer.invoke('memory:sleep', ids),
     wake: (id: string): Promise<boolean> => ipcRenderer.invoke('memory:wake', id),
     memoryDetail: (): Promise<import('../main/memoryDetail').MemoryDetail> => ipcRenderer.invoke('memory:detail'),
     processInfo: (pid: number): Promise<import('../main/memoryDetail').ProcInfo> => ipcRenderer.invoke('memory:process', pid),
