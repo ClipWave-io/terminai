@@ -14,6 +14,8 @@ interface Props {
   onRename: (id: string, name: string) => void
   /** tuck a session out of its folder in the rail, or bring it back */
   onHide: (id: string, hidden: boolean) => void
+  /** chats paused by hand (right-click › Pause): tab id -> when */
+  pausedByYou?: Record<string, string>
   onReorderGroups: (from: string, to: string) => void
   tabs: TabInfo[]
   activeId: string | null
@@ -98,6 +100,7 @@ export function TabRail({
   recent = false,
   times = false,
   paused = {},
+  pausedByYou = {},
 }: Props): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
@@ -190,14 +193,20 @@ export function TabRail({
         if (from !== null && from !== i) onReorder(from, i)
         clearDrag()
       }}
-      onMouseDown={() => onSelect(tab.id)}
+      onMouseDown={(e) => { if (e.button === 0) onSelect(tab.id) }}
       onDoubleClick={() => startEdit(tab)}
+      onContextMenu={(e) => { e.preventDefault(); void window.term.pty.menu(tab.id, !!tab.hidden).then(action => {
+        if (action === 'pause' || action === 'resume') void window.term.pty.pause(tab.id, action === 'pause')
+        else if (action === 'rename') startEdit(tab)
+        else if (action === 'hide') onHide(tab.id, !tab.hidden)
+        else if (action === 'close') onClose(tab.id)
+      }) }}
       title={`${tabLabel(tab)}\n${tab.cwd}\nDouble-click to rename`}
     >
       <span
-        className={!tab.exited && paused[tab.id] ? 'tab-dot paused' : dotClass(tab, tab.id === speakingId)}
-        title={!tab.exited && paused[tab.id] ? `Paused by MacGuard at ${paused[tab.id].slice(0, 5)}: open it to resume` : tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. It starts when you open it.' : DOT_TITLE[tab.status]}
-      >{!tab.exited && tab.id !== speakingId && !paused[tab.id] && tab.status === 'question' ? '?' : ''}</span>
+        className={!tab.exited && (paused[tab.id] || pausedByYou[tab.id]) ? 'tab-dot paused' : dotClass(tab, tab.id === speakingId)}
+        title={!tab.exited && pausedByYou[tab.id] ? `Paused by you at ${pausedByYou[tab.id]}: right-click › Resume` : !tab.exited && paused[tab.id] ? `Paused by MacGuard at ${paused[tab.id].slice(0, 5)}: open it to resume` : tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. It starts when you open it.' : DOT_TITLE[tab.status]}
+      >{!tab.exited && tab.id !== speakingId && !paused[tab.id] && !pausedByYou[tab.id] && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}><span className="tab-name">{tabLabel(tab)}</span>{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
         {times ? <div className="tab-sub"><span className="tab-cwd">{shortCwd(tab.cwd)}</span><span className="tab-ago" title={`Last active ${new Date(tab.activityAt ?? tab.createdAt).toLocaleString()}`}>{activeAgo(tab.activityAt ?? tab.createdAt)}</span></div>

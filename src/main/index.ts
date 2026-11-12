@@ -27,6 +27,7 @@ import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryD
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
+import { pauseTab, resumeTab, pausedTabs, forgetTab } from './pause'
 import * as store from './store'
 import * as voice from './voice'
 import { availableVoices } from './tts/say'
@@ -651,7 +652,25 @@ function registerIpc(): void {
   appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }) =>
     ptys.createSession(opts ?? {}),
   )
-  appIpc.on('pty:close', (_event, { id }: {id: string}) => ptys.closeSession(id))
+  appIpc.on('pty:close', (_event, { id }: {id: string}) => { forgetTab(id); ptys.closeSession(id) })
+  // Right-click on a chat in the sidebar: Pause or Resume it, rename, hide or close it. Returns the action picked.
+  const sendPaused = () => { if (win && !win.isDestroyed()) win.webContents.send('tab:paused', pausedTabs()) }
+  appIpc.handle('tab:pause', async (_e, id: unknown, on: unknown) => { if (typeof id !== 'string') return pausedTabs(); await (on === false ? resumeTab(id) : pauseTab(id)); sendPaused(); return pausedTabs() })
+  appIpc.handle('tab:paused', () => pausedTabs())
+  appIpc.handle('tab:menu', (_e, id: unknown, hidden: unknown) => new Promise<string | null>(resolve => {
+    if (typeof id !== 'string' || !win) return resolve(null)
+    const isPaused = !!pausedTabs()[id], running = ptys.agentOf(id).alive
+    let picked: string | null = null
+    const menu = Menu.buildFromTemplate([
+      isPaused ? { label: 'Resume', click: () => { picked = 'resume' } } : { label: 'Pause', enabled: running, toolTip: 'Stops everything running in this chat until you resume it', click: () => { picked = 'pause' } },
+      { type: 'separator' },
+      { label: 'Rename…', click: () => { picked = 'rename' } },
+      { label: hidden === true ? 'Unhide' : 'Hide from the sidebar', click: () => { picked = 'hide' } },
+      { type: 'separator' },
+      { label: 'Close', click: () => { picked = 'close' } },
+    ])
+    menu.popup({ window: win, callback: () => setTimeout(() => resolve(picked), 0) })
+  }))
   appIpc.handle('pty:unclose', (_event, { id }: {id: string}) => ptys.uncloseSession(id))
   appIpc.handle('pty:agent', (_event, { id }: {id: string}) => ptys.agentOf(id))
   appIpc.handle('pty:resumeCommand', (_event, desc) => ptys.resumeCommandFor(desc || {}))

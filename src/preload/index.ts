@@ -86,6 +86,12 @@ const api = {
     },
   },
   pty: {
+    /** Pause a chat by hand (true) or resume it (false); returns every tab paused this way: id -> HH:MM. */
+    pause: (id: string, on: boolean): Promise<Record<string, string>> => ipcRenderer.invoke('tab:pause', id, on),
+    paused: (): Promise<Record<string, string>> => ipcRenderer.invoke('tab:paused'),
+    onPaused: (cb: (p: Record<string, string>) => void) => { const h = (_e: unknown, p: Record<string, string>) => cb(p); ipcRenderer.on('tab:paused', h); return () => { ipcRenderer.removeListener('tab:paused', h) } },
+    /** The right-click menu of a chat in the sidebar: resolves with the action picked (pause, resume, rename, hide, close) or null. */
+    menu: (id: string, hidden: boolean): Promise<string | null> => ipcRenderer.invoke('tab:menu', id, hidden),
     close: (id: string): void => ipcRenderer.send('pty:close', { id }),
     unclose: (id: string): Promise<{id: string; cwd: string; exited: boolean} | null> => ipcRenderer.invoke('pty:unclose', { id }),
     agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),

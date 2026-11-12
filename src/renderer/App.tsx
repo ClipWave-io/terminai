@@ -74,6 +74,9 @@ export function App(): JSX.Element {
   const [guard, setGuard] = useState<Awaited<ReturnType<typeof window.term.macguard.state>>>(null)
   useEffect(() => { void window.term.macguard.state().then(setGuard); return window.term.macguard.onState(setGuard) }, [])
   const pausedAt: Record<string, string> = Object.fromEntries((guard?.paused ?? []).map(p => [p.id, p.at || '?']))
+  // Chats paused by hand (right-click › Pause in the sidebar).
+  const [pausedByYou, setPausedByYou] = useState<Record<string, string>>({})
+  useEffect(() => { void window.term.pty.paused().then(setPausedByYou); return window.term.pty.onPaused(setPausedByYou) }, [])
   const [settingsSection, setSettingsSection] = useState('general')
   useEffect(() => window.term.teamchat.onOpen(() => setShowChat(true)), [])
   const [ready, setReady] = useState(false)
@@ -883,6 +886,7 @@ export function App(): JSX.Element {
             recent={prefs.railRecent}
             times={prefs.railTimes}
             paused={pausedAt}
+            pausedByYou={pausedByYou}
           />
 
           {/* Lives in the gutter rather than inside the rail: the rail clips its
@@ -948,6 +952,9 @@ export function App(): JSX.Element {
             />
           ))}
           {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
+          {terminalVisible && activeId && pausedByYou[activeId] && <div className="guard-banner" role="status"><span className="guard-icon" aria-hidden="true" />
+            <span className="guard-text"><strong>Paused by you at {pausedByYou[activeId]}.</strong> Nothing runs in this chat until you resume it; nothing is lost.</span>
+            <button className="btn primary" onClick={() => void window.term.pty.pause(activeId, false)}>Resume</button></div>}
           {terminalVisible && activeId && pausedAt[activeId] && guard && <GuardBanner key={`guard-${activeId}`} id={activeId} at={pausedAt[activeId]} others={guard.paused.length - 1} running={guard.running} onState={setGuard} />}
           {terminalVisible && <div className="pane-corner">
             {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <PrivacyPill key={`privacy-${activeId}`} tabKey={t.browserKey || t.id} /> : null })()}
