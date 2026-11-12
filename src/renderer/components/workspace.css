@@ -294,3 +294,8 @@
 .st-card-head strong { font-size: 13px; }
 .st-card-head span { font-size: 12px; color: var(--dim); line-height: 1.4; }
 .st-sound { display: inline-flex; align-items: center; gap: 12px; }
+/* Settings › Appearance › Pane order: the panes left to right, each with arrows to move it. */
+.st-panes { display: inline-flex; gap: 6px; }
+.st-pane { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
+.st-pane .todo-link { font-size: 15px; line-height: 1; padding: 0 3px; }
+.st-pane .todo-link:disabled { opacity: .3; }

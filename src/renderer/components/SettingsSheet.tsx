@@ -86,6 +86,7 @@ interface ElevenVoice {
   description: string
 }
 
+const PANE_NAMES: Record<string, string> = { terminal: 'Terminal', files: 'Files', browser: 'Browser' }
 /** The sound each kind plays unless changed here (notices.ts SOUND_FILES). Each kind its own, so you can tell them apart. */
 const SOUND_DEFAULTS: Record<SoundKind, string> = { chat: 'Pop', call: 'Ping', done: 'Glass', request: 'Hero', agent: 'Purr', todo: 'Tink', memory: 'Basso', update: 'Bottle' }
 /** Settings › Notifications › Sounds: one row per kind, in the order people meet them. */
@@ -175,9 +176,15 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
         <Row label="Customise the design" hint="Opens Claude Code in this app's own source, then rebuilds and relaunches."><button className="btn" onClick={onCustomize}>Open Claude Code</button></Row>
       </div>
     </>),
-    appearance: () => page('Appearance', 'Theme, sidebar and text size.', <div className="st-card">
+    appearance: () => page('Appearance', 'Theme, panes, sidebar and text size.', <div className="st-card">
       <Row label="Theme" hint={<>Cycle all {Object.keys(THEMES).length} with <span className="kbd">⇧⌘L</span></>}>
         <select value={prefs.theme} onChange={e => onChange({ theme: e.target.value as ThemeName })}>{Object.values(THEMES).map(t => <option key={t.name} value={t.name}>{t.label}</option>)}</select></Row>
+      <Row label="Pane order" hint="Left to right: which goes where when the terminal, Files and the browser are open together. You can also drag a pane by the grip at its top.">
+        <span className="st-panes">{prefs.paneOrder.map((pane, i) => <span key={pane} className="st-pane">
+          <button className="todo-link" aria-label={`Move ${PANE_NAMES[pane]} left`} disabled={i === 0} onClick={() => { const next = [...prefs.paneOrder]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange({ paneOrder: next }) }}>‹</button>
+          {PANE_NAMES[pane]}
+          <button className="todo-link" aria-label={`Move ${PANE_NAMES[pane]} right`} disabled={i === prefs.paneOrder.length - 1} onClick={() => { const next = [...prefs.paneOrder]; [next[i + 1], next[i]] = [next[i], next[i + 1]]; onChange({ paneOrder: next }) }}>›</button>
+        </span>)}</span></Row>
       <Row label="Sidebar" hint={<><span className="kbd">⌥⌘S</span> to flip · <span className="kbd">⌘S</span> to hide</>}>
         <select value={prefs.railSide} onChange={e => onChange({ railSide: e.target.value as RailSide })}><option value="left">Left</option><option value="right">Right</option></select></Row>
       <Row label="Group by folder" hint="Sessions sit under the folder they are in."><Toggle on={prefs.groupByFolder} set={v => onChange({ groupByFolder: v })} /></Row>

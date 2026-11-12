@@ -23,6 +23,13 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await js(`(()=>{const dt=new DataTransfer(),g=document.querySelector('.files-slot > .pane-grip'),t=document.querySelector('.workspace > .pane');g.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));g.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:dt}))})()`); await delay(400)
   const after = await js(order)
   assert.notEqual(after, before, `panes swapped (${before} -> ${after})`)
+  // Settings › Appearance › Pane order moves them too.
+  await js(`document.querySelector('[aria-label="Settings"]').click()`); await delay(400)
+  await js(`[...document.querySelectorAll('.team-side button')].find(b=>b.textContent.trim()==='Appearance').click()`); await delay(300)
+  const p0 = await js(`[...document.querySelectorAll('.st-pane')].map(p=>p.textContent.replace(/[‹›]/g,'')).join()`)
+  await js(`document.querySelector('.st-pane [aria-label$="right"]:not(:disabled)').click()`); await delay(300)
+  const p1 = await js(`[...document.querySelectorAll('.st-pane')].map(p=>p.textContent.replace(/[‹›]/g,'')).join()`)
+  assert.notEqual(p1, p0, `pane order in Settings (${p0} -> ${p1})`)
   console.log(`PASS files pane: PDF pages, fit page, actions in the toolbar; panes swapped by their grip (${before} -> ${after})`); app.quit()
 })().catch(e => { console.error(e); app.exit(1) }) }))
 setTimeout(() => app.exit(1), 60000).unref(); require('../out/main/index.js')
