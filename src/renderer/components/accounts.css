@@ -77,3 +77,7 @@
 .corner-chat.mini { position: relative; }
 .privacy-confirm { margin: 6px 8px; padding: 8px 10px; border: 1px solid color-mix(in srgb, #c8871a 55%, var(--border)); border-radius: 8px; font-size: 11.5px; line-height: 1.4; white-space: normal; }
 .privacy-confirm p { margin: 0 0 8px; } .privacy-confirm span { display: flex; gap: 6px; }
+.guard-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 21; display: flex; align-items: center; gap: 10px; max-width: min(760px, calc(100% - 28px)); padding: 9px 12px; font-size: 12.5px; line-height: 1.4; color: var(--fg); background: var(--pane); border: 1px solid color-mix(in srgb, #d9822b 55%, var(--border)); border-radius: 10px; box-shadow: 0 6px 20px var(--shadow); }
+.guard-banner .btn { flex: 0 0 auto; white-space: nowrap; }
+.guard-text em { color: var(--danger); font-style: normal; }
+.guard-icon { flex: 0 0 10px; width: 10px; height: 12px; border-radius: 1px; background: linear-gradient(to right, #d9822b 0 36%, transparent 36% 64%, #d9822b 64%); }

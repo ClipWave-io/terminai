@@ -1,5 +1,6 @@
 type Notice = { id: string; kind: 'done' | 'todo' | 'request' | 'chat' | 'agent' | 'memory' | 'update'; title: string; body: string; at: string; read: boolean; target?: { tab?: string; open?: 'todos' | 'activity' | 'chat' | 'memory' | 'updates' } }
 type BotInfo = { id: string; name: string; keyId?: string; host: string; agent: string; isDefault: boolean; status: { ok: boolean; at: string; error?: string } | null }
+type GuardState = { running: boolean; level: number; paused: { id: string; name: string; at: string }[] }
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
@@ -33,6 +34,10 @@ const api = {
     agentMessages: (v?: 'ask' | 'allow'): Promise<'ask' | 'allow'> => ipcRenderer.invoke('team:agentMessages', v),
     onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string; own?: boolean; rule?: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), tabMode: (key: string, mode: 'shared' | 'private' | 'off' | null): Promise<void> => ipcRenderer.invoke('team:tabMode', key, mode), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
     folder: (folder: string | null, mode: 'shared' | 'private' | 'off' | null): Promise<Record<string, string>> => ipcRenderer.invoke('team:folder', folder, mode) },
+  macguard: {
+    state: (): Promise<GuardState | null> => ipcRenderer.invoke('macguard:state'),
+    resume: (ids: string[]): Promise<GuardState | null> => ipcRenderer.invoke('macguard:resume', ids),
+    onState: (cb: (s: GuardState | null) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, s: GuardState | null) => cb(s); ipcRenderer.on('macguard:state', h); return () => { ipcRenderer.removeListener('macguard:state', h) } } },
   worklog: { get: (day: string): Promise<{ day: string; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {
     onSignedIn: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('workspace:signed-in', h); return () => { ipcRenderer.removeListener('workspace:signed-in', h) } },

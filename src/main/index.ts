@@ -22,6 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory, autoSleep, sleep as sleepTabs, wake as wakeTab } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
+import { guardState, resumeGuard, watchGuard } from './macguard'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -627,6 +628,13 @@ function registerIpc(): void {
     notice('memory', `${slept.length} idle ${slept.length === 1 ? 'session' : 'sessions'} put to sleep`, `To keep ${p.autoSleepReserve}% of memory free: ${slept.map(tabName).join(', ')}. Each comes back when you open it.`, { open: 'memory' })
   })
   watchFullscreenOff()
+  // MacGuard paused a chat to keep the Mac from freezing: the tab says so, with Resume, and the bell has it (a click opens the tab).
+  appIpc.handle('macguard:state', () => guardState())
+  appIpc.handle('macguard:resume', async (_e, ids: unknown) => { await resumeGuard(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []); return guardState() })
+  watchGuard(s => { if (win && !win.isDestroyed()) win.webContents.send('macguard:state', s) }, p => {
+    const t = store.load().tabs.find(x => x.ptyId === p.id), name = t?.customTitle || t?.name || t?.title || p.name || 'Session'
+    notice('memory', `Paused by MacGuard: ${name}`, `At ${p.at.slice(0, 5)} the Mac was about to run out of memory. Open the tab and press Resume, or it resumes by itself once the Mac is back to normal.`, { tab: p.id })
+  })
   appIpc.handle('app:check-updates', () => checkForUpdatesNow(win, true))
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {

@@ -17,6 +17,7 @@ import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
 import { AccountMenu } from './components/AccountMenu'
 import { PrivacyPill } from './components/PrivacyPill'
+import { GuardBanner } from './components/GuardBanner'
 import { getTheme, nextTheme } from '../shared/themes'
 import * as snapshots from './snapshots'
 import { detectQuestion } from '../shared/questions'
@@ -68,6 +69,10 @@ export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const prefsRef = useRef(prefs); prefsRef.current = prefs
   const [showChat, setShowChat] = useState(false), [chatUnread, setChatUnread] = useState(0)
+  // MacGuard (this Mac's memory guardian) and the chats it paused: tab id -> when.
+  const [guard, setGuard] = useState<Awaited<ReturnType<typeof window.term.macguard.state>>>(null)
+  useEffect(() => { void window.term.macguard.state().then(setGuard); return window.term.macguard.onState(setGuard) }, [])
+  const pausedAt: Record<string, string> = Object.fromEntries((guard?.paused ?? []).map(p => [p.id, p.at || '?']))
   const [settingsSection, setSettingsSection] = useState('general')
   useEffect(() => window.term.teamchat.onOpen(() => setShowChat(true)), [])
   const [ready, setReady] = useState(false)
@@ -850,6 +855,7 @@ export function App(): JSX.Element {
             grouped={prefs.groupByFolder}
             recent={prefs.railRecent}
             times={prefs.railTimes}
+            paused={pausedAt}
           />
 
           {/* Lives in the gutter rather than inside the rail: the rail clips its
@@ -914,6 +920,7 @@ export function App(): JSX.Element {
             />
           ))}
           {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
+          {terminalVisible && activeId && pausedAt[activeId] && guard && <GuardBanner key={`guard-${activeId}`} id={activeId} at={pausedAt[activeId]} others={guard.paused.length - 1} running={guard.running} onState={setGuard} />}
           {terminalVisible && <div className="pane-corner">
             {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <PrivacyPill key={`privacy-${activeId}`} tabKey={t.browserKey || t.id} /> : null })()}
             {tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
