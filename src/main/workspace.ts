@@ -266,12 +266,12 @@ export async function teamFileChange(company: unknown, fileId: unknown, change: 
   return jsonOf(await authed(path, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) }))
 }
 /** Uploads a file from disk to the team space; the bytes never pass through the renderer. */
-export async function teamUpload(company: unknown, filePath: unknown, access: unknown = 'all', products: unknown = [], chat = false, as?: string): Promise<any> {
+export async function teamUpload(company: unknown, filePath: unknown, access: unknown = 'all', products: unknown = [], chat = false, as?: string, folder?: string): Promise<any> {
   if (typeof filePath !== 'string' || !['all', 'admins', 'products'].includes(String(access)) || !Array.isArray(products)) throw new Error('Unsupported workspace action.')
   const info = await stat(filePath)
   if (!info.isFile()) throw new Error('Only files can be shared.')
   if (info.size > 25 * 1024 * 1024) throw new Error(`${basename(filePath)} is larger than 25 MB.`)
-  const q = new URLSearchParams({ name: (as || basename(filePath)).slice(0, 200), type: TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream', access: String(access), products: products.map(String).join(','), ...(chat ? { chat: '1' } : {}) })
+  const q = new URLSearchParams({ name: (as || basename(filePath)).slice(0, 200), type: TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream', access: String(access), products: products.map(String).join(','), ...(chat ? { chat: '1' } : {}), ...(folder ? { folder } : {}) })
   return jsonOf(await authed(`/api/companies/${companyId(company)}/files?${q}`, { method: 'POST', timeout: 180000, headers: { 'Content-Type': 'application/octet-stream' }, body: await readFile(filePath) }))
 }
 /** A team file in this Mac's cache, downloaded the first time it is opened; files never change, so the cache is kept. */

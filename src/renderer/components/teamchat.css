@@ -140,3 +140,11 @@
 .tc { z-index: 1250; }
 .call, .call-toast { z-index: 1260; }
 .tc-viewer { z-index: 1400; }
+/* Files in folders: a path you can click back along, folders above the files, a new-folder button on the right. */
+.tc-crumbs { display: flex; align-items: center; gap: 4px; padding: 2px 14px 6px; font-size: 12.5px; min-height: 28px; }
+.tc-crumb { border: 0; background: none; color: var(--dim); font: inherit; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.tc-crumb:last-of-type, .tc-crumb:hover { color: var(--fg); }
+.tc-crumb-sep { color: var(--dim); opacity: .6; }
+.tc-crumbs-gap { flex: 1; }
+.tc-newfolder { height: 26px; width: 150px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--accent); background: var(--pane); color: var(--fg); font: inherit; font-size: 12.5px; }
+.tc-file-ico.folder { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }

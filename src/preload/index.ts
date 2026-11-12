@@ -165,7 +165,7 @@ const api = {
     callNotify: (title: string, body: string): Promise<boolean> => ipcRenderer.invoke('team:call-notify', title, body),
     files: (company: string): Promise<any> => ipcRenderer.invoke('team:files', company),
     change: (company: string, id: string, change: object | null): Promise<any> => ipcRenderer.invoke('team:file-change', company, id, change),
-    upload: (company: string, path: string, access = 'all', products: string[] = [], chat = false): Promise<any> => ipcRenderer.invoke('team:upload', company, path, access, products, chat),
+    upload: (company: string, path: string, access = 'all', products: string[] = [], chat = false, folder = ''): Promise<any> => ipcRenderer.invoke('team:upload', company, path, access, products, chat, folder),
     image: (company: string, id: string, name: string): Promise<string> => ipcRenderer.invoke('team:image', company, id, name),
     open: (company: string, id: string, name: string, how: 'app' | 'pane' | 'reveal' = 'app'): Promise<void> => ipcRenderer.invoke('team:open', company, id, name, how),
     pick: (): Promise<string[]> => ipcRenderer.invoke('team:pick'),

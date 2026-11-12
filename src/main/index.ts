@@ -500,7 +500,7 @@ function registerIpc(): void {
   })
   appIpc.handle('team:files', (_e, company) => teamFiles(company))
   appIpc.handle('team:file-change', (_e, company, id, change) => teamFileChange(company, id, change))
-  appIpc.handle('team:upload', (_e, company, path, access, products, chat) => teamUpload(company, path, access, products, chat === true))
+  appIpc.handle('team:upload', (_e, company, path, access, products, chat, folder) => teamUpload(company, path, access, products, chat === true, undefined, typeof folder === 'string' ? folder : undefined))
   appIpc.handle('team:image', (_e, company, id, name) => teamImage(company, id, name))
   appIpc.handle('team:open', async (_e, company, id, name, how) => { const path = await teamFetch(company, id, name); if (how === 'reveal') shell.showItemInFolder(path); else if (how === 'pane') queueOpenFile(path); else await shell.openPath(path) })
   // A chat message as a Mac notification; clicking it opens the chat. Returns false when macOS has them off.

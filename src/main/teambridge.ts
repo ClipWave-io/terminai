@@ -248,10 +248,10 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     }
     // A file into the team's shared Files (on the TerminAI server), for everyone or only some products' members.
     if (a.action === 'upload') {
-      if (typeof a.id !== 'string' || !a.id.startsWith('/')) throw Error('usage: terminai team upload <absolute file path> [--products A,B] [--as <name>]')
+      if (typeof a.id !== 'string' || !a.id.startsWith('/')) throw Error('usage: terminai team upload <absolute file path> [--products A,B] [--as <name>] [--folder <path>]')
       const products = typeof a.products === 'string' ? a.products.split(',').map((p: string) => p.trim()).filter(Boolean) : []
-      const { file } = await teamUpload(team.id, a.id, products.length ? 'products' : 'all', products, false, typeof a.as === 'string' ? a.as : undefined)
-      return { ok: true, id: file.id, name: file.name, access: file.access, products: file.products }
+      const { file } = await teamUpload(team.id, a.id, products.length ? 'products' : 'all', products, false, typeof a.as === 'string' ? a.as : undefined, typeof a.folder === 'string' ? a.folder : undefined)
+      return { ok: true, id: file.id, folder: file.folder, name: file.name, access: file.access, products: file.products }
     }
     throw Error('usage: terminai team list|read|send|reply|replies|upload')
   }

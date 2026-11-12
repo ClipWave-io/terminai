@@ -166,6 +166,8 @@ export async function migrate(pool) {
         created_by uuid REFERENCES manager_users ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT now(), from_chat boolean NOT NULL DEFAULT false
       );
       CREATE INDEX IF NOT EXISTS manager_team_files_company ON manager_team_files(company_id,created_at DESC);
+      -- Folders in team Files: a path like "Sales/Universities" ('' is the top).
+      ALTER TABLE manager_team_files ADD COLUMN IF NOT EXISTS folder text NOT NULL DEFAULT '';
       -- Team chat and presence (last seen, typing).
       CREATE TABLE IF NOT EXISTS manager_chat (
         id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,

@@ -453,11 +453,13 @@ export function createApp(pool, config) {
         requireThat(member, 404, 'Company not found.');
         const adminish = isAdmin(member);
         const canSee = f => adminish || f.created_by === user.id || f.access === 'all' || (f.access === 'products' && (!member.products || (f.products || []).some(p => member.products.includes(p))));
-        const meta = f => ({ id: f.id, name: f.name, mime: f.mime, size: f.size, access: f.access, products: f.products, by: f.created_by, byName: f.by_name, createdAt: f.created_at, fromChat: f.from_chat });
+        // A folder path: segments without slashes or control characters, joined by '/'.
+        const folderOf = v => typeof v === 'string' ? v.split('/').map(x => x.replace(/[\\\u0000-\u001f]/g, '').trim()).filter(Boolean).join('/').slice(0, 200) : '';
+        const meta = f => ({ id: f.id, folder: f.folder || '', name: f.name, mime: f.mime, size: f.size, access: f.access, products: f.products, by: f.created_by, byName: f.by_name, createdAt: f.created_at, fromChat: f.from_chat });
         const seen = (typing = false) => pool.query(`INSERT INTO manager_presence(company_id,user_id,seen_at,typing_until) VALUES($1,$2,now(),${typing ? "now()+interval '6 seconds'" : 'NULL'})
           ON CONFLICT (company_id,user_id) DO UPDATE SET seen_at=now()${typing ? ",typing_until=now()+interval '6 seconds'" : ''}`, [companyId, user.id]);
         if (kind === 'files' && !sub && req.method === 'GET') {
-          const { rows } = await pool.query('SELECT f.id,f.name,f.mime,f.size,f.access,f.products,f.created_by,f.created_at,f.from_chat,u.name AS by_name FROM manager_team_files f LEFT JOIN manager_users u ON u.id=f.created_by WHERE f.company_id=$1 ORDER BY f.created_at DESC LIMIT 2000', [companyId]);
+          const { rows } = await pool.query('SELECT f.id,f.folder,f.name,f.mime,f.size,f.access,f.products,f.created_by,f.created_at,f.from_chat,u.name AS by_name FROM manager_team_files f LEFT JOIN manager_users u ON u.id=f.created_by WHERE f.company_id=$1 ORDER BY f.created_at DESC LIMIT 2000', [companyId]);
           return json(res, 200, { files: rows.filter(canSee).map(meta) });
         }
         if (kind === 'files' && !sub && req.method === 'POST') {
@@ -469,13 +471,13 @@ export function createApp(pool, config) {
           const mime = /^[a-z]+\/[a-z0-9.+-]{1,100}$/i.test(url.searchParams.get('type') || '') ? url.searchParams.get('type').toLowerCase() : 'application/octet-stream';
           const access = enumValue(url.searchParams.get('access') || 'all', ['all', 'admins', 'products'], 'access');
           const products = access === 'products' ? (url.searchParams.get('products') || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 20) : null;
-          const { rows: [row] } = await pool.query('INSERT INTO manager_team_files(id,company_id,name,mime,size,data,access,products,created_by,from_chat) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,name,mime,size,access,products,created_by,created_at,from_chat',
-            [randomUUID(), companyId, name, mime, data.length, data, access, products, user.id, url.searchParams.get('chat') === '1']);
+          const { rows: [row] } = await pool.query('INSERT INTO manager_team_files(id,company_id,name,mime,size,data,access,products,created_by,from_chat,folder) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,folder,name,mime,size,access,products,created_by,created_at,from_chat',
+            [randomUUID(), companyId, name, mime, data.length, data, access, products, user.id, url.searchParams.get('chat') === '1', folderOf(url.searchParams.get('folder'))]);
           return json(res, 200, { file: meta({ ...row, by_name: user.name }) });
         }
         if (kind === 'files' && sub) {
           const id = uuid(sub);
-          const { rows: [f] } = await pool.query(`SELECT id,name,mime,size,access,products,created_by,created_at,from_chat${req.method === 'GET' ? ',data' : ''} FROM manager_team_files WHERE id=$1 AND company_id=$2`, [id, companyId]);
+          const { rows: [f] } = await pool.query(`SELECT id,folder,name,mime,size,access,products,created_by,created_at,from_chat${req.method === 'GET' ? ',data' : ''} FROM manager_team_files WHERE id=$1 AND company_id=$2`, [id, companyId]);
           requireThat(f && canSee(f), 404, 'File not found.');
           if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': f.data.length, 'Cache-Control': 'private, max-age=31536000, immutable', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}` }); return res.end(f.data); }
           requireThat(adminish || f.created_by === user.id, 403, 'Only its uploader or an admin can change it.');
@@ -485,8 +487,9 @@ export function createApp(pool, config) {
             const access = input.access === undefined ? f.access : enumValue(input.access, ['all', 'admins', 'products'], 'access');
             const products = access !== 'products' ? null : input.products === undefined ? f.products : (requireThat(Array.isArray(input.products), 400, 'Invalid products.'), input.products.map(String).map(x => x.trim()).filter(Boolean).slice(0, 20));
             const name = input.name === undefined ? f.name : text(input.name, 'File name', 200).replace(/[\\/\u0000-\u001f]/g, '_');
-            await pool.query('UPDATE manager_team_files SET access=$1,products=$2,name=$3 WHERE id=$4', [access, products, name, id]);
-            return json(res, 200, { file: meta({ ...f, access, products, name }) });
+            const folder = input.folder === undefined ? f.folder : folderOf(input.folder);
+            await pool.query('UPDATE manager_team_files SET access=$1,products=$2,name=$3,folder=$4 WHERE id=$5', [access, products, name, folder, id]);
+            return json(res, 200, { file: meta({ ...f, access, products, name, folder }) });
           }
         }
         // Calls: terminai.xyz only passes the connection details between the Macs; voice and video go directly Mac to Mac.

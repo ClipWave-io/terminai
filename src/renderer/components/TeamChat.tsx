@@ -12,12 +12,13 @@ import { CallIcon, CallView, useCalls } from './Call'
 type Person = { id: string; name: string; seenAt: string | null; readAt: string | null; typing: boolean; online: boolean }
 type ChatFile = { id: string; name: string; mime: string; size: number } | { hidden: true }
 type Message = { id: string; body: string; at: string; from: string; fromName: string; file: ChatFile | null; pending?: boolean }
-type TeamFile = { id: string; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
+type TeamFile = { id: string; folder?: string; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
 
 const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : d } catch { return d } }, set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} } }
 
 const P: Record<string, string> = {
   clip: 'M20.5 11.5 12 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.7a1.7 1.7 0 0 1-2.4-2.4L15 7.6',
+  folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', back: 'M15 6l-6 6 6 6', plusFolder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2ZM12 11v5M9.5 13.5h5',
   bell: 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0', bellOff: 'M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2H8M10 20.5a2 2 0 0 0 4 0M4 4l16 16',
   send: 'M4 12 20 4l-4 16-4-7-8-1Z', close: 'M6 6l12 12M18 6 6 18', lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5Z',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14', reveal: 'M12 4v11M7 10l5 5 5-5M5 20h14', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6',
@@ -245,16 +246,28 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
   const [files, setFiles] = useState<TeamFile[]>(() => cache.get(key, []))
   const [q, setQ] = useState(''), [access, setAccess] = useState<Access>({ access: 'all', products: [] })
   const [busy, setBusy] = useState(0), [editing, setEditing] = useState<string | null>(null), [showChat, setShowChat] = useState(false), [choosing, setChoosing] = useState(false)
+  // Folders: where you are ('' the top), and folders made here that hold no file yet.
+  const [cwd, setCwd] = useState(''), [made, setMade] = useState<string[]>([]), [naming, setNaming] = useState(false), [newName, setNewName] = useState('')
   const options = useProducts(files.flatMap(f => f.products ?? []))
   const load = () => void window.term.teamchat.files(company).then(r => { setFiles(r.files); cache.set(key, r.files) }).catch(e => onError(String(e.message ?? e)))
   useEffect(load, [company]) // eslint-disable-line react-hooks/exhaustive-deps
   const upload = async (paths: string[]) => {
     setBusy(n => n + paths.length)
-    for (const p of paths) { try { await window.term.teamchat.upload(company, p, access.access, access.products) } catch (e) { onError(String((e as Error).message ?? e)) } finally { setBusy(n => n - 1) } }
+    for (const p of paths) { try { await window.term.teamchat.upload(company, p, access.access, access.products, false, cwd) } catch (e) { onError(String((e as Error).message ?? e)) } finally { setBusy(n => n - 1) } }
     load()
   }
   const change = (f: TeamFile, c: object | null) => void window.term.teamchat.change(company, f.id, c).then(load).catch(e => onError(String(e.message ?? e)))
-  const shown = useMemo(() => files.filter(f => (showChat || !f.fromChat) && (!q || f.name.toLowerCase().includes(q.toLowerCase()))), [files, q, showChat])
+  // Searching looks in every folder; otherwise the files of this folder and the folders inside it.
+  const visible = useMemo(() => files.filter(f => showChat || !f.fromChat), [files, showChat])
+  const shown = useMemo(() => q ? visible.filter(f => `${f.folder ?? ''}/${f.name}`.toLowerCase().includes(q.toLowerCase())) : visible.filter(f => (f.folder ?? '') === cwd), [visible, q, cwd])
+  const subfolders = useMemo(() => {
+    if (q) return []
+    const inside = new Set<string>(), pre = cwd ? `${cwd}/` : ''
+    for (const path of [...visible.map(f => f.folder ?? ''), ...made]) if (path.startsWith(pre) && path !== cwd) { const next = path.slice(pre.length).split('/')[0]; if (next) inside.add(next) }
+    return [...inside].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [visible, made, cwd, q])
+  const countIn = (path: string) => visible.filter(f => (f.folder ?? '') === path || (f.folder ?? '').startsWith(`${path}/`)).length
+  const makeFolder = () => { const n = newName.replace(/\//g, ' ').trim(); if (n) { const path = cwd ? `${cwd}/${n}` : n; setMade(m => [...m, path]); setCwd(path) } setNaming(false); setNewName('') }
   return <div className="tc-files" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void upload([...e.dataTransfer.files].map(f => window.term.teamchat.pathOf(f)).filter(Boolean)) }}>
     <div className="tc-up">
       <button className="tc-access-btn" onClick={() => setChoosing(v => !v)} title="Who can see what you upload">
@@ -264,14 +277,27 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
     {choosing && <div className="tc-access-pop"><small>New uploads can be seen by</small><AccessPicker value={access} onChange={setAccess} admin={admin} options={options} /></div>}
     <div className="tc-search"><input placeholder="Search files" value={q} onChange={e => setQ(e.target.value)} />
       <label><input type="checkbox" checked={showChat} onChange={e => setShowChat(e.target.checked)} /> From chat</label></div>
+    <div className="tc-crumbs">
+      {cwd ? <button className="tc-link" title="Up one folder" aria-label="Up one folder" onClick={() => setCwd(cwd.split('/').slice(0, -1).join('/'))}><Ico n="back" s={15} /></button> : null}
+      <button className="tc-crumb" onClick={() => setCwd('')}>All files</button>
+      {cwd.split('/').filter(Boolean).map((part, i, all) => <span key={i}><span className="tc-crumb-sep">/</span><button className="tc-crumb" onClick={() => setCwd(all.slice(0, i + 1).join('/'))}>{part}</button></span>)}
+      <span className="tc-crumbs-gap" />
+      {naming ? <input className="tc-newfolder" autoFocus placeholder="Folder name" value={newName} onChange={e => setNewName(e.target.value)} onBlur={makeFolder}
+          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') makeFolder(); if (e.key === 'Escape') { setNaming(false); setNewName('') } }} />
+        : <button className="tc-link" title="New folder here" aria-label="New folder" onClick={() => setNaming(true)}><Ico n="plusFolder" s={16} /></button>}
+    </div>
     <div className="tc-flist">
-      {!shown.length && <p className="tc-empty">{files.length ? 'Nothing matches.' : 'No team files yet. Drop files here or press Upload.'}</p>}
+      {subfolders.map(name => { const path = cwd ? `${cwd}/${name}` : name; return <div key={path} className="tc-frow tc-folder">
+        <button className="tc-fmain" onClick={() => setCwd(path)} title={`Open ${name}`}>
+          <span className="tc-file-ico folder"><Ico n="folder" /></span>
+          <span className="tc-file-name">{name}<small>{countIn(path)} {countIn(path) === 1 ? 'file' : 'files'}</small></span></button></div> })}
+      {!shown.length && !subfolders.length && <p className="tc-empty">{q ? 'Nothing matches.' : cwd ? 'This folder is empty. Drop files here or press Upload.' : 'No team files yet. Drop files here or press Upload.'}</p>}
       {shown.map(f => {
         const mine = admin || f.by === me
         return <div key={f.id}><div className="tc-frow">
           <button className="tc-fmain" onClick={() => void openInPane(company, f.id, f.name).catch(e => onError(String(e.message ?? e)))} title="Open (downloads it the first time)">
             <span className="tc-file-ico">{isImage(f.name) ? <Ico n="image" /> : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
-            <span className="tc-file-name">{f.name}<small>{size(f.size)} · {f.byName ?? 'someone'} · {dayLabel(f.createdAt)}</small></span></button>
+            <span className="tc-file-name">{f.name}<small>{q && f.folder ? `${f.folder} · ` : ''}{size(f.size)} · {f.byName ?? 'someone'} · {dayLabel(f.createdAt)}</small></span></button>
           {editing === f.id ? null
             : <span className={`tc-acc ${f.access}`} title="Who can see it">{f.access === 'products' ? (f.products ?? []).join(', ') || 'No one' : ACCESS[f.access]}</span>}
           <span className="tc-factions">

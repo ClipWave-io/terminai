@@ -23,7 +23,7 @@ if(!process.versions.electron){
   await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'',fileId:pic.file.id}});
   await call(`/api/companies/${company}/chat`,{token:sofia.token});// Sofia's app fetched them too: delivered to everyone
   const up=async(name,q)=>fetch(`${url}/api/companies/${company}/files?name=${name}&type=application/pdf${q}`,{method:'POST',headers:{Authorization:`Bearer ${ilai.token}`,'Content-Type':'application/octet-stream'},body:Buffer.from('%PDF-1.4 x')});
-  await up('NDA%20-%20Sofia%20v2.pdf','&access=admins');await up('Outreach%20sheet.pdf','&access=products&products=mm.org');await up('Brand%20guide.pdf','');
+  await up('NDA%20-%20Sofia%20v2.pdf','&access=admins');await up('Outreach%20sheet.pdf','&access=products&products=mm.org');await up('Brand%20guide.pdf','');await up('Warwick%20deck.pdf','&folder=Sales%2FUniversities');
   const env={...process.env,TEAM_URL:url,TEAM_EMAIL:`ilai${tag}@example.test`,TEAM_PW:pw};
   try{cp.execFileSync(path.resolve('node_modules/.bin/electron'),[__filename],{env,stdio:'inherit',timeout:80000})}finally{server.kill()}
  })().catch(e=>{console.error(e);server.kill();process.exit(1)});
@@ -54,8 +54,16 @@ if(!process.versions.electron){
   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
   assert.ok(await js(`!document.querySelector('.tc-viewer')`),'Escape closes it');
   await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Files').click()`);
-  for(let i=0;i<30&&!await js(`document.querySelectorAll('.tc-frow').length===3`);i++)await delay(200);
-  assert.equal(await js(`document.querySelectorAll('.tc-frow').length`),3);
+  for(let i=0;i<30&&!await js(`document.querySelectorAll('.tc-frow:not(.tc-folder)').length===3`);i++)await delay(200);
+  assert.equal(await js(`document.querySelectorAll('.tc-frow:not(.tc-folder)').length`),3,'three files at the top');
+  // Folders: Sales holds Universities, which holds the deck.
+  assert.deepEqual(await js(`[...document.querySelectorAll('.tc-folder .tc-file-name')].map(n=>n.firstChild.textContent)`),['Sales'],'one folder at the top');
+  await js(`document.querySelector('.tc-folder .tc-fmain').click()`);await delay(200);
+  await js(`document.querySelector('.tc-folder .tc-fmain').click()`);await delay(200);
+  assert.ok(await js(`[...document.querySelectorAll('.tc-frow:not(.tc-folder) .tc-file-name')].some(n=>n.textContent.startsWith('Warwick deck.pdf'))`),'the deck inside Sales/Universities');
+  assert.equal(await js(`[...document.querySelectorAll('.tc-crumb')].map(b=>b.textContent).join('/')`),'All files/Sales/Universities');
+  await shot('2b-folder');
+  await js(`document.querySelector('.tc-crumb').click()`);await delay(200);
   await js(`document.querySelector('.tc-access-btn').click()`);await delay(200);
   await js(`[...document.querySelectorAll('.tc-access-pop .pp-seg button')].find(b=>b.textContent==='Products').click()`);await delay(300);
   await shot('2-files');
