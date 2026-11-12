@@ -236,9 +236,10 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
     }
     if (a.action === 'reply') {
       if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team reply <message id> <answer>')
-      const original = received.get(a.id)
+      // Forgotten since a restart: ask the server who sent it.
+      const original = received.get(a.id) ?? await team.call(`${base}/agent/${a.id}/from`).then((r: { from: string | null; bot: boolean }) => ({ from: r.from, fromName: '', bot: r.bot })).catch(() => undefined)
       if (original?.bot && !original.from) return { ok: true, note: 'A bot sent it: it reads your answer from this session, so answering here is enough.' }
-      if (!original?.from) throw Error('That message came from no session (or not to this Mac): nothing to reply to.')
+      if (!original?.from) throw Error(original ? 'The sender sent it without its session (a tab that is not shared): nothing to reply to. Send a new message to their session with terminai team send.' : 'No such message for this Mac: nothing to reply to.')
       return team.call(`${base}/agent`, 'POST', { to: original.from, content: a.text, from: mine() ?? undefined, replyTo: a.id })
     }
     if (a.action === 'replies') {

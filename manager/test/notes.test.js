@@ -151,6 +151,12 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal(inbox.length,1);assert.equal(inbox[0].tab,'key-a');assert.equal(inbox[0].fromName,'Mo Rossi');
   assert.equal((await request(`/api/companies/${alpha.id}/agent/inbox`,{token:mo.body.token})).body.messages.length,0);
   assert.equal((await request(`/api/companies/${alpha.id}/agent/${sent.id}/delivered`,{token:a.body.token,method:'POST',data:{}})).status,200);
+  // The recipient can always find who sent it (a reply after a restart); the sender cannot ask.
+  assert.equal((await request(`/api/companies/${alpha.id}/agent/${sent.id}/from`,{token:a.body.token})).body.from,tabMo.id);
+  assert.equal((await request(`/api/companies/${alpha.id}/agent/${sent.id}/from`,{token:mo.body.token})).status,403);
+  // And the reply goes through, bound to the session that asked.
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:a.body.token,method:'POST',data:{to:tabMo.id,from:tabA.id,replyTo:sent.id,content:'main'}})).status,200,'reply to the asking session');
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:a.body.token,method:'POST',data:{to:tabA.id,replyTo:sent.id,content:'forged'}})).status,404,'a reply elsewhere is refused');
   assert.equal((await request(`/api/companies/${alpha.id}/agent/inbox`,{token:a.body.token})).body.messages.length,0);
   assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:a.body.token,method:'POST',data:{to:tabMo.id,from:tabA.id,replyTo:sent.id,content:'main'}})).status,200);
   const replies=(await request(`/api/companies/${alpha.id}/agent/${sent.id}/replies`,{token:mo.body.token})).body;

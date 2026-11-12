@@ -828,11 +828,13 @@ export function createApp(pool, config) {
             WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
           return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,botApproval:r.bot_approval??null,botScope:r.bot_scope??null,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
         }
-        const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies)$/);
+        const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies|from)$/);
         if(agentMsg) {
           const id=uuid(agentMsg[1]);
           const {rows:[m]}=await db.query('SELECT m.*,t.owner_id AS to_owner FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation WHERE m.id=$1 AND m.company_id=$2',[id,companyId]);
           requireThat(m&&(m.from_user===user.id||m.to_owner===user.id),404,'Message not found.');
+          // Who sent a message you received: lets `terminai team reply` answer after a restart, when this Mac forgot it.
+          if(agentMsg[2]==='from'&&req.method==='GET'){requireThat(m.to_owner===user.id,403,'Not yours.');return {from:m.from_conversation,bot:!!m.from_bot};}
           if(agentMsg[2]==='delivered'&&req.method==='POST'){requireThat(m.to_owner===user.id,403,'Not yours.');await db.query('UPDATE manager_agent_messages SET delivered_at=now() WHERE id=$1',[id]);return {ok:true};}
           if(agentMsg[2]==='replies'&&req.method==='GET'){
             const {rows}=await db.query('SELECT r.id,r.content,r.created_at,u.name AS from_name FROM manager_agent_messages r JOIN manager_users u ON u.id=r.from_user WHERE r.reply_to=$1 ORDER BY r.created_at',[id]);
