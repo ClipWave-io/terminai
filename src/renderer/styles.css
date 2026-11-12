@@ -1419,3 +1419,5 @@ textarea.card-notes.editing {
 .pdf-zoom { min-width: 48px; font-variant-numeric: tabular-nums; color: var(--dim); }
 .pdf-page { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .pdf-page input { width: 34px; height: 24px; text-align: center; border: 1px solid var(--border); border-radius: 6px; background: var(--pane); color: var(--fg); font: inherit; font-size: 12px; }
+/* A tab that started a cloud session: a small cloud before its name. */
+.tab-cloud { flex: none; margin-right: 5px; color: #7cc4ff; font-size: 12px; }

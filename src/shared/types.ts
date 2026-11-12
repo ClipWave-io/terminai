@@ -205,10 +205,14 @@ export function tabLabel(tab: { customTitle?: string; title: string }): string {
   return tab.customTitle || tab.title
 }
 
+/** A Claude Code cloud session started from a tab (`claude --cloud`): it runs on Anthropic's machines, not this Mac. */
+export interface CloudSession { id: string; url: string; title?: string }
 export interface TabInfo {
   id: string
   title: string
   customTitle?: string
+  /** the last cloud session this tab started: a ☁ in the sidebar, Open on claude.ai and Send a message in its menu */
+  cloud?: CloudSession
   name?: string
   /** rail heading this tab sits under instead of its folder; set by `terminai open --group` */
   group?: string
@@ -284,6 +288,7 @@ export interface ChromeProfile {
 export interface SavedTab {
   cwd: string
   customTitle?: string
+  cloud?: CloudSession
   name?: string
   group?: string
   hidden?: boolean

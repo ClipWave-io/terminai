@@ -28,6 +28,7 @@ import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
 import { pauseTab, resumeTab, pausedTabs, forgetTab } from './pause'
+import { watchCloud } from './cloud'
 import * as store from './store'
 import * as voice from './voice'
 import { availableVoices } from './tts/say'
@@ -657,11 +658,26 @@ function registerIpc(): void {
   const sendPaused = () => { if (win && !win.isDestroyed()) win.webContents.send('tab:paused', pausedTabs()) }
   appIpc.handle('tab:pause', async (_e, id: unknown, on: unknown) => { if (typeof id !== 'string') return pausedTabs(); await (on === false ? resumeTab(id) : pauseTab(id)); sendPaused(); return pausedTabs() })
   appIpc.handle('tab:paused', () => pausedTabs())
-  appIpc.handle('tab:menu', (_e, id: unknown, hidden: unknown) => new Promise<string | null>(resolve => {
+  watchCloud((tabId, cloud) => { if (win && !win.isDestroyed()) win.webContents.send('tab:cloud', { tabId, cloud }) })
+  // A cloud tab's actions: open it on claude.ai, put a follow-up command ready in the tab, or bring it to this Mac.
+  appIpc.handle('tab:cloud-action', (_e, tabId: unknown, action: unknown, sessionId: unknown) => {
+    if (typeof tabId !== 'string' || typeof sessionId !== 'string' || !/^session_[A-Za-z0-9]+$/.test(sessionId)) return false
+    if (action === 'open') { void shell.openExternal(`https://claude.ai/code/${sessionId}`); return true }
+    if (action === 'message') { const line = `claude -p '' --cloud ${sessionId}`; ptys.write(tabId, line + '\x1b[D'.repeat(line.length - "claude -p '".length)); return true }
+    if (action === 'teleport') { ptys.write(tabId, `claude --teleport ${sessionId}\r`); return true }
+    return false
+  })
+  appIpc.handle('tab:menu', (_e, id: unknown, hidden: unknown, cloud: unknown) => new Promise<string | null>(resolve => {
     if (typeof id !== 'string' || !win) return resolve(null)
     const isPaused = !!pausedTabs()[id], running = ptys.agentOf(id).alive
     let picked: string | null = null
     const menu = Menu.buildFromTemplate([
+      ...(cloud === true ? [
+        { label: 'Open the cloud session on claude.ai', click: () => { picked = 'cloud-open' } },
+        { label: 'Send it a message…', toolTip: 'Puts the command in this tab: type your message between the quotes and press Enter', click: () => { picked = 'cloud-message' } },
+        { label: 'Bring it to this Mac (teleport)', click: () => { picked = 'cloud-teleport' } },
+        { type: 'separator' as const },
+      ] : []),
       isPaused ? { label: 'Resume', click: () => { picked = 'resume' } } : { label: 'Pause', enabled: running, toolTip: 'Stops everything running in this chat until you resume it', click: () => { picked = 'pause' } },
       { type: 'separator' },
       { label: 'Rename…', click: () => { picked = 'rename' } },

@@ -91,7 +91,10 @@ const api = {
     paused: (): Promise<Record<string, string>> => ipcRenderer.invoke('tab:paused'),
     onPaused: (cb: (p: Record<string, string>) => void) => { const h = (_e: unknown, p: Record<string, string>) => cb(p); ipcRenderer.on('tab:paused', h); return () => { ipcRenderer.removeListener('tab:paused', h) } },
     /** The right-click menu of a chat in the sidebar: resolves with the action picked (pause, resume, rename, hide, close) or null. */
-    menu: (id: string, hidden: boolean): Promise<string | null> => ipcRenderer.invoke('tab:menu', id, hidden),
+    menu: (id: string, hidden: boolean, cloud = false): Promise<string | null> => ipcRenderer.invoke('tab:menu', id, hidden, cloud),
+    /** A cloud session spotted in a tab's output. */
+    onCloud: (cb: (e: { tabId: string; cloud: { id: string; url: string; title?: string } }) => void) => { const h = (_e: unknown, v: { tabId: string; cloud: { id: string; url: string; title?: string } }) => cb(v); ipcRenderer.on('tab:cloud', h); return () => { ipcRenderer.removeListener('tab:cloud', h) } },
+    cloudAction: (tabId: string, action: 'open' | 'message' | 'teleport', sessionId: string): Promise<boolean> => ipcRenderer.invoke('tab:cloud-action', tabId, action, sessionId),
     close: (id: string): void => ipcRenderer.send('pty:close', { id }),
     unclose: (id: string): Promise<{id: string; cwd: string; exited: boolean} | null> => ipcRenderer.invoke('pty:unclose', { id }),
     agent: (id: string): Promise<{kind: '' | 'claude' | 'codex'; sessionId: string; args: string[]; alive: boolean}> => ipcRenderer.invoke('pty:agent', { id }),

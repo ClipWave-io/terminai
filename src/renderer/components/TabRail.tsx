@@ -24,6 +24,8 @@ interface Props {
   onSelect: (id: string) => void
   onClose: (id: string) => void
   onNew: () => void
+  /** right-click on New tab: a tab with `claude --cloud ''` ready, the cursor between the quotes for the task */
+  onNewCloud?: () => void
   onNewIn: () => void
   onReorder: (from: number, to: number) => void
   /** bucket the rows under a heading per group, or per folder for tabs without one */
@@ -94,6 +96,7 @@ export function TabRail({
   onSelect,
   onClose,
   onNew,
+  onNewCloud,
   onNewIn,
   onReorder,
   grouped,
@@ -195,7 +198,8 @@ export function TabRail({
       }}
       onMouseDown={(e) => { if (e.button === 0) onSelect(tab.id) }}
       onDoubleClick={() => startEdit(tab)}
-      onContextMenu={(e) => { e.preventDefault(); void window.term.pty.menu(tab.id, !!tab.hidden).then(action => {
+      onContextMenu={(e) => { e.preventDefault(); void window.term.pty.menu(tab.id, !!tab.hidden, !!tab.cloud).then(action => {
+        if (action?.startsWith('cloud-') && tab.cloud) { void window.term.pty.cloudAction(tab.id, action.slice(6) as 'open', tab.cloud.id); return }
         if (action === 'pause' || action === 'resume') void window.term.pty.pause(tab.id, action === 'pause')
         else if (action === 'rename') startEdit(tab)
         else if (action === 'hide') onHide(tab.id, !tab.hidden)
@@ -208,7 +212,7 @@ export function TabRail({
         title={!tab.exited && pausedByYou[tab.id] ? `Paused by you at ${pausedByYou[tab.id]}: right-click › Resume` : !tab.exited && paused[tab.id] ? `Paused by MacGuard at ${paused[tab.id].slice(0, 5)}: open it to resume` : tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. It starts when you open it.' : DOT_TITLE[tab.status]}
       >{!tab.exited && tab.id !== speakingId && !paused[tab.id] && !pausedByYou[tab.id] && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
-        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}><span className="tab-name">{tabLabel(tab)}</span>{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
+        {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tab.cloud && <span className="tab-cloud" title={`Cloud session${tab.cloud.title ? `: ${tab.cloud.title}` : ''} · runs on Anthropic's machines. Right-click to open, message or bring it here.`}>☁</span>}<span className="tab-name">{tabLabel(tab)}</span>{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
         {times ? <div className="tab-sub"><span className="tab-cwd">{shortCwd(tab.cwd)}</span><span className="tab-ago" title={`Last active ${new Date(tab.activityAt ?? tab.createdAt).toLocaleString()}`}>{activeAgo(tab.activityAt ?? tab.createdAt)}</span></div>
           : <div className="tab-cwd">{shortCwd(tab.cwd)}</div>}
       </span>
@@ -264,7 +268,7 @@ export function TabRail({
       </div>
 
       <div className="rail-actions">
-        <button className="btn primary" onClick={onNew} title="New tab  ⌘T">
+        <button className="btn primary" onClick={onNew} onContextMenu={e => { if (!onNewCloud) return; e.preventDefault(); onNewCloud() }} title={'New tab  ⌘T\nRight-click: new cloud session (runs on Anthropic\'s machines)'}>
           + New tab
         </button>
         {/* Drawn rather than set as a glyph: the folder codepoints render as
