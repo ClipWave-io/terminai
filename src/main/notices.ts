@@ -23,6 +23,9 @@ export function noticesWindow(w: () => BrowserWindow | null): void { win = w }
  * shows the notification and whatever the window is doing. Settings › Notifications › Sounds turns each kind on or off.
  */
 export const SOUND_FILES: Record<string, string> = { chat: 'Pop', call: 'Ping', done: 'Glass', request: 'Hero', agent: 'Purr', todo: 'Tink', memory: 'Basso', update: 'Bottle' }
+let shown: () => boolean = () => true
+/** A sound never plays alone: only when TerminAI's window shows the notice, or macOS shows its notification. */
+export function noticesShown(fn: () => boolean): void { shown = fn }
 let soundOn: (kind: string) => boolean = () => true, soundName: (kind: string) => string | undefined = () => undefined
 const lastSound = new Map<string, number>()
 export function noticesSound(on: (kind: string) => boolean, name?: (kind: string) => string | undefined): void { soundOn = on; if (name) soundName = name }
@@ -37,7 +40,7 @@ export function playSound(kind: string, force = false, override?: string): void 
 export function notice(kind: NoticeKind, title: string, body: string, target?: NoticeTarget, read = false): void {
   const n: Notice = { id: randomUUID(), kind, title: title.slice(0, 160), body: body.slice(0, 600), at: new Date().toISOString(), read, ...(target ? { target } : {}) }
   list = [n, ...load()].slice(0, 300); save()
-  if (!read) playSound(kind)
+  if (!read && shown()) playSound(kind)
   const w = win(); if (w && !w.isDestroyed()) w.webContents.send('notices:new', n)
 }
 export const noticesList = (): Notice[] => load()

@@ -144,6 +144,10 @@ export function App(): JSX.Element {
     setCompactPane(browserVisible ? showTerminal ? 'terminal' : showFiles ? 'files' : 'browser' : 'browser')
   }
   /** A click on a notification: the tab that finished, the To-do (or its Activity), the chat, or Settings. */
+  // Every new notice shows as a card at the top right for a few seconds (the sound that comes with it is never alone).
+  const [card, setCard] = useState<{ id: string; kind: string; title: string; body: string; target?: { tab?: string; open?: string } } | null>(null)
+  useEffect(() => window.term.notices.onNew(n => { if (n.read) return; setCard(n) }), [])
+  useEffect(() => { if (!card) return; const t = window.setTimeout(() => setCard(null), 7000); return () => window.clearTimeout(t) }, [card])
   const openNotice = (n: { target?: { tab?: string; open?: string } }) => {
     const t = n.target
     if (t?.tab && tabs.some(x => x.id === t.tab)) { setActiveId(t.tab); setShowTerminal(true); setCompactPane('terminal'); return }
@@ -1045,6 +1049,10 @@ export function App(): JSX.Element {
 
       <TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} />
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
+      {card && !(card.kind === 'todo' && notice) && <div className={`notice-card k-${card.kind}`} role="status">
+        <button className="notice-card-main" onClick={() => { const c = card; setCard(null); void window.term.notices.read([c.id]); openNotice(c) }}>
+          <strong>{card.kind === 'done' ? `Finished · ${card.title}` : card.title}</strong><span>{card.body}</span></button>
+        <button className="notice-card-x" aria-label="Dismiss" onClick={() => setCard(null)}>×</button></div>}
       {notice && !showTodos && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
       {showTodos && <TodoSheet user={prefs.tasksUser} team={prefs.teamTasks} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}

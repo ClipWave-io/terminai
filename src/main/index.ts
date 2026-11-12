@@ -11,7 +11,7 @@ import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamChannels, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamFileShare, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow, updateReady, installUpdateNow } from './updates'
-import { notice, noticesWindow, noticesList, noticesRead, noticesClear, noticesSound, playSound } from './notices'
+import { notice, noticesWindow, noticesList, noticesRead, noticesClear, noticesSound, noticesShown, playSound } from './notices'
 import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
@@ -323,6 +323,12 @@ app.whenReady().then(() => {
   // The first launch after installing: macOS shows its Allow question for TerminAI's notifications once.
   if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void notifyPermission().then(p => { if (p === 'notDetermined') void notifyPermission(true) }), 8000)
   noticesWindow(() => win)
+  // The window shows each new notice as a card (top right); with the window hidden or minimised only an allowed macOS
+  // notification can show it, so the sound plays only then.
+  let macShows = false
+  const checkMac = () => void notifyPermission().then(p => { macShows = p === 'authorized' || p === 'provisional' }).catch(() => {})
+  checkMac(); setInterval(checkMac, 60_000)
+  noticesShown(() => (!!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) || macShows)
   noticesSound(kind => store.load().sounds?.[kind as keyof Prefs['sounds']] !== false, kind => store.load().soundNames?.[kind as keyof Prefs['sounds']])
   appIpc.handle('sound:test', (_e, kind: unknown, name: unknown) => { playSound(String(kind), true, typeof name === 'string' ? name : undefined); return true })
   startUpdates(() => win, { night: () => store.load().nightUpdates, busy: () => ptys.liveIds().some(id => ['working', 'question'].includes(ptys.statusOf(id))) })
