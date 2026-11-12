@@ -1389,3 +1389,17 @@ textarea.card-notes.editing {
 .tab-dot.asleep::after { content: ''; position: absolute; inset: 1.5px; border-radius: 50%; box-shadow: inset -2px -1px 0 0 color-mix(in srgb, var(--dim) 80%, transparent); transform: rotate(-30deg); }
 .tab.is-asleep .tab-title { color: color-mix(in srgb, var(--fg) 55%, var(--dim)); }
 .tab.is-asleep .tab-title::after { content: 'not started'; margin-left: 6px; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); opacity: .8; vertical-align: 1px; }
+
+/* The row uses its full width: the title and the time reach the right edge, and Hide and Close float over the end of
+   the row on hover instead of holding empty space. A tag after the title (who wrote to it) is never cut. */
+.tab-title { display: flex; align-items: baseline; min-width: 0; }
+.tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-title::after, .tab-incoming { flex: none; }
+.tab { --row: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.tab.active { --row: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
+.tab-hide, .tab-close { position: absolute; top: 7px; background: var(--row); }
+.tab-close { right: 7px; }
+.tab-hide { right: 27px; box-shadow: -12px 0 10px var(--row); }
+.tab.is-hidden:not(:hover) .tab-close { display: none; }
+.tab-hide:hover { background: color-mix(in srgb, var(--dim) 22%, var(--row)); }
+.tab-close:hover { background: color-mix(in srgb, var(--danger) 22%, var(--row)); }
