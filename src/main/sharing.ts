@@ -60,4 +60,15 @@ const SECRET = /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{1
 // Labelled ones in English, Italian and Spanish ("password: …", "la contraseña es …"); Telegram bot tokens; fal keys (id:secret).
 const LABELLED = /\b(pass(word|wd|code)?|pwd|secret|token|api[_ -]?key|otp|pin|parola d'ordine|chiave|codice|contrase(ñ|n)a|clave|c(ó|o)digo)\b(\s*[:=]\s*|\s+(is|è|e|es)\s+)("[^"]+"|'[^']+'|\S+)/gi
 const SHAPED = /\b(\d{8,10}:[A-Za-z0-9_-]{35,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{32})\b/gi
-export const scrub = (text: string) => text.replace(SHAPED, '[hidden]').replace(SECRET, '[hidden]').replace(LABELLED, (...m: string[]) => `${m[1]}${m[5]}[hidden]`)
+// Keys shorter than the 40 characters above, known by their prefix: Google, Stripe (webhook and restricted), Resend, Mollie, Replicate, Hugging Face, GitLab, TerminAI bot keys.
+const PREFIXED = /\b(AIza[0-9A-Za-z_-]{30,}|whsec_[A-Za-z0-9]{20,}|[spr]k_(live|test)_[A-Za-z0-9]{10,}|re_[A-Za-z0-9_]{20,}|(live|test)_[A-Za-z0-9]{24,}|r8_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{16,}|tbot_[A-Za-z0-9_-]{20,})/g
+// user:password@ inside a URL (database and basic-auth links); NAME_SECRET=value as in an env file; Authorization headers.
+const URL_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):([^\s@/]+)@/gi
+const ENV_LINE = /\b([A-Za-z0-9_]*(SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|ACCESS_?KEY|AUTH)[A-Za-z0-9_]*\s*[=:]\s*)("[^"]+"|'[^']+'|[^\s,;]+)/g
+const AUTH_HEADER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}/g
+// Payment card numbers: 13 to 19 digits that pass the Luhn check, so ids and timestamps stay.
+const CARD = /\b\d(?:[ -]?\d){12,18}\b/g
+const luhn = (digits: string) => { let sum = 0; for (let i = digits.length - 1, alt = false; i >= 0; i--, alt = !alt) { let n = Number(digits[i]); if (alt) { n *= 2; if (n > 9) n -= 9 } sum += n } return sum % 10 === 0 }
+export const scrub = (text: string) => text.replace(URL_PASSWORD, '$1:[hidden]@').replace(SHAPED, '[hidden]').replace(PREFIXED, '[hidden]').replace(AUTH_HEADER, '$1 [hidden]')
+  .replace(ENV_LINE, '$1[hidden]').replace(SECRET, '[hidden]').replace(LABELLED, (...m: string[]) => `${m[1]}${m[5]}[hidden]`)
+  .replace(CARD, m => luhn(m.replace(/\D/g, '')) ? '[hidden]' : m)

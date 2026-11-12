@@ -299,6 +299,14 @@ body {
 .tab-dot.exited {
   background: var(--danger);
 }
+/* Paused by MacGuard (SIGSTOP to keep the Mac from freezing): two bars, a fixed amber, until it resumes. */
+.tab-dot.paused {
+  width: 9px;
+  height: 10px;
+  flex: 0 0 9px;
+  border-radius: 1px;
+  background: linear-gradient(to right, #d9822b 0 36%, transparent 36% 64%, #d9822b 64%);
+}
 
 @keyframes pulse {
   0%,

@@ -17,6 +17,7 @@ import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
 import { AccountMenu } from './components/AccountMenu'
 import { PrivacyPill } from './components/PrivacyPill'
+import { GuardBanner } from './components/GuardBanner'
 import { getTheme, nextTheme } from '../shared/themes'
 import * as snapshots from './snapshots'
 import { detectQuestion } from '../shared/questions'
@@ -68,6 +69,10 @@ export function App(): JSX.Element {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   const prefsRef = useRef(prefs); prefsRef.current = prefs
   const [showChat, setShowChat] = useState(false), [chatUnread, setChatUnread] = useState(0)
+  // MacGuard (this Mac's memory guardian) and the chats it paused: tab id -> when.
+  const [guard, setGuard] = useState<Awaited<ReturnType<typeof window.term.macguard.state>>>(null)
+  useEffect(() => { void window.term.macguard.state().then(setGuard); return window.term.macguard.onState(setGuard) }, [])
+  const pausedAt: Record<string, string> = Object.fromEntries((guard?.paused ?? []).map(p => [p.id, p.at || '?']))
   const [settingsSection, setSettingsSection] = useState('general')
   useEffect(() => window.term.teamchat.onOpen(() => setShowChat(true)), [])
   const [ready, setReady] = useState(false)
@@ -176,6 +181,10 @@ export function App(): JSX.Element {
     if (id === 'team') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
     if (id === 'settings') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
     if (id === 'notices') return <NoticeBell key={id} drag={drag} onOpen={openNotice} />
+    // MacGuard (this Mac's memory guardian): its level as a coloured dot and how many chats it paused; opens its panel.
+    if (id === 'macguard') return guard ? <button key={id} className="btn icon no-drag toolbar-guard" {...drag} aria-label={`MacGuard: ${guard.running ? ['OK', 'Warning', 'Critical'][guard.level] : 'not running'}${guard.paused.length ? `, ${guard.paused.length} paused` : ''}`} title={`MacGuard · ${guard.running ? ['OK', 'Warning', 'Critical'][guard.level] : 'not running'}${guard.paused.length ? ` · ${guard.paused.length} chat${guard.paused.length > 1 ? 's' : ''} paused` : ''}`} onClick={() => { setSettingsSection('macguard'); setShowSettings(true) }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6Z" /></svg>
+      <span className={`guard-level l${guard.running ? guard.level : 's'}`} aria-hidden="true" />{guard.paused.length > 0 && <span className="corner-count toolbar-count">{guard.paused.length}</span>}</button> : null
     // The team chat sits beside the bell, where the other notices are.
     if (id === 'chat') return <button key={id} className={`btn icon no-drag toolbar-chat${showChat ? ' on' : ''}`} {...drag} aria-label={chatUnread ? `Team chat, ${chatUnread} unread` : 'Team chat'} title="Team chat and files" aria-pressed={showChat} onClick={() => setShowChat(v => !v)}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z" /></svg>
@@ -850,6 +859,7 @@ export function App(): JSX.Element {
             grouped={prefs.groupByFolder}
             recent={prefs.railRecent}
             times={prefs.railTimes}
+            paused={pausedAt}
           />
 
           {/* Lives in the gutter rather than inside the rail: the rail clips its
@@ -914,6 +924,7 @@ export function App(): JSX.Element {
             />
           ))}
           {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
+          {terminalVisible && activeId && pausedAt[activeId] && guard && <GuardBanner key={`guard-${activeId}`} id={activeId} at={pausedAt[activeId]} others={guard.paused.length - 1} running={guard.running} onState={setGuard} />}
           {terminalVisible && <div className="pane-corner">
             {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <PrivacyPill key={`privacy-${activeId}`} tabKey={t.browserKey || t.id} /> : null })()}
             {tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
@@ -951,7 +962,7 @@ export function App(): JSX.Element {
       {showToolbar && <div className="toolbar-customize-backdrop" onClick={() => setShowToolbar(false)}>
         <section className="toolbar-customize" role="dialog" aria-label="Customize toolbar" onClick={event => event.stopPropagation()}>
           <strong>Customize toolbar</strong><p>Choose the icons to show and the side each sits on. You can also drag any icon to the other side.</p>
-          {prefs.toolbarOrder.map(item => <div key={item} className="tb-item"><label><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'notices' ? 'Notifications' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>
+          {prefs.toolbarOrder.map(item => <div key={item} className="tb-item"><label><input type="checkbox" checked={!prefs.hiddenToolbarItems.includes(item)} onChange={event => patchPrefs({ hiddenToolbarItems: event.target.checked ? prefs.hiddenToolbarItems.filter(value => value !== item) : [...prefs.hiddenToolbarItems, item] })} />{item === 'terminal' ? 'Code' : item === 'notices' ? 'Notifications' : item === 'macguard' ? 'MacGuard' : item === 'todo' ? 'To-do' : item === 'team' ? 'Sync' : item.charAt(0).toUpperCase() + item.slice(1)}</label>
             <span className="tb-seg">{(['left', 'right'] as const).map(side => <button key={side} className={(side === 'right') === prefs.toolbarRight.includes(item) ? 'on' : ''} onClick={() => moveTool(item, side)}>{side === 'left' ? 'Left' : 'Right'}</button>)}</span></div>)}
           <div><button className="btn" onClick={() => patchPrefs({ hiddenToolbarItems: [], toolbarOrder: DEFAULT_PREFS.toolbarOrder, toolbarRight: DEFAULT_PREFS.toolbarRight })}>Reset</button><button className="btn" onClick={() => setShowToolbar(false)}>Done</button></div>
         </section>
@@ -1010,6 +1021,7 @@ export function App(): JSX.Element {
         <SettingsSheet
           key={settingsSection}
           initialSection={settingsSection as 'general'}
+          activeTab={activeId ?? undefined}
           prefs={prefs}
           onChange={patchPrefs}
           onClose={() => { setShowSettings(false); setSettingsSection('general') }}

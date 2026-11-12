@@ -29,7 +29,10 @@ This Mac runs TerminAI, a terminal app whose tabs run Claude Code and Codex sess
 export function todoMap(user: string, lists: TaskListPage[]): string {
   if (user !== 'livio' && user !== 'ilai') return ''
   const me = user === 'livio' ? 'Matteo' : 'Ilai', other = user === 'livio' ? 'Ilai' : 'Matteo'
-  const pages = lists.map(page => `"${page.name}"${page.id === DEFAULT_LIST ? ' (the first one)' : ''}: ${page.about ?? 'no description yet'}`).join('; ')
+  // A list's name and description are typed by a person or an agent and end up in every session's instructions: one
+  // plain line each, and never the markers that delimit this section.
+  const flat = (text: string) => text.replace(/<!--[\s\S]*?(-->|$)/g, ' ').replace(/[\r\n]+/g, ' ').trim()
+  const pages = lists.map(page => `"${flat(page.name)}"${page.id === DEFAULT_LIST ? ' (the first one)' : ''}: ${flat(page.about ?? '') || 'no description yet'}`).join('; ')
   return `- This Mac's To-do now (rewritten by the app when the lists change; \`terminai todo map\` has the tasks): you work with ${me} (\`${user}\`). The shared page, which ${other} sees too: the columns ${me}, Together, ${other} and Unassigned. Private lists, only on this Mac: ${pages}.`
 }
 export const agentGuide = (map = '') => map ? `${AGENT_GUIDE}\n${map}` : AGENT_GUIDE
@@ -41,7 +44,7 @@ const END = '<!-- END TERMINAI -->'
 export function writeAgentGuide(file: string, guide = AGENT_GUIDE): boolean {
   let original = ''
   try { original = readFileSync(file, 'utf8') } catch (e: any) { if (e.code !== 'ENOENT') throw e }
-  const first = original.indexOf(START), last = original.indexOf(END)
+  const first = original.indexOf(START), last = original.lastIndexOf(END)
   if ((first >= 0) !== (last >= 0) || last < first) throw Error(`Incomplete TerminAI section in ${file}`)
   const section = `${START}\n${guide}\n${END}`
   const updated = first >= 0 ? original.slice(0, first) + section + original.slice(last + END.length)

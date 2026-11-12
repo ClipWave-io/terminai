@@ -26,7 +26,7 @@ function hydrate(raw: unknown): Prefs {
     // An icon added since the person arranged theirs (the bell) starts on its default side.
     toolbarRight: Array.isArray(p.toolbarRight) ? [...p.toolbarRight.filter((x: unknown) => typeof x === 'string' && DEFAULT_PREFS.toolbarOrder.includes(x)), ...DEFAULT_PREFS.toolbarRight.filter(x => Array.isArray(p.toolbarOrder) && !p.toolbarOrder.includes(x))] : DEFAULT_PREFS.toolbarRight,
     chatButton: p.chatButton !== false,
-    hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','todo','sessions','maximize','sidebar','chat'].includes(item)) : [],
+    hiddenToolbarItems: Array.isArray(p.hiddenToolbarItems) ? p.hiddenToolbarItems.filter(item => ['files','terminal','browser','team','todo','sessions','maximize','sidebar','chat','macguard'].includes(item)) : [],
     // Clamped on read as well as on write: a stale or hand-edited prefs file
     // must never be able to leave the rail off-screen or at zero width.
     railWidth: Math.min(RAIL_MAX, Math.max(RAIL_MIN, p.railWidth ?? RAIL_DEFAULT)),

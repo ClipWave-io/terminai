@@ -4,7 +4,7 @@ import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
@@ -22,6 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory, autoSleep, sleep as sleepTabs, wake as wakeTab } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
+import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard } from './macguard'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -61,6 +62,12 @@ async function openLink(link: string) {
   if (!app.isReady()) { pendingLink = link; return }
   if (!win || win.isDestroyed()) createWindow()
   win?.show(); win?.focus()
+  // A sign-in link changes which account this Mac's chats go to, so it is never followed without the person saying so.
+  const now = await workspaceState().catch(() => null), who = now?.signedIn ? now.identity?.user?.email || 'another account' : ''
+  const ask = { type: 'question' as const, buttons: ['Cancel', 'Sign in'], defaultId: 0, cancelId: 0, message: 'Sign in to TerminAI Sync from this link?',
+    detail: `${who ? `This Mac is signed in as ${who}: the link replaces that account. ` : ''}Shared and Only me chats are sent to the account that made the link. Continue only if you pressed “Open TerminAI” on the TerminAI website yourself, just now.` }
+  const { response } = win && !win.isDestroyed() ? await dialog.showMessageBox(win, ask) : await dialog.showMessageBox(ask)
+  if (response !== 1) return
   try { await workspaceHandoff(link); win?.webContents.send('workspace:signed-in') }
   catch (err) { dialog.showErrorBox('TerminAI could not sign in', err instanceof Error ? err.message : String(err)) }
 }
@@ -178,7 +185,9 @@ function createWindow(): void {
 
   // Links in terminal output open in the real browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    // A file link is shown in Finder, never opened: any program can print a link, and opening it would start an app or a script.
+    if (/^file:/i.test(url)) { try { shell.showItemInFolder(fileURLToPath(url)) } catch {} }
+    else void shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -208,10 +217,13 @@ function modeOfConversation(cwd: string, id: string): FolderMode {
   return conversationMode(cwd, id, tab ? ptys.workspaceKeyOf(tab) : undefined)
 }
 function startAgent(id: string, line: string, resume?: { carryOn: boolean }): void {
-  if (claudeLine(line)) trustFolder(ptys.cwdOf(id))
+  // A restored conversation's folder is marked trusted (it was when the conversation began). A folder Claude Code has
+  // never run in keeps Claude's own "do you trust this folder" question: that question is what stops a cloned repo's hooks.
+  const known = folderTrusted(ptys.cwdOf(id))
+  if (resume && claudeLine(line)) trustFolder(ptys.cwdOf(id))
   // A restored tab starts on a clean screen with a line saying it is coming back, not blank.
   ptys.execWhenReady(id, resume && line ? `clear; printf '\\n  \\033[2mResuming conversation…\\033[0m\\n'; ${line}` : line)
-  if (resume || claudeLine(line)) afterResume(id, resume?.carryOn === true)
+  if (resume || claudeLine(line)) afterResume(id, resume?.carryOn === true, !!resume || known)
 }
 /** Opening a tab whose conversation waits since the restart starts it. */
 function resumeLater(id: string): boolean {
@@ -219,14 +231,19 @@ function resumeLater(id: string): boolean {
   if (!job) return false
   laterResume.delete(id); startAgent(id, job.line, { carryOn: job.carryOn }); return true
 }
-function afterResume(id: string, carryOn: boolean): void {
+/** Claude Code has run here before with the folder trusted, or it is the person's own home folder. */
+function folderTrusted(cwd: string): boolean {
+  if (cwd === homedir()) return true
+  try { return JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8')).projects?.[cwd]?.hasTrustDialogAccepted === true } catch { return false }
+}
+function afterResume(id: string, carryOn: boolean, answerTrust = true): void {
   const started = Date.now()
   let nudged = false, quietSince = 0, trusted = false
   const tick = () => {
     if (nudged || Date.now() - started > 120_000 || !ptys.liveIds().includes(id)) return
     // Claude Code asks again in the home folder whatever its settings say. Choose option 1 by its number, so a
     // highlight resting on "No, exit" cannot pick the wrong one; only when option 1 is the trust answer.
-    if (!trusted && /1\.\s*Yes, I trust this folder/.test(ptys.bufferOf(id).slice(-3000))) { trusted = true; ptys.write(id, '1'); setTimeout(tick, 1500); return }
+    if (answerTrust && !trusted && /1\.\s*Yes, I trust this folder/.test(ptys.bufferOf(id).slice(-3000))) { trusted = true; ptys.write(id, '1'); setTimeout(tick, 1500); return }
     const agent = ptys.agentOf(id), status = ptys.statusOf(id)
     if (carryOn && agent.alive && status === 'waiting' && Date.now() - started > 6000) {
       if (!quietSince) quietSince = Date.now()
@@ -611,6 +628,15 @@ function registerIpc(): void {
     notice('memory', `${slept.length} idle ${slept.length === 1 ? 'session' : 'sessions'} put to sleep`, `To keep ${p.autoSleepReserve}% of memory free: ${slept.map(tabName).join(', ')}. Each comes back when you open it.`, { open: 'memory' })
   })
   watchFullscreenOff()
+  // MacGuard paused a chat to keep the Mac from freezing: the tab says so, with Resume, and the bell has it (a click opens the tab).
+  appIpc.handle('macguard:state', () => guardState())
+  appIpc.handle('macguard:details', async () => { const d = await guardDetails(); return d && { ...d, sessions: ptys.liveIds().filter(id => ptys.agentOf(id).alive).length } })
+  appIpc.handle('macguard:restart', () => restartGuard())
+  appIpc.handle('macguard:resume', async (_e, ids: unknown) => { await resumeGuard(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []); return guardState() })
+  watchGuard(s => { if (win && !win.isDestroyed()) win.webContents.send('macguard:state', s) }, p => {
+    const t = store.load().tabs.find(x => x.ptyId === p.id), name = t?.customTitle || t?.name || t?.title || p.name || 'Session'
+    notice('memory', `Paused by MacGuard: ${name}`, `At ${p.at.slice(0, 5)} the Mac was about to run out of memory. Open the tab and press Resume, or it resumes by itself once the Mac is back to normal.`, { tab: p.id })
+  })
   appIpc.handle('app:check-updates', () => checkForUpdatesNow(win, true))
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)
   appIpc.handle('window:toggle-maximize', () => {
@@ -800,11 +826,12 @@ function registerIpc(): void {
     waiting: (tabId: string) => laterResume.has(tabId),
     approve: async (from, tab, text, tabId, force) => {
       // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.
-      if (!win || win.isDestroyed()) return !force
       if (store.load().agentMessages === 'allow' && !force) return true
+      // No window to ask in (closed, with the app still running): the message waits; nothing gets in unasked.
+      if (!win || win.isDestroyed()) return null
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
-      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: force ? ['Allow', 'Decline'] : ['Allow', 'Decline', 'Always allow'], defaultId: 0, cancelId: 1,
-        message: `${from} wants to message “${tab}”`, detail: (text.length > 600 ? text.slice(0, 597) + '…' : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') })
+      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: force ? ['Allow', 'Decline'] : ['Allow', 'Decline', 'Always allow'], defaultId: 1, cancelId: 1,
+        message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') })
       if (response === 2 && !force) store.save({ ...store.load(), agentMessages: 'allow' })
       return response !== 1
     },
