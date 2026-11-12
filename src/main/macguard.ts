@@ -4,7 +4,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /**
- * MacGuard, this Mac's memory guardian (~/Library/Application Support/MacGuard, LaunchAgent com.livio.macguard): when
+ * MacGuard, this Mac's memory guardian (macguard/ in this repo; installed by macguard/install.sh in
+ * ~/Library/Application Support/MacGuard, LaunchAgent com.terminai.macguard): when
  * the Mac is about to freeze it pauses whole sessions (SIGSTOP on the tab's processes) and lists them in its state.json,
  * by TerminAI tab id. TerminAI shows which chats are paused and resumes one through it (`macguard resume <id>`), so the
  * guardian's own list stays true. Without MacGuard installed there is no state file and nothing shows.
@@ -54,7 +55,7 @@ export type GuardDetails = GuardState & { at: string; sample: Record<string, num
 const LIMITS: Record<string, number> = { disk_warn_gb: 10, disk_crit_gb: 4, compressor_warn_gb: 6.5, compressor_crit_gb: 9.5, memlevel_warn: 25, memlevel_crit: 12,
   swap_warn_gb: 6, load_warn_per_cpu: 4, gpu_warn_pct: 95, gate_disk_gb: 7, gate_memlevel: 20, gate_compressor_gb: 8, gate_max_sessions: 17, gate_count_memlevel: 45, gate_count_compressor_gb: 5, gate_hard_max_sessions: 24, resume_hold_s: 120 }
 const LEVEL: Record<string, string> = { ok: 'OK', attenzione: 'Warning', critico: 'Critical' }
-/** MacGuard's event log is in Italian (it is Livio's own tool); the panel shows it in the app's English. */
+/** MacGuard's event log is in Italian; the panel shows it in the app's English. */
 function englishEvent(text: string): string | null {
   const t = text.replace(/^\[DRY\] /, ''); let m: RegExpMatchArray | null
   if (t.startsWith('notifica')) return null
@@ -87,6 +88,6 @@ export async function guardDetails(): Promise<GuardDetails | null> {
 
 /** Restarts the guardian's LaunchAgent (it reads its paused list back from state.json). */
 export function restartGuard(): Promise<void> {
-  return new Promise((resolve, reject) => execFile('/bin/launchctl', ['kickstart', '-k', `gui/${process.getuid?.() ?? 501}/com.livio.macguard`], { timeout: 15_000 },
+  return new Promise((resolve, reject) => execFile('/bin/launchctl', ['kickstart', '-k', `gui/${process.getuid?.() ?? 501}/com.terminai.macguard`], { timeout: 15_000 },
     (err, _out, stderr) => err ? reject(new Error(String(stderr).trim() || String(err.message))) : resolve()))
 }
