@@ -318,7 +318,8 @@ export function App(): JSX.Element {
       notes: restore?.notes ?? '',
       claudeSession: '',
     }
-    setTabs((prev) => [...prev, tab])
+    // New conversations start at the top of the sidebar; restored ones keep their saved order.
+    setTabs((prev) => restore ? [...prev, tab] : [tab, ...prev])
     setActiveId(id)
 
     const kind = restore?.agent || (restore?.claude ? 'claude' : '')

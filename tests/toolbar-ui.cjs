@@ -33,8 +33,13 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
   assert.deepEqual(await js(`[...document.querySelectorAll('.rail .tab-title')].map(t=>t.textContent)`),['New one','Sleepy','Old one'],'newest first');
   assert.ok(await js(`[...document.querySelectorAll('.rail .tab')].find(t=>t.textContent.includes('Sleepy')).classList.contains('is-asleep')&&!!document.querySelector('.tab-dot.asleep')`),'the conversation not running shows as asleep');
   assert.equal(await js(`document.querySelectorAll('.rail .tab.is-asleep').length`),1,'only that one');
+  // A new conversation starts at the top.
+  const before=await js(`document.querySelectorAll('.rail .tab').length`);
+  await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='+ New tab').click()`);
+  for(let i=0;i<20&&await js(`document.querySelectorAll('.rail .tab').length`)===before;i++)await delay(200);
+  assert.ok(await js(`document.querySelector('.rail .tab').classList.contains('active')`),'the new tab is the first row');
   if(shots)fs.writeFileSync(path.join(shots,'asleep.png'),(await win.webContents.capturePage()).toPNG());
-  assert.equal(await js(`document.querySelector('.rail .tab-ago').textContent`),'5 min ago','time under it');
+  assert.ok(await js(`[...document.querySelectorAll('.rail .tab-ago')].some(t=>t.textContent==='5 min ago')`),'time under it');
   assert.equal(await js(`!!document.querySelector('.rail [aria-label="Send feedback"]')`),false,'no feedback in the sidebar');
   await js(`document.querySelector('[aria-label="Settings"]').click()`);await delay(500);
   await js(`document.querySelector('.team-side [aria-label="Send feedback"]').click()`);await delay(300);

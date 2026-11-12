@@ -125,7 +125,8 @@ export function TabRail({
   const groups: { key: string; name?: string; hidden: number; tabs: { tab: TabInfo; i: number }[] }[] = []
   // Sorted by last activity, the order is the clock's: rows and folders follow it and do not drag.
   const order = tabs.map((tab, i) => ({ tab, i }))
-  if (recent) order.sort((a, b) => (b.tab.activityAt ?? 0) - (a.tab.activityAt ?? 0))
+  // A new conversation counts from when it was opened, so it starts at the top.
+  if (recent) order.sort((a, b) => (b.tab.activityAt ?? b.tab.createdAt ?? Date.now()) - (a.tab.activityAt ?? a.tab.createdAt ?? Date.now()))
   if (grouped) {
     order.forEach(({ tab, i }) => {
       if (!matches(tab)) return
