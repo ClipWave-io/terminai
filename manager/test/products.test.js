@@ -51,4 +51,8 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal(chIlai.team, true); assert.ok(chIlai.channels.includes('ManyMotions.org'));
   assert.deepEqual((await request(`${base}/chat`, { token: ilai.token })).body.messages.map(m => m.body), ['team only: salaries'], 'the team chat keeps its own messages');
   assert.equal((await request(`${base}/chat`, { token: fritz.token, method: 'POST', data: { body: 'x', channel: 'ManyMotions.org' } })).status, 403, 'a viewer reads only');
+  // Task columns: a member cannot take a column someone else holds; an admin can reassign it.
+  assert.equal((await request(`${base}/tasks/people`, { token: ilai.token, method: 'PUT', data: { key: 'ilai' } })).status, 200);
+  assert.equal((await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'ilai' } })).status, 403, 'not her column');
+  assert.equal((await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'livio' } })).status, 200, 'a free column is fine');
 });

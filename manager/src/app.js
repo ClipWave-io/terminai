@@ -146,6 +146,10 @@ export function createApp(pool, config) {
     }
     try {
       const url = new URL(req.url, origin), path = url.pathname;
+      // A bot key (tbot_) reaches its own routes only: listing, reading and messaging shared sessions. Never sign-in
+      // hand-offs, device approval, the account, sessions or passwords, which would turn it into its maker's account.
+      if (/^Bearer tbot_/.test(req.headers.authorization || '') && !/^\/api\/companies\/[^/]+\/(conversations|conversations\/[0-9a-f-]{36}\/messages|agent|agent\/[0-9a-f-]{36}\/replies)$/.test(path))
+        return json(res, 403, { error: 'A bot key can list, read and message shared sessions only.' });
       if (req.method === 'GET' && path === '/health') { await pool.query('SELECT 1'); return json(res, 200, { ok: true }); }
       const staticFiles = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/localflow': ['localflow.html', 'text/html'] };
       if (req.method === 'GET' && staticFiles[path]) {
@@ -771,7 +775,7 @@ export function createApp(pool, config) {
             await botLog(db,'message',to,target.title);
           }
           if(from){const {rowCount}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND owner_id=$2',[from,user.id]);requireThat(rowCount,400,'Not your session.');}
-          if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2',[replyTo,user.id]);requireThat(rowCount,404,'No such message to answer.');}
+          if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2 AND m.from_conversation=$3',[replyTo,user.id,to]);requireThat(rowCount,404,'No such message to answer.');}
           await limit(pool,`agent:${user.id}`,120,3600);
           const id=randomUUID();
           await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content,from_bot,from_bot_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,companyId,user.id,from,to,replyTo,content,user.bot_name||null,user.bot_id||null]);
@@ -812,7 +816,7 @@ export function createApp(pool, config) {
         }
         if(botMatch&&req.method==='DELETE'){await db.query('UPDATE manager_bot_keys SET revoked_at=now() WHERE id=$1 AND company_id=$2 AND user_id=$3',[botMatch[1],companyId,user.id]);return {ok:true};}
         if(tail==='/agent/inbox'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,f.title AS from_title,m.from_conversation,bk.approval AS bot_approval,bk.scope AS bot_scope
+          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,CASE WHEN f.visibility='company' THEN f.title END AS from_title,m.from_conversation,bk.approval AS bot_approval,bk.scope AS bot_scope
             FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation LEFT JOIN manager_bot_keys bk ON bk.id=m.from_bot_key
             WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
           return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,botApproval:r.bot_approval??null,botScope:r.bot_scope??null,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
@@ -854,6 +858,8 @@ export function createApp(pool, config) {
           }
           if(conv[2]&&req.method==='POST') {
             requireThat(canWriteConversation(conversation,member,user.id),403,'Read-only conversation.');
+            // A Mac's synced tab: only its owner writes its turns, so nobody can put words in their agent's mouth.
+            requireThat(!conversation.source_key||conversation.owner_id===user.id||(input.kind??'user')==='note',403,'Only the owner writes turns into this conversation; post a note instead.');
             const content=text(input.content,'Message',64000),kind=enumValue(input.kind??'user',['user','assistant','note'],'message kind'),clientId=input.clientMessageId?uuid(input.clientMessageId):null;
             const {rows:[inserted]}=await db.query('INSERT INTO manager_messages(id,conversation_id,company_id,author_id,kind,content,client_message_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(conversation_id,author_id,client_message_id) DO NOTHING RETURNING *',[randomUUID(),conversationId,companyId,user.id,kind,content,clientId]);
             let row=inserted;
@@ -942,6 +948,8 @@ export function createApp(pool, config) {
         }
         if(tail==='/tasks/people'&&req.method==='PUT') {
           const key=enumValue(input.key,['ilai','livio'],'column');
+          const {rows:[taken]}=await db.query('SELECT user_id FROM manager_task_people WHERE company_id=$1 AND key=$2',[companyId,key]);
+          requireThat(!taken||taken.user_id===user.id||isAdmin(member),403,'That column belongs to someone else. An admin can reassign it.');
           await db.query('DELETE FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
           await db.query('INSERT INTO manager_task_people(company_id,key,user_id) VALUES($1,$2,$3) ON CONFLICT (company_id,key) DO UPDATE SET user_id=$3',[companyId,key,user.id]);
           return {ok:true};

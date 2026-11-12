@@ -197,6 +197,9 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.ok(seen.includes(tabB.id));assert.ok(!seen.includes(tabP.id),'not the private one');
   assert.equal((await asBot(`/api/companies/${alpha.id}/notes`)).status,403,'nothing else');
   assert.equal((await asBot('/api/auth/password',{method:'POST',data:{password:'xxxxxxxxxxxxxxxx'}})).status,403);
+  // A bot key never becomes its maker's account: no sign-in hand-off, device approval, account or sessions.
+  for(const [path,method] of [['/api/auth/handoff','POST'],['/api/auth/device/approve','POST'],['/api/me','GET'],['/api/auth/sessions','GET'],['/api/companies','POST']])
+    assert.equal((await asBot(path,{method,data:method==='POST'?{}:undefined})).status,403,`bot key on ${method} ${path}`);
   const t0=Date.now();const waited=request(`/api/companies/${alpha.id}/agent/inbox?wait=5`,{token:a.body.token});
   await new Promise(r=>setTimeout(r,800));
   assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{to:tabB.id,content:'hello from grok'}})).status,200);
