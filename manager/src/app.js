@@ -534,7 +534,11 @@ export function createApp(pool, config) {
         const channelOf = v => { const c = typeof v === 'string' ? v.trim().slice(0, 100) : ''; requireThat(!limited || (c && channels.includes(c)), 403, 'You are not in that chat.'); return c; };
         if (kind === 'chat' && sub === 'channels' && req.method === 'GET') {
           const { rows } = await pool.query("SELECT channel, max(created_at) AS last FROM manager_chat WHERE company_id=$1 AND channel<>'' GROUP BY channel", [companyId]);
-          const { rows: ps } = await pool.query('SELECT DISTINCT unnest(products) AS p FROM manager_memberships WHERE company_id=$1 AND products IS NOT NULL', [companyId]);
+          // A product's chat exists as soon as someone is limited to it, or invited limited to it (open invites count, so
+          // the chat is there to greet them when they join).
+          const { rows: ps } = await pool.query(`SELECT DISTINCT unnest(products) AS p FROM manager_memberships WHERE company_id=$1 AND products IS NOT NULL
+            UNION SELECT DISTINCT unnest(products) FROM manager_invites WHERE company_id=$1 AND products IS NOT NULL AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>now()
+            UNION SELECT DISTINCT unnest(products) FROM manager_invite_links WHERE company_id=$1 AND products IS NOT NULL AND revoked_at IS NULL AND expires_at>now()`, [companyId]);
           const all = [...new Set([...rows.map(r => r.channel), ...ps.map(r => r.p)])].filter(c => !limited || channels.includes(c)).sort();
           return json(res, 200, { team: !limited, channels: all, last: Object.fromEntries(rows.map(r => [r.channel, r.last])) });
         }

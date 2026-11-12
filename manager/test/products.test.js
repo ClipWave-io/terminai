@@ -25,6 +25,8 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   const link = await request(`${base}/invites/link`, { token: ilai.token, method: 'POST', data: { role: 'member', products: ['ManyMotions.org'] } });
   assert.equal(link.status, 200); assert.deepEqual(link.body.products, ['ManyMotions.org']);
   const token = link.body.inviteUrl.split('#invite=')[1];
+  // Before anyone joins, the open invite already makes the ManyMotions.org chat appear for the admin.
+  assert.deepEqual((await request(`${base}/chat/channels`, { token: ilai.token })).body.channels, ['ManyMotions.org']);
   const sofia = (await request('/api/auth/accept-invite', { method: 'POST', data: { token, name: 'Sofia', email: 'sofia@example.test', password: pw, client: 'desktop' } })).body;
   const members = (await request(`${base}/members`, { token: ilai.token })).body.members;
   assert.deepEqual(members.find(m => m.name === 'Sofia').products, ['ManyMotions.org'], 'joins limited to the product');
