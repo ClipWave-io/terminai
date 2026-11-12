@@ -135,3 +135,8 @@
 .tc-viewer-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; margin-right: 6px; }
 /* The chat's bell: on is the normal icon, off is crossed out and dimmed. */
 .tc-bell.off { color: var(--dim); opacity: .75; }
+/* The team chat always sits on top of everything (sheets 1000, notifications 1200), with its call and its picture
+   viewer above it. */
+.tc { z-index: 1250; }
+.call, .call-toast { z-index: 1260; }
+.tc-viewer { z-index: 1400; }

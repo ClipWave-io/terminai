@@ -356,4 +356,12 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-main > .todo-cols:not(.single) > .todo-col { scroll-snap-align: start; }
 /* Tasks / Notes / Log: centred in the bar (on a wide window), each label centred in its button. */
 .todo-seg button { display: inline-flex; align-items: center; justify-content: center; line-height: 1.2; }
-@media (min-width: 1100px) { .todo-head { position: sticky; } .todo-head > .todo-seg:first-child { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); } .todo-head > .todo-seg:first-child + * { margin-left: 0; } }
+
+
+/* The header in three parts: what is shown on the left, Tasks · Notes · Log in the middle, status and actions on the
+   right. A grid, so the middle stays centred and nothing can slide under it whatever the left and right hold. */
+.todo-head { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; column-gap: 14px; }
+.todo-head-l { display: flex; align-items: center; gap: 8px 10px; min-width: 0; flex-wrap: wrap; }
+.todo-head-r { display: flex; align-items: center; justify-content: flex-end; gap: 8px 10px; min-width: 0; flex-wrap: wrap; }
+.todo-head-r .todo-status { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 900px) { .todo-head { grid-template-columns: 1fr; row-gap: 8px; } .todo-head > .todo-seg { justify-self: center; } .todo-head-r { justify-content: flex-start; } }

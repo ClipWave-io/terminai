@@ -546,11 +546,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
       onMouseDown={event => { if (event.button === 0 && sel.length && !(event.target instanceof Element && event.target.closest('.todo-menu, .sheet-backdrop, .todo-toast, .todo-actions'))) setSel([]) }}>
       {/* Everything of the To-do lives in its own header: Tasks | Notes always first, so it never moves. */}
       <header className="todo-head">
-        {user && <span className="todo-seg" role="tablist" aria-label="Tasks or notes">
-          <button role="tab" aria-selected={view === 'shared' || view === 'private'} className={view === 'shared' || view === 'private' ? 'on' : ''} onClick={() => setView(lastTasks.current)}>Tasks</button>
-          <button role="tab" aria-selected={view === 'notes'} className={view === 'notes' ? 'on' : ''} onClick={() => setView('notes')}>Notes</button>
-          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'on' : ''} onClick={() => setView('log')}>Log</button>
-        </span>}
+        <div className="todo-head-l">
         {user && view !== 'notes' && view !== 'log' && <div className="todo-filters">
           <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
             onClick={event => pick(event, showItems(), 'show')}>
@@ -559,10 +555,16 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
           {view === 'shared' && hidden.length > 0 && <button className="todo-link todo-hidden-cols" title={`Hidden: ${hidden.map(c => c.label).join(', ')}`}
             onClick={() => onPrefs({ todoHiddenColumns: [] })}>{hidden.length} hidden · Show all</button>}
         </div>}
-        <span className="todo-head-gap" />
+        </div>
+        {user && <span className="todo-seg" role="tablist" aria-label="Tasks or notes">
+          <button role="tab" aria-selected={view === 'shared' || view === 'private'} className={view === 'shared' || view === 'private' ? 'on' : ''} onClick={() => setView(lastTasks.current)}>Tasks</button>
+          <button role="tab" aria-selected={view === 'notes'} className={view === 'notes' ? 'on' : ''} onClick={() => setView('notes')}>Notes</button>
+          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'on' : ''} onClick={() => setView('log')}>Log</button>
+        </span>}
+        <div className="todo-head-r">
         {user && team && view !== 'notes' && view !== 'log' && <div className="todo-status">
-          {view === 'shared' && unseen.length > 0 && <button className="todo-pill" title="Each changed task carries its mark; this clears them all"
-            onClick={() => void act(() => window.term.todos.markSeen(unseen))}>{unseen.length} changed by {NAME[other]} · Mark seen</button>}
+          {view === 'shared' && unseen.length > 0 && <button className="todo-pill" title={`${unseen.length} changed by ${NAME[other]}. Each changed task carries its mark; this clears them all`}
+            onClick={() => void act(() => window.term.todos.markSeen(unseen))}>{unseen.length} new · Mark seen</button>}
           <button className={`todo-sync-state${sync?.error ? ' failed' : ''}`} title={sync?.error ? `${sync.error}\nClick to try again.` : 'Sync now'} aria-live="polite"
             disabled={!sync?.enabled || sync.syncing} onClick={() => void act(() => window.term.todos.sync())}>
             <span className="todo-dot" aria-hidden="true" />{syncText}</button>
@@ -576,6 +578,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         })()}
         <button className="todo-icon todo-head-close" aria-label="Close To-do" title="Close  Esc" onClick={onClose}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></button>
+        </div>
       </header>
       {!user ? <div className="todo-note todo-pick">
         <h1>To-do</h1>

@@ -4,6 +4,7 @@ import { ProjectFilesPane } from './components/ProjectFilesPane'
 import { ChatButton } from './components/ChatButton'
 import { TeamChat } from './components/TeamChat'
 import { NoticeBell } from './components/NoticeCenter'
+import { onOverlayOpened, overlayOpened } from './overlay'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
@@ -202,6 +203,7 @@ export function App(): JSX.Element {
   }
 
   const [showToolbar, setShowToolbar] = useState(false)
+  useEffect(() => { if (showToolbar) overlayOpened('toolbar') }, [showToolbar])
   // Tabs the partner's agent wrote into, by renderer tab id: outlined in the sidebar until opened.
   const [incoming, setIncoming] = useState<Record<string, string>>({})
   // The tab's id is its pty's, as in the notices' focus requests.
@@ -218,6 +220,9 @@ export function App(): JSX.Element {
   const showTeam = sheet === 'team', setShowTeam = sheetSetter('team')
   const showTodos = sheet === 'todos', setShowTodos = sheetSetter('todos')
   const showGrid = sheet === 'grid', setShowGrid = sheetSetter('grid')
+  // Opening a sheet closes the notifications and the toolbar menu; opening one of those closes the sheet.
+  useEffect(() => { if (sheet) overlayOpened('sheet') }, [sheet])
+  useEffect(() => onOverlayOpened(name => { if (name !== 'sheet') setSheet(null); if (name !== 'toolbar') setShowToolbar(false) }), [])
   // Shared tasks the other person changed and this one has not looked at yet: a dot on the To-do button.
   const [todosUnseen, setTodosUnseen] = useState(0)
   // Every change to the shared tasks, both people's: the bell counts the other one's since the Activity panel last showed them.
@@ -1018,7 +1023,7 @@ export function App(): JSX.Element {
 
       <TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} />
       {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
-      {notice && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
+      {notice && !showTodos && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
       {showTodos && <TodoSheet user={prefs.tasksUser} team={prefs.teamTasks} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}
         prefs={{ hiddenColumns: prefs.todoHiddenColumns, products: prefs.todoProducts, activityOpen: prefs.todoActivity, activitySeen: prefs.todoActivitySeen }}

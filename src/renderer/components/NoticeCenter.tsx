@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { onOverlayOpened, overlayOpened } from '../overlay'
 
 /**
  * The bell in the top bar: every notification in one place (conversations that finished, To-do changes and requests,
@@ -15,6 +16,8 @@ const Svg = ({ d, s = 15 }: { d: string; s?: number }) => <svg width={s} height=
 export function NoticeBell({ onOpen, drag }: { onOpen: (n: Notice) => void; drag: object }): JSX.Element {
   const [items, setItems] = useState<Notice[]>([]), [open, setOpen] = useState(false), [filter, setFilter] = useState<Kind | 'all'>('all')
   const box = useRef<HTMLDivElement>(null)
+  useEffect(() => onOverlayOpened(name => { if (name !== 'notices') setOpen(false) }), [])
+  useEffect(() => { if (open) overlayOpened('notices') }, [open])
   useEffect(() => { void window.term.notices.list().then(setItems); return window.term.notices.onNew(n => setItems(v => [n, ...v].slice(0, 300))) }, [])
   useEffect(() => { if (!open) return; const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }; window.addEventListener('mousedown', away); return () => window.removeEventListener('mousedown', away) }, [open])
   const unread = items.filter(n => !n.read).length

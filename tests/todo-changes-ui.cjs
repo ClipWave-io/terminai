@@ -36,7 +36,7 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const tags = await js(`[...document.querySelectorAll('.todo-row.fresh .todo-fresh')].map(b => b.textContent)`)
   assert.equal(tags.length, 2, tags.join(' | '))
   assert.ok(tags.some(t => /^edited by Ilai · /.test(t)) && tags.some(t => /^new by Ilai · /.test(t)), tags.join(' | '))
-  assert.match(await js(`document.querySelector('.todo-pill')?.textContent || ''`), /^2 changed by Ilai · Mark seen$/)
+  assert.match(await js(`document.querySelector('.todo-pill')?.textContent || ''`), /^2 new · Mark seen$/); assert.match(await js(`document.querySelector(".todo-pill").title`), /^2 changed by Ilai/)
   await shot('changes')
   await js(`[...document.querySelectorAll('.todo-fresh')].find(b => b.textContent.startsWith('edited')).click()`); await delay(900)
   assert.equal(await js(`document.querySelectorAll('.todo-history-list li').length`), 2)
