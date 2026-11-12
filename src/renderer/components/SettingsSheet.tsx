@@ -5,6 +5,7 @@ import {
   DEFAULT_PREFS,
   type Prefs,
   type RailSide,
+  type SoundKind,
   type ThemeName,
   type VoiceEngine,
 } from '../../shared/types'
@@ -84,6 +85,17 @@ interface ElevenVoice {
   description: string
 }
 
+/** Settings › Notifications › Sounds: one row per kind, in the order people meet them. */
+const SOUND_ROWS: [SoundKind, string, string][] = [
+  ['chat', 'Team chat', 'A new message in a team or product chat (also the bell in the chat).'],
+  ['call', 'Calls', 'The ring of an incoming or outgoing call.'],
+  ['done', 'A conversation is done', 'A tab finished its turn while you were elsewhere.'],
+  ['request', 'Requests', 'A partner asks you something in the To-do, or answers your request.'],
+  ['agent', 'Agents and bots', 'Another agent or your Grok Bot writes to one of your sessions.'],
+  ['todo', 'To-do changes', 'The partner changed or tagged you in a shared task.'],
+  ['memory', 'Memory warnings', 'The Mac is running out of memory.'],
+  ['update', 'Updates', 'A new TerminAI version is ready to install.'],
+]
 export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onCloseTab, onOpenTab, initialSection, activeTab }: Props): JSX.Element {
   const [voices, setVoices] = useState<string[]>([])
   const [hasEleven, setHasEleven] = useState(false)
@@ -197,7 +209,11 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
     macguard: () => page('MacGuard', 'This Mac\'s memory guardian: what it measures, the chats it paused, and what it did.', <GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} />),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />
-      <div className="st-card"><Row label="Chat sound" hint="A soft chime in TerminAI for each new team chat message, even when macOS notifications are off or silent."><Toggle on={prefs.chatSound} set={v => onChange({ chatSound: v })} /></Row></div>
+      <div className="st-card"><div className="st-card-head"><strong>Sounds</strong><span>Pick which notifications make a sound. TerminAI plays them itself, so they ring even when macOS notifications are silent.</span></div>
+        {SOUND_ROWS.map(([kind, label, hint]) => <Row key={kind} label={label} hint={hint}>
+          <span className="st-sound"><button className="todo-link" title="Play it" onClick={() => void window.term.sound.test(kind)}>Play</button>
+            <Toggle on={prefs.sounds?.[kind] !== false} set={v => onChange({ sounds: { ...prefs.sounds, [kind]: v } })} /></span></Row>)}
+      </div>
       <div className="st-card"><Row label="Notify when a chat is done" hint="A notice with its summary when you are not looking at that tab; click it to open the tab."><Toggle on={prefs.doneNotices} set={v => onChange({ doneNotices: v })} /></Row></div>
     </>),
     connections: () => page('Connections', 'Your bots and agents: your sessions ask them, and they reach your Shared sessions.', <>

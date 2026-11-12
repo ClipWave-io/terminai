@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
-/** A soft two-note chime for a new chat message, made with Web Audio (works whatever macOS does with notifications). */
-function chime(): void {
-  try {
-    const ctx = new AudioContext(), t = ctx.currentTime
-    for (const [f, d] of [[880, 0], [1320, 0.12]] as const) {
-      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(ctx.destination)
-      g.gain.setValueAtTime(0, t + d); g.gain.linearRampToValueAtTime(0.13, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35)
-      o.start(t + d); o.stop(t + d + 0.4)
-    }
-    setTimeout(() => void ctx.close(), 900)
-  } catch {}
-}
 import './teamchat.css'
 import { AccessPicker, Avatar, PeoplePanel, useProducts, type Access } from './Permissions'
 import { CallIcon, CallView, useCalls } from './Call'
@@ -30,6 +18,7 @@ const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.
 
 const P: Record<string, string> = {
   clip: 'M20.5 11.5 12 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.7a1.7 1.7 0 0 1-2.4-2.4L15 7.6',
+  bell: 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0', bellOff: 'M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2H8M10 20.5a2 2 0 0 0 4 0M4 4l16 16',
   send: 'M4 12 20 4l-4 16-4-7-8-1Z', close: 'M6 6l12 12M18 6 6 18', lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5Z',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14', reveal: 'M12 4v11M7 10l5 5 5-5M5 20h14', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', check: 'M5 12.5 9.5 17 19 7', checks: 'M2 12.5 6.5 17 16 7M10 16l1 1 9.5-10',
@@ -60,7 +49,6 @@ export function TeamChat({ open, onClose, onUnread }: { open: boolean; onClose: 
 }
 
 function Team({ company, admin, open, onClose, onUnread }: { company: string; admin: boolean; open: boolean; onClose: () => void; onUnread: (n: number) => void }): JSX.Element | null {
-  const soundRef = useRef(true)
   // Its width: drag the left edge (double-click it for the default), kept on this Mac.
   const [width, setWidth] = useState<number>(() => cache.get('tc:width', 420))
   const resize = (e: React.MouseEvent) => {
@@ -71,7 +59,10 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   }
   // Opening a file or picture in the Files pane closes the drawer, so the file is not hidden behind it.
   useEffect(() => { const h = () => onClose(); window.addEventListener('tc:opened-in-pane', h); return () => window.removeEventListener('tc:opened-in-pane', h) }, [onClose])
-  useEffect(() => { const load = () => void window.term.prefs.get().then(p => { soundRef.current = p.chatSound !== false }).catch(() => {}); load(); const t = window.setInterval(load, 30000); return () => window.clearInterval(t) }, [])
+  // The bell in the header: the chat's sound on or off (Settings › Notifications › Sounds has every kind).
+  const [sound, setSound] = useState(true)
+  useEffect(() => { const load = () => void window.term.prefs.get().then(p => setSound(p.sounds?.chat !== false)).catch(() => {}); load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t) }, [])
+  const toggleSound = () => void window.term.prefs.get().then(p => { const on = !(p.sounds?.chat !== false); setSound(on); if (on) void window.term.sound.test('chat'); return window.term.prefs.set({ sounds: { ...p.sounds, chat: on } }) }).catch(() => {})
   // Channels: the whole team ('') and one per product. Someone limited to some products has only those.
   const [channel, setChannel] = useState<string>(() => cache.get(`tc:${company}:channel`, ''))
   const [channels, setChannels] = useState<{ team: boolean; channels: string[] }>(() => cache.get(`tc:${company}:channels`, { team: true, channels: [] }))
@@ -123,7 +114,6 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
             setMessages(prev => { const seen = new Set(prev.filter(m => !m.pending).map(m => m.id)); const next = [...prev.filter(m => !m.pending), ...r.messages.filter((m: Message) => !seen.has(m.id))].slice(-500); cache.set(`${key}:m`, next); return next })
             if (fresh.length && (!openRef.current || !document.hasFocus())) {
               const m = fresh.at(-1); void window.term.teamchat.notify(m.fromName, m.body || (m.file ? 'Sent a file' : ''))
-              if (soundRef.current) chime()
             }
           }
         } catch { if (stop) return; setOffline(true); await new Promise(r => setTimeout(r, 4000)) }
@@ -166,6 +156,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
         <button className="tc-x" title={`Voice call ${callTitle}`} aria-label="Voice call" onClick={() => void calls.start(false)}><CallIcon n="phone" s={17} /></button>
         <button className="tc-x" title={`Video call ${callTitle}`} aria-label="Video call" onClick={() => void calls.start(true)}><CallIcon n="video" s={17} /></button>
       </span>}
+      <button className={`tc-x tc-bell${sound ? '' : ' off'}`} title={sound ? 'Chat sound on: click to mute' : 'Chat sound off: click to turn it on'} aria-label={sound ? 'Mute chat sound' : 'Turn chat sound on'} aria-pressed={sound} onClick={toggleSound}><Ico n={sound ? 'bell' : 'bellOff'} s={17} /></button>
       <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
     {view === 'chat' && channels.channels.length > 0 && <div className="tc-channels" role="tablist" aria-label="Chats">

@@ -1,3 +1,7 @@
+/** A kind of notification that can make a sound: team chat, calls ringing, a conversation done, requests, agents' and
+ *  bots' messages, To-do changes, memory warnings, updates. */
+export type SoundKind = 'chat' | 'call' | 'done' | 'request' | 'agent' | 'todo' | 'memory' | 'update'
+export const SOUND_KINDS: SoundKind[] = ['chat', 'call', 'done', 'request', 'agent', 'todo', 'memory', 'update']
 export type ThemeName =
   | 'dusk'
   | 'paper'
@@ -406,6 +410,8 @@ export interface Prefs {
   resumeAll: boolean
   /** a soft chime in TerminAI for each new team chat message (besides the macOS notification) */
   chatSound: boolean
+  /** which notifications make a sound (Settings › Notifications › Sounds); every kind can be on or off */
+  sounds: Record<SoundKind, boolean>
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
   /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
@@ -467,6 +473,7 @@ export const DEFAULT_PREFS: Prefs = {
   railTimes: false,
   resumeAll: false,
   chatSound: true,
+  sounds: { chat: true, call: true, done: true, request: true, agent: true, todo: true, memory: true, update: false },
   tasksUser: 'ilai',
   todoHiddenColumns: [],
   todoProducts: [],

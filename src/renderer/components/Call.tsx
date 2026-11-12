@@ -36,8 +36,10 @@ function useRing(on: boolean, incoming: boolean): void {
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(incoming ? 0.2 : 0.1, t + 0.05); g.gain.setValueAtTime(incoming ? 0.2 : 0.1, t + 0.9); g.gain.linearRampToValueAtTime(0, t + 1)
       for (const [f, d] of [[440, 0], [480, 0]] as const) { const o = ctx.createOscillator(); o.frequency.value = f; o.connect(g); o.start(t + d); o.stop(t + 1) }
     }
-    beep(); const id = setInterval(beep, incoming ? 2500 : 4000)
-    return () => { clearInterval(id); void ctx?.close() }
+    // Settings › Notifications › Sounds › Calls off: it rings silently.
+    let id: ReturnType<typeof setInterval> | undefined, stopped = false
+    void window.term.prefs.get().then(p => { if (stopped || p.sounds?.call === false) return; beep(); id = setInterval(beep, incoming ? 2500 : 4000) }).catch(() => {})
+    return () => { stopped = true; if (id) clearInterval(id); void ctx?.close() }
   }, [on, incoming])
 }
 

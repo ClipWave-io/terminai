@@ -45,6 +45,13 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
   await js(`document.querySelector('.team-side [aria-label="Send feedback"]').click()`);await delay(300);
   assert.ok(await js(`!!document.querySelector('.fb-panel textarea')`),'feedback panel');
   if(shots)fs.writeFileSync(path.join(shots,'toolbar-feedback.png'),(await win.webContents.capturePage()).toPNG());
+  // Settings › Notifications › Sounds: a switch per kind; turning one off is saved.
+  await js(`document.querySelector('.fb-panel')&&document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);await delay(200);
+  await js(`[...document.querySelectorAll('.team-side button')].find(b=>b.textContent.trim()==='Notifications').click()`);await delay(400);
+  assert.equal(await js(`document.querySelectorAll('.st-sound').length`),8,'eight sound kinds');
+  await js(`document.querySelectorAll('.st-sound')[2].querySelector('[role="switch"],button:last-child,input').click()`);await delay(500);
+  assert.equal(await js(`window.term.prefs.get().then(p=>p.sounds.done)`),false,'A conversation is done: sound off');
+  if(shots){win.show();win.webContents.invalidate();await delay(800);fs.writeFileSync(path.join(shots,'settings-sounds.png'),(await win.webContents.capturePage()).toPNG())}
   console.log('PASS toolbar: icons move to either side by panel and drag, chat button bottom right, feedback at the bottom of Settings, sidebar sorted by last activity with times');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})}));
 setTimeout(()=>app.exit(1),40000).unref();require('../out/main/index.js');

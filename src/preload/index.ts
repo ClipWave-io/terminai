@@ -217,6 +217,8 @@ const api = {
     onChanged: (cb: () => void): (() => void) => { ipcRenderer.on('todos:changed', cb); return () => { ipcRenderer.removeListener('todos:changed', cb) } },
   },
 
+  /** Plays one kind of notification's sound now, whatever Settings says (the preview in Settings › Notifications). */
+  sound: { test: (kind: string): Promise<boolean> => ipcRenderer.invoke('sound:test', kind) },
   prefs: {
     get: (): Promise<Prefs> => ipcRenderer.invoke('prefs:get'),
     set: (patch: Partial<Prefs>): Promise<Prefs> => ipcRenderer.invoke('prefs:set', patch),

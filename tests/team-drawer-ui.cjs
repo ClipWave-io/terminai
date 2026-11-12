@@ -65,6 +65,13 @@ if(!process.versions.electron){
   await js(`[...document.querySelectorAll('.pp-scope')].find(b=>!b.disabled).click()`);await delay(300);
   assert.ok(await js(`[...document.querySelectorAll('.pp-chip.on')].some(b=>b.textContent==='mm.org')`),'Sofia limited to mm.org, shown as a chip');
   await shot('3-people');
+  // The chat's bell turns its sound off and on (saved as sounds.chat).
+  await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Chat').click()`);await delay(200);
+  await js(`document.querySelector('.tc-bell').click()`);await delay(600);
+  assert.equal(await js(`window.term.prefs.get().then(p=>p.sounds.chat)`),false,'bell mutes the chat');
+  assert.ok(await js(`document.querySelector('.tc-bell').classList.contains('off')`),'bell shows off');
+  await js(`document.querySelector('.tc-bell').click()`);await delay(600);
+  assert.equal(await js(`window.term.prefs.get().then(p=>p.sounds.chat)`),true,'and back on');
   // Members › Invite someone: role and access as segments; Only some shows the products; nothing picked blocks the invite.
   await js(`document.querySelector('[aria-label^="Team chat"]').click()`);await delay(300);
   await js(`document.querySelector('[aria-label="Sync"]').click()`);await delay(800);

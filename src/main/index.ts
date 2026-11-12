@@ -11,7 +11,7 @@ import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
 import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamChannels, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow, updateReady, installUpdateNow } from './updates'
-import { notice, noticesWindow, noticesList, noticesRead, noticesClear } from './notices'
+import { notice, noticesWindow, noticesList, noticesRead, noticesClear, noticesSound, playSound } from './notices'
 import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
@@ -321,6 +321,8 @@ app.whenReady().then(() => {
   // The first launch after installing: macOS shows its Allow question for TerminAI's notifications once.
   if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void notifyPermission().then(p => { if (p === 'notDetermined') void notifyPermission(true) }), 8000)
   noticesWindow(() => win)
+  noticesSound(kind => store.load().sounds?.[kind as keyof Prefs['sounds']] !== false)
+  appIpc.handle('sound:test', (_e, kind: unknown) => { playSound(String(kind), true); return true })
   startUpdates(() => win, { night: () => store.load().nightUpdates, busy: () => ptys.liveIds().some(id => ['working', 'question'].includes(ptys.statusOf(id))) })
   // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
   const legacyMarker = join(app.getPath('userData'), 'alive')
@@ -475,7 +477,7 @@ function registerIpc(): void {
   appIpc.handle('team:call-notify', (_e, title: unknown, body: unknown) => {
     notice('chat', String(title), String(body), { open: 'chat' })
     if (!Notification.isSupported()) return false
-    const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
+    const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300), silent: true })
     n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
     n.show(); return true
   })
@@ -505,7 +507,7 @@ function registerIpc(): void {
   appIpc.handle('team:notify', async (_e, title: unknown, body: unknown) => {
     if (String(title) !== 'TerminAI') notice('chat', String(title), String(body), { open: 'chat' })
     if (!Notification.isSupported() || !['authorized', 'provisional'].includes(await notifyPermission())) return false
-    const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300) })
+    const n = new Notification({ title: String(title).slice(0, 120), body: String(body).slice(0, 300), silent: true })
     n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('teamchat:open') })
     n.show(); return true
   })
@@ -616,7 +618,7 @@ function registerIpc(): void {
     const tabName = (id: string) => { const t = store.load().tabs.find(x => x.ptyId === id); return t?.customTitle || t?.name || t?.title || basename(ptys.cwdOf(id)) || 'Session' }
     const top = r.tabs.slice(0, 3).map(t => `${tabName(t.id)} ${(t.mb / 1024).toFixed(1)} GB`).join(', ')
     notice('memory', r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', `Using most: ${top}.`, { open: 'memory' })
-    const note = new Notification({ title: r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', body: `Close a few sessions before apps get closed. Using most: ${top}.` })
+    const note = new Notification({ title: r.pressure === 'critical' ? 'Your Mac is out of memory' : 'Memory is getting tight', body: `Close a few sessions before apps get closed. Using most: ${top}.`, silent: true })
     note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.focus(); win.webContents.send('settings:open', 'memory') })
     note.show()
   })
@@ -718,7 +720,7 @@ function registerIpc(): void {
         notice('request', `${t.request?.urgent ? 'Urgent request' : 'Request'} from ${name}`, t.title, { open: 'todos' })
         if (!Notification.isSupported()) continue
         const n = new Notification({ title: `${t.request?.urgent ? 'Urgent request' : 'Request'} from ${name}`, body: t.title + (t.notes ? `\n${t.notes.slice(0, 140)}` : ''),
-          actions: [{ type: 'button', text: 'Accept' }, { type: 'button', text: 'Decline' }], hasReply: true, replyPlaceholder: 'Accept with a message', closeButtonText: 'Later' })
+          actions: [{ type: 'button', text: 'Accept' }, { type: 'button', text: 'Decline' }], hasReply: true, replyPlaceholder: 'Accept with a message', closeButtonText: 'Later', silent: true })
         n.on('action', (_e, i) => void todos.answer(t.id, i === 0).catch(() => {}))
         n.on('reply', (_e, reply) => void todos.answer(t.id, true, reply).catch(() => {}))
         n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
@@ -728,7 +730,7 @@ function registerIpc(): void {
         if (!Notification.isSupported()) continue
         const ok = t.request?.status === 'accepted'
         notice('request', `${name} ${ok ? 'accepted' : 'declined'} your request`, `${t.title}${t.request?.reply ? ` · “${t.request.reply}”` : ''}`, { open: 'todos' })
-        new Notification({ title: `${name} ${ok ? 'accepted' : 'declined'} your request`, body: `${t.title}${t.request?.reply ? `\n“${t.request.reply}”` : ''}` }).show()
+        new Notification({ title: `${name} ${ok ? 'accepted' : 'declined'} your request`, body: `${t.title}${t.request?.reply ? `\n“${t.request.reply}”` : ''}`, silent: true }).show()
       }
       if ((requests?.length || answered?.length) && count === (requests?.length ?? 0) + (answered?.length ?? 0)) return
       const ai = changed.length > 0 && changed.every(task => task.updatedVia === 'ai') ? `${name}’s AI` : name
@@ -738,7 +740,7 @@ function registerIpc(): void {
       if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: body, mention: !!mentioned?.length })
       notice('todo', 'To-do', body, { open: 'activity' })
       if (!Notification.isSupported()) return
-      const note = new Notification({ title: 'To-do', body })
+      const note = new Notification({ title: 'To-do', body, silent: true })
       note.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
       note.show()
     },

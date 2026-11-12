@@ -133,3 +133,5 @@
 .tc-viewer img { max-width: min(1400px, 100%); max-height: calc(100vh - 110px); object-fit: contain; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 .tc-viewer-bar { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); font-size: 12.5px; max-width: 100%; }
 .tc-viewer-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; margin-right: 6px; }
+/* The chat's bell: on is the normal icon, off is crossed out and dimmed. */
+.tc-bell.off { color: var(--dim); opacity: .75; }

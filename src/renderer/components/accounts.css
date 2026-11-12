@@ -92,3 +92,5 @@
 .guard-paused { display: flex; align-items: center; gap: 10px; font-size: 12.5px; } .guard-paused > span:nth-child(2) { flex: 1; }
 .guard-events { display: grid; gap: 4px; font-size: 12px; max-height: 260px; overflow: auto; } .guard-events div { display: grid; grid-template-columns: 82px 1fr; gap: 8px; }
 .guard-error { color: var(--danger); }
+/* Unread chat messages: a red badge, like every Mac app. */
+.corner-count, .toolbar-count { background: #e5484d; color: #fff; }
