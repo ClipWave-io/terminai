@@ -214,6 +214,8 @@ export interface TabInfo {
   agentArgs?: string[]
   /** its agent was in the middle of a turn when TerminAI quit: told to continue after the resume */
   wasWorking?: boolean
+  /** its agent was running when TerminAI quit (an update restart included): it starts again at launch, not when opened */
+  wasAlive?: boolean
   cwd: string
   /** best-effort: the foreground process name reported by the PTY's shell */
   process: string
@@ -285,6 +287,7 @@ export interface SavedTab {
   agentArgs?: string[]
   /** its agent was mid-turn when TerminAI quit: told to continue after the resume */
   wasWorking?: boolean
+  wasAlive?: boolean
   /** restore only: start the conversation when the tab is opened, not at launch */
   later?: boolean
   /** restore only: without a conversation of its own in a folder other tabs work in, it starts a new one instead of `--continue` */

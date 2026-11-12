@@ -1395,11 +1395,9 @@ textarea.card-notes.editing {
 .tab-title { display: flex; align-items: baseline; min-width: 0; }
 .tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-title::after, .tab-incoming { flex: none; }
-.tab { --row: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-.tab.active { --row: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
-.tab-hide, .tab-close { position: absolute; top: 7px; background: var(--row); }
-.tab-close { right: 7px; }
-.tab-hide { right: 27px; box-shadow: -12px 0 10px var(--row); }
+.tab-hide, .tab-close { position: absolute; top: 50%; transform: translateY(-50%); }
+.tab-close { right: 8px; }
+.tab-hide { right: 30px; }
+/* On hover (and on a hidden row, whose unhide button always shows) the text makes room for the two buttons. */
+.tab:hover .tab-body, .tab.is-hidden .tab-body { padding-right: 46px; }
 .tab.is-hidden:not(:hover) .tab-close { display: none; }
-.tab-hide:hover { background: color-mix(in srgb, var(--dim) 22%, var(--row)); }
-.tab-close:hover { background: color-mix(in srgb, var(--danger) 22%, var(--row)); }

@@ -3,7 +3,6 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
-import { WebglAddon } from '@xterm/addon-webgl'
 import { toXtermTheme } from '../../shared/themes'
 import { claudeDarkOnLight, type Remap } from '../../shared/claude-colors'
 import * as snapshots from '../snapshots'
@@ -130,7 +129,6 @@ function installSelectionOverride(term: Terminal, host: HTMLElement): void {
 export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
-  const webglRef = useRef<WebglAddon | null>(null)
   // Claude Code's dark-theme colours, translated for light themes (see claude-colors.ts).
   const remapRef = useRef<Remap | null>(claudeDarkOnLight(theme))
   const fitRef = useRef<FitAddon | null>(null)
@@ -240,7 +238,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       offExit()
       ro.disconnect()
       cancelAnimationFrame(raf)
-      term.dispose(); webglRef.current = null
+      term.dispose()
       termRef.current = null
       fitRef.current = null
     }
@@ -268,26 +266,17 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     window.term.pty.resize(ptyId, term.cols, term.rows)
   }, [fontSize, ptyId])
 
-  // ---- the GPU renderer, for the visible tab only ----------------------------
-  // Chromium keeps about 16 WebGL contexts per window and drops the oldest past that: with dozens of tabs (or a PDF or
-  // video opened in Files) the open tab's context was dropped and its terminal showed a white box with a broken-image
-  // icon until the app restarted. Hidden tabs use the plain renderer; a lost context falls back and redraws.
+  // ---- the plain renderer, always -------------------------------------------
+  // WebGL drew faster but its GPU context could be lost (dozens of tabs, a PDF or video in Files, a dialog over the
+  // window) and the open terminal then showed a white box with a broken-image icon until a restart. The plain renderer
+  // has nothing to lose; the visible tab still repaints when it comes back.
   useEffect(() => {
     const term = termRef.current
-    if (!term) return
-    if (!active) {
-      const t = window.setTimeout(() => { webglRef.current?.dispose(); webglRef.current = null }, 1500)
-      return () => window.clearTimeout(t)
-    }
-    if (!webglRef.current) {
-      try {
-        const webgl = new WebglAddon()
-        webgl.onContextLoss(() => { webgl.dispose(); if (webglRef.current === webgl) webglRef.current = null; term.refresh(0, term.rows - 1) })
-        term.loadAddon(webgl); webglRef.current = webgl
-      } catch { /* the plain renderer it is */ }
-    }
+    if (!term || !active) return
     term.refresh(0, term.rows - 1)
-    return undefined
+    const repaint = () => term.refresh(0, term.rows - 1)
+    window.addEventListener('focus', repaint)
+    return () => window.removeEventListener('focus', repaint)
   }, [active, ptyId])
 
   // ---- refit + focus when this tab becomes visible ------------------------

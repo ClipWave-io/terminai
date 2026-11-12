@@ -421,7 +421,7 @@ app.on('before-quit', event => {
   store.save({ tabs: prefs.tabs.map(tab => {
     if (!tab.ptyId) return tab
     const agent = ptys.agentOf(tab.ptyId)
-    return agent.kind ? { ...tab, agent: agent.kind, agentSession: agent.sessionId || tab.agentSession, agentArgs: agent.args, wasWorking: agent.alive && ptys.statusOf(tab.ptyId) === 'working' } : { ...tab, wasWorking: false }
+    return agent.kind ? { ...tab, agent: agent.kind, agentSession: agent.sessionId || tab.agentSession, agentArgs: agent.args, wasWorking: agent.alive && ptys.statusOf(tab.ptyId) === 'working', wasAlive: agent.alive } : { ...tab, wasWorking: false, wasAlive: false }
   }) })
   voice.stopWatching()
   ptys.killAll()

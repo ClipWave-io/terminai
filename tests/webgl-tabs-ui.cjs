@@ -1,5 +1,4 @@
-// Many tabs must not use up the GPU: only the visible terminal draws with WebGL, so the open tab never loses its
-// context (12/11/2026: with ~50 tabs, closing a file in Files left a white box with a broken-image icon).
+// Terminals draw without WebGL, so none can lose a GPU context (12/11/2026: with ~50 tabs, closing a file in Files left a white box with a broken-image icon).
 // After `npx electron-vite build`: CODEX_HOME=<scratch> TERMINAI_TEST_BUILD=1 npx electron tests/webgl-tabs-ui.cjs
 const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict')
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-webgl-')); app.setPath('userData', dir)
@@ -14,8 +13,14 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   for (let i = 0; i < 24; i++) { await js(`[...document.querySelectorAll('.rail .tab')][${i}]?.click()`); await delay(120) }
   await delay(2000)
   const n = await js(gl)
-  assert.ok(n >= 1 && n <= 2, `WebGL terminals after visiting 24 tabs: ${n} (only the open one should hold one)`)
-  assert.ok(await js(`!!document.querySelector('.term-host.active canvas')`), 'the open terminal draws')
+  assert.equal(n, 0, `no terminal holds a WebGL context (${n} do)`)
+  assert.ok(await js(`document.querySelector('.term-host.active .xterm-rows')?.textContent.length>0`), 'the open terminal draws its text')
+  // Hovering a row: the buttons sit inside it and the text makes room for them.
+  const r = JSON.parse(await js(`JSON.stringify(document.querySelector('.rail .tab.active').getBoundingClientRect())`))
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(r.x + r.width - 20), y: Math.round(r.y + r.height / 2) }); await delay(400)
+  const inside = await js(`(()=>{const t=document.querySelector('.rail .tab.active').getBoundingClientRect(),b=document.querySelector('.rail .tab.active .tab-hide').getBoundingClientRect();return b.top>=t.top&&b.bottom<=t.bottom&&b.right<=t.right})()`)
+  assert.ok(inside, 'the hover buttons sit inside the row')
+  if (process.env.SHOTS) { win.show(); win.webContents.invalidate(); await delay(800); fs.writeFileSync(path.join(process.env.SHOTS, 'rail-hover.png'), (await win.webContents.capturePage({ x: 0, y: 0, width: 420, height: 300 })).toPNG()) }
   console.log(`PASS webgl: 24 tabs visited, ${n} WebGL terminal(s) left, the open one draws`); app.quit()
 })().catch(e => { console.error(e); app.exit(1) }) }))
 setTimeout(() => app.exit(1), 90000).unref(); require('../out/main/index.js')

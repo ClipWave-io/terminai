@@ -427,7 +427,7 @@ export function App(): JSX.Element {
       // froze the Mac for minutes and could sign Claude out. Settings › Resume every conversation brings back the old way.
       // Left without a conversation in a folder other tabs work in: it starts a new one, since `--continue` would take theirs.
       const fresh = !!raw.claude && !raw.claudeSession && !raw.agentSession && !dealt.has(raw) && savedTabs.some((o) => o !== raw && o.cwd === raw.cwd)
-      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: !prefsRef.current.resumeAll && i < savedTabs.length - 1 && !raw.wasWorking, fresh }
+      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: !prefsRef.current.resumeAll && i < savedTabs.length - 1 && !raw.wasWorking && !raw.wasAlive, fresh }
       const running = t.ptyId ? live.get(t.ptyId) : undefined
       if (running) {
         taken.add(running.id)
