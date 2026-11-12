@@ -168,6 +168,9 @@ export async function migrate(pool) {
       CREATE INDEX IF NOT EXISTS manager_team_files_company ON manager_team_files(company_id,created_at DESC);
       -- Folders in team Files: a path like "Sales/Universities" ('' is the top).
       ALTER TABLE manager_team_files ADD COLUMN IF NOT EXISTS folder text NOT NULL DEFAULT '';
+      -- Share links: anyone with terminai.xyz/f/<token> can open that one file until it is stopped (only the hash is kept).
+      ALTER TABLE manager_team_files ADD COLUMN IF NOT EXISTS share_hash text UNIQUE;
+      ALTER TABLE manager_team_files ADD COLUMN IF NOT EXISTS shared_at timestamptz;
       -- Team chat and presence (last seen, typing).
       CREATE TABLE IF NOT EXISTS manager_chat (
         id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,

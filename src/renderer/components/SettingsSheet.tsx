@@ -6,6 +6,7 @@ import {
   type Prefs,
   type RailSide,
   type SoundKind,
+  MAC_SOUNDS,
   type ThemeName,
   type VoiceEngine,
 } from '../../shared/types'
@@ -85,6 +86,8 @@ interface ElevenVoice {
   description: string
 }
 
+/** The sound each kind plays unless changed here (notices.ts SOUND_FILES). Each kind its own, so you can tell them apart. */
+const SOUND_DEFAULTS: Record<SoundKind, string> = { chat: 'Pop', call: 'Ping', done: 'Glass', request: 'Hero', agent: 'Purr', todo: 'Tink', memory: 'Basso', update: 'Bottle' }
 /** Settings › Notifications › Sounds: one row per kind, in the order people meet them. */
 const SOUND_ROWS: [SoundKind, string, string][] = [
   ['chat', 'Team chat', 'A new message in a team or product chat (also the bell in the chat).'],
@@ -211,7 +214,11 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <PermissionsSetup compact />
       <div className="st-card"><div className="st-card-head"><strong>Sounds</strong><span>Pick which notifications make a sound. TerminAI plays them itself, so they ring even when macOS notifications are silent.</span></div>
         {SOUND_ROWS.map(([kind, label, hint]) => <Row key={kind} label={label} hint={hint}>
-          <span className="st-sound"><button className="todo-link" title="Play it" onClick={() => void window.term.sound.test(kind)}>Play</button>
+          <span className="st-sound">
+            <select aria-label={`Sound for ${label}`} value={prefs.soundNames?.[kind] ?? SOUND_DEFAULTS[kind]} disabled={prefs.sounds?.[kind] === false}
+              onChange={e => { const name = e.target.value; void window.term.sound.test(kind, name); onChange({ soundNames: { ...prefs.soundNames, [kind]: name } }) }}>
+              {MAC_SOUNDS.map(n => <option key={n} value={n}>{n}{n === SOUND_DEFAULTS[kind] ? ' (default)' : ''}</option>)}</select>
+            <button className="todo-link" title="Play it" onClick={() => void window.term.sound.test(kind)}>Play</button>
             <Toggle on={prefs.sounds?.[kind] !== false} set={v => onChange({ sounds: { ...prefs.sounds, [kind]: v } })} /></span></Row>)}
       </div>
       <div className="st-card"><Row label="Notify when a chat is done" hint="A notice with its summary when you are not looking at that tab; click it to open the tab."><Toggle on={prefs.doneNotices} set={v => onChange({ doneNotices: v })} /></Row></div>

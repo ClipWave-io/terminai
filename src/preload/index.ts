@@ -67,6 +67,7 @@ const api = {
     privacy: (): Promise<void> => ipcRenderer.invoke('app:privacy-files'),
     openFolder: (path: string): Promise<void> => ipcRenderer.invoke('project:openFolder', path),
     openExternal: (path: string): Promise<void> => ipcRenderer.invoke('project:openExternal', path),
+    reveal: (path: string): Promise<string> => ipcRenderer.invoke('project:reveal', path),
     menu: (path: string, directory: boolean, background = false): Promise<{ action: string; path?: string } | null> => ipcRenderer.invoke('project:menu', path, directory, background),
     rename: (path: string, to: string): Promise<string> => ipcRenderer.invoke('project:rename', path, to),
     create: (folder: string, name: string, directory: boolean): Promise<string> => ipcRenderer.invoke('project:create', folder, name, directory),
@@ -165,6 +166,7 @@ const api = {
     callNotify: (title: string, body: string): Promise<boolean> => ipcRenderer.invoke('team:call-notify', title, body),
     files: (company: string): Promise<any> => ipcRenderer.invoke('team:files', company),
     change: (company: string, id: string, change: object | null): Promise<any> => ipcRenderer.invoke('team:file-change', company, id, change),
+    share: (company: string, id: string, on: boolean): Promise<{ url?: string; ok?: boolean }> => ipcRenderer.invoke('team:file-share', company, id, on),
     upload: (company: string, path: string, access = 'all', products: string[] = [], chat = false, folder = ''): Promise<any> => ipcRenderer.invoke('team:upload', company, path, access, products, chat, folder),
     image: (company: string, id: string, name: string): Promise<string> => ipcRenderer.invoke('team:image', company, id, name),
     open: (company: string, id: string, name: string, how: 'app' | 'pane' | 'reveal' = 'app'): Promise<void> => ipcRenderer.invoke('team:open', company, id, name, how),
@@ -218,7 +220,7 @@ const api = {
   },
 
   /** Plays one kind of notification's sound now, whatever Settings says (the preview in Settings › Notifications). */
-  sound: { test: (kind: string): Promise<boolean> => ipcRenderer.invoke('sound:test', kind) },
+  sound: { test: (kind: string, name?: string): Promise<boolean> => ipcRenderer.invoke('sound:test', kind, name) },
   prefs: {
     get: (): Promise<Prefs> => ipcRenderer.invoke('prefs:get'),
     set: (patch: Partial<Prefs>): Promise<Prefs> => ipcRenderer.invoke('prefs:set', patch),

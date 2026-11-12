@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { DEFAULT_PREFS, normalizePaneOrder, RAIL_MIN, RAIL_MAX, RAIL_DEFAULT, SOUND_KINDS, type Prefs } from '../shared/types'
+import { DEFAULT_PREFS, normalizePaneOrder, RAIL_MIN, RAIL_MAX, RAIL_DEFAULT, SOUND_KINDS, MAC_SOUNDS, type Prefs } from '../shared/types'
 
 let cache: Prefs | null = null
 
@@ -55,6 +55,7 @@ function hydrate(raw: unknown): Prefs {
     railTimes: p.railTimes === true,
     resumeAll: p.resumeAll === true,
     chatSound: p.chatSound !== false,
+    soundNames: Object.fromEntries(Object.entries(p.soundNames && typeof p.soundNames === 'object' ? p.soundNames : {}).filter(([k, v]) => SOUND_KINDS.includes(k as never) && MAC_SOUNDS.includes(v as string))),
     sounds: Object.fromEntries(SOUND_KINDS.map(k => [k, typeof p.sounds?.[k] === 'boolean' ? p.sounds[k] : k === 'chat' ? p.chatSound !== false : k !== 'update'])) as Prefs['sounds'],
     // A Mac where someone picked Ilai or Matteo keeps the shared page; anyone else gets private lists under a fixed local key.
     teamTasks: p.teamTasks ?? (p.tasksUser === 'livio' || p.tasksUser === 'ilai'),

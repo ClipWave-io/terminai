@@ -197,7 +197,7 @@ export function TabRail({
       <span
         className={!tab.exited && paused[tab.id] ? 'tab-dot paused' : dotClass(tab, tab.id === speakingId)}
         title={!tab.exited && paused[tab.id] ? `Paused by MacGuard at ${paused[tab.id].slice(0, 5)}: open it to resume` : tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. It starts when you open it.' : DOT_TITLE[tab.status]}
-      >{!tab.exited && tab.id !== speakingId && tab.status === 'question' ? '?' : ''}</span>
+      >{!tab.exited && tab.id !== speakingId && !paused[tab.id] && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}><span className="tab-name">{tabLabel(tab)}</span>{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
         {times ? <div className="tab-sub"><span className="tab-cwd">{shortCwd(tab.cwd)}</span><span className="tab-ago" title={`Last active ${new Date(tab.activityAt ?? tab.createdAt).toLocaleString()}`}>{activeAgo(tab.activityAt ?? tab.createdAt)}</span></div>

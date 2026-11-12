@@ -291,6 +291,16 @@ export function App(): JSX.Element {
     next.splice(paneOrder.indexOf(target), 0, ...next.splice(paneOrder.indexOf(pane), 1))
     patchPrefs({ paneOrder: next })
   }
+  // Drag a pane by the grip at its top onto another pane to swap their places (Files in the middle, say).
+  const [paneDrag, setPaneDrag] = useState<WorkspacePane | null>(null)
+  const paneDrop = (pane: WorkspacePane) => ({
+    onDragOver: (event: React.DragEvent) => { if (event.dataTransfer.types.includes('application/x-terminai-pane')) event.preventDefault() },
+    onDrop: (event: React.DragEvent) => { const from = event.dataTransfer.getData('application/x-terminai-pane') as WorkspacePane; if (!from) return; event.preventDefault(); setPaneDrag(null); movePane(from, pane) },
+  })
+  const paneGrip = (pane: WorkspacePane, label: string) => visiblePanes.length > 1 && !compactWorkspace
+    ? <div className="pane-grip no-drag" draggable title={`Drag to move ${label}`} aria-label={`Move ${label}`}
+        onDragStart={event => { event.dataTransfer.setData('application/x-terminai-pane', pane); event.dataTransfer.effectAllowed = 'move'; setPaneDrag(pane) }}
+        onDragEnd={() => setPaneDrag(null)}><i /></div> : null
   const stepPane = (pane: WorkspacePane, direction: number) => {
     const target = paneOrder[paneOrder.indexOf(pane) + direction]
     if (target) movePane(pane, target)
@@ -912,8 +922,9 @@ export function App(): JSX.Element {
         </div>
 
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
-        {showFiles && <div className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace || filesOnly ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane full={filesOnly} onFull={() => setFilesOnly(v => !v)} openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
-        <div className={`pane ${!terminalVisible ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('terminal') }}>
+        {showFiles && <div {...paneDrop('files')} className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'files' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace || filesOnly ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('files', 'Files')}{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane full={filesOnly} onFull={() => setFilesOnly(v => !v)} openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
+        <div {...paneDrop('terminal')} className={`pane ${!terminalVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'terminal' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('terminal') }}>
+          {paneGrip('terminal', 'the terminal')}
           {tabs.length === 0 && (
             <div className="pane-empty">
               <div>No sessions open</div>
@@ -945,7 +956,7 @@ export function App(): JSX.Element {
           </div>}
         </div>
 
-        {showBrowser && prefs.browserBeta && <div className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {showBrowser && prefs.browserBeta && <div {...paneDrop('browser')} className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'browser' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('browser', 'the browser')}{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 

@@ -1401,3 +1401,21 @@ textarea.card-notes.editing {
 /* On hover (and on a hidden row, whose unhide button always shows) the text makes room for the two buttons. */
 .tab:hover .tab-body, .tab.is-hidden .tab-body { padding-right: 46px; }
 .tab.is-hidden:not(:hover) .tab-close { display: none; }
+/* Panes move by dragging the grip at their top onto another pane; the pane it would land on is outlined. */
+.pane, .files-slot, .browser-slot { position: relative; }
+.pane-grip { position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 30; width: 64px; height: 14px; display: grid; place-items: center; cursor: grab; opacity: 0; transition: opacity .15s; }
+.pane-grip i { width: 36px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--dim) 70%, transparent); }
+.pane:hover > .pane-grip, .files-slot:hover > .pane-grip, .browser-slot:hover > .pane-grip { opacity: 1; }
+.pane-grip:hover i { background: var(--accent); }
+.pane-target { outline: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -4px; border-radius: 12px; }
+/* The PDF toolbar: three groups (pages · zoom and fit · the file), icon buttons with tooltips, the page number typable. */
+.pdf-viewer:focus { outline: none; }
+.pdf-toolbar { gap: 10px; padding: 8px 10px; }
+.pdf-group { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 10px; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.pdf-btn, .pdf-zoom { height: 28px; min-width: 28px; display: inline-grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; padding: 0 6px; }
+.pdf-btn:hover:not(:disabled), .pdf-zoom:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.pdf-btn:disabled { opacity: .35; cursor: default; }
+.pdf-btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.pdf-zoom { min-width: 48px; font-variant-numeric: tabular-nums; color: var(--dim); }
+.pdf-page { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pdf-page input { width: 34px; height: 24px; text-align: center; border: 1px solid var(--border); border-radius: 6px; background: var(--pane); color: var(--fg); font: inherit; font-size: 12px; }

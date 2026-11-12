@@ -258,6 +258,11 @@ export async function teamCallSend(company: unknown, signal: unknown): Promise<a
 }
 export async function teamIce(company: unknown): Promise<any> { return jsonOf(await authed(`/api/companies/${companyId(company)}/call/ice`)) }
 export async function teamFiles(company: unknown): Promise<any> { return jsonOf(await authed(`/api/companies/${companyId(company)}/files`)) }
+/** A team file's public link: on makes a new one (the old stops working) and returns it; off stops it. */
+export async function teamFileShare(company: unknown, fileId: unknown, on: unknown): Promise<{ url?: string; ok?: boolean }> {
+  if (typeof fileId !== 'string' || !/^[0-9a-f-]{36}$/.test(fileId)) throw new Error('Unsupported workspace action.')
+  return jsonOf(await authed(`/api/companies/${companyId(company)}/files/${fileId}/share`, { method: on === false ? 'DELETE' : 'POST' }))
+}
 export async function teamFileChange(company: unknown, fileId: unknown, change: unknown): Promise<any> {
   if (typeof fileId !== 'string' || !/^[0-9a-f-]{36}$/.test(fileId)) throw new Error('Unsupported workspace action.')
   const path = `/api/companies/${companyId(company)}/files/${fileId}`

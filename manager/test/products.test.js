@@ -60,4 +60,15 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/tasks/people`, { token: ilai.token, method: 'PUT', data: { key: 'ilai' } })).status, 200);
   assert.equal((await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'ilai' } })).status, 403, 'not her column');
   assert.equal((await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'livio' } })).status, 200, 'a free column is fine');
+  // Share links: a file in a folder, shared by its uploader, opens for anyone with the link until stopped.
+  const port = server.address().port;
+  const up = await (await fetch(`http://127.0.0.1:${port}${base}/files?name=Deck.pdf&type=application/pdf&folder=Sales%2FUniversities`, { method: 'POST', headers: { Authorization: `Bearer ${ilai.token}`, 'Content-Type': 'application/octet-stream' }, body: Buffer.from('%PDF-1.4 deck') })).json();
+  assert.equal(up.file.folder, 'Sales/Universities');
+  assert.equal((await request(`${base}/files/${up.file.id}/share`, { token: sofia.token, method: 'POST' })).status, 403, 'only its uploader or an admin');
+  const shareUrl = (await request(`${base}/files/${up.file.id}/share`, { token: ilai.token, method: 'POST' })).body.url;
+  const path = new URL(shareUrl).pathname, open = await fetch(`http://127.0.0.1:${port}${path}`);
+  assert.equal(open.status, 200); assert.equal(open.headers.get('content-type'), 'application/pdf'); assert.match(open.headers.get('content-disposition'), /^inline/); assert.equal(await open.text(), '%PDF-1.4 deck');
+  assert.equal((await request(`${base}/files`, { token: ilai.token })).body.files.find(f => f.id === up.file.id).shared, true);
+  await request(`${base}/files/${up.file.id}/share`, { token: ilai.token, method: 'DELETE' });
+  assert.equal((await fetch(`http://127.0.0.1:${port}${path}`)).status, 404, 'stopped');
 });

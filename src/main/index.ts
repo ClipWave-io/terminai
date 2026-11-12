@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
 import { DEFAULT_WORKSPACE_URL } from '../shared/workspace'
-import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamChannels, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
+import { workspaceState, workspaceLogin, workspaceLogout, workspaceRequest, workspaceTasks, workspaceWorklog, teamOf, workspaceHandoff, workspaceAttach, teamChat, teamChannels, teamSend, teamSignal, teamCall, teamCallSend, teamIce, teamFiles, teamFileChange, teamFileShare, teamUpload, teamFetch, teamImage, workspaceFetchFile, workspaceHasAccount, workspaceBrowserLoginStart, workspaceBrowserLoginWait, workspaceBrowserLoginCancel } from './workspace'
 import { setupAssignedMcps } from './mcp-setup'
 import { startUpdates, checkForUpdatesNow, updateReady, installUpdateNow } from './updates'
 import { notice, noticesWindow, noticesList, noticesRead, noticesClear, noticesSound, playSound } from './notices'
@@ -321,8 +321,8 @@ app.whenReady().then(() => {
   // The first launch after installing: macOS shows its Allow question for TerminAI's notifications once.
   if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void notifyPermission().then(p => { if (p === 'notDetermined') void notifyPermission(true) }), 8000)
   noticesWindow(() => win)
-  noticesSound(kind => store.load().sounds?.[kind as keyof Prefs['sounds']] !== false)
-  appIpc.handle('sound:test', (_e, kind: unknown) => { playSound(String(kind), true); return true })
+  noticesSound(kind => store.load().sounds?.[kind as keyof Prefs['sounds']] !== false, kind => store.load().soundNames?.[kind as keyof Prefs['sounds']])
+  appIpc.handle('sound:test', (_e, kind: unknown, name: unknown) => { playSound(String(kind), true, typeof name === 'string' ? name : undefined); return true })
   startUpdates(() => win, { night: () => store.load().nightUpdates, busy: () => ptys.liveIds().some(id => ['working', 'question'].includes(ptys.statusOf(id))) })
   // Livio's earlier build marked a run with `alive`; one left behind is a crash of that build, read once and dropped.
   const legacyMarker = join(app.getPath('userData'), 'alive')
@@ -500,6 +500,7 @@ function registerIpc(): void {
   })
   appIpc.handle('team:files', (_e, company) => teamFiles(company))
   appIpc.handle('team:file-change', (_e, company, id, change) => teamFileChange(company, id, change))
+  appIpc.handle('team:file-share', (_e, company, id, on) => teamFileShare(company, id, on))
   appIpc.handle('team:upload', (_e, company, path, access, products, chat, folder) => teamUpload(company, path, access, products, chat === true, undefined, typeof folder === 'string' ? folder : undefined))
   appIpc.handle('team:image', (_e, company, id, name) => teamImage(company, id, name))
   appIpc.handle('team:open', async (_e, company, id, name, how) => { const path = await teamFetch(company, id, name); if (how === 'reveal') shell.showItemInFolder(path); else if (how === 'pane') queueOpenFile(path); else await shell.openPath(path) })
@@ -593,6 +594,8 @@ function registerIpc(): void {
   appIpc.handle('project:create', (_event, folder: string, name: string, directory: boolean) => projectFiles.create(folder, name, directory))
   // The folder the Files pane shows, opened in Finder.
   appIpc.handle('project:openFolder', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(typeof path === 'string' ? path : '')); if (error) throw new Error(error) })
+  // Show in Finder; returns the file's full path (Copy path uses it).
+  appIpc.handle('project:reveal', async (_event, path: string) => { const full = await projectFiles.resolved(path); shell.showItemInFolder(full); return full })
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())

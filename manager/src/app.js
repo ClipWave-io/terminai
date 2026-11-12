@@ -150,6 +150,17 @@ export function createApp(pool, config) {
       // hand-offs, device approval, the account, sessions or passwords, which would turn it into its maker's account.
       if (/^Bearer tbot_/.test(req.headers.authorization || '') && !/^\/api\/companies\/[^/]+\/(conversations|conversations\/[0-9a-f-]{36}\/messages|agent|agent\/[0-9a-f-]{36}\/replies)$/.test(path))
         return json(res, 403, { error: 'A bot key can list, read and message shared sessions only.' });
+      // A shared team file, for anyone with its link: PDFs, pictures, audio and video open in the browser, the rest downloads.
+      const shared = path.match(/^\/f\/([A-Za-z0-9_-]{43})$/);
+      if ((req.method === 'GET' || req.method === 'HEAD') && shared) {
+        const fwd = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()), ip = config.trustProxyHops > 0 ? fwd.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
+        await limit(pool, `share:${ip}`, 600, 3600);
+        const { rows: [f] } = await pool.query('SELECT name,mime,data FROM manager_team_files WHERE share_hash=$1', [digest(shared[1])]);
+        if (!f) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('This link was stopped or never existed.'); }
+        const inline = /^(application\/pdf|image\/(png|jpeg|gif|webp)|video\/(mp4|quicktime|webm)|audio\/(mpeg|mp4|wav|ogg))$/.test(f.mime);
+        res.writeHead(200, { 'Content-Type': inline ? f.mime : 'application/octet-stream', 'Content-Length': f.data.length, 'Content-Security-Policy': "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'", 'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}` });
+        return res.end(req.method === 'HEAD' ? undefined : f.data);
+      }
       if (req.method === 'GET' && path === '/health') { await pool.query('SELECT 1'); return json(res, 200, { ok: true }); }
       const staticFiles = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/localflow': ['localflow.html', 'text/html'] };
       if (req.method === 'GET' && staticFiles[path]) {
@@ -446,7 +457,7 @@ export function createApp(pool, config) {
         return json(res,201,{id:companyId,name});
       }
       // Team files and chat: a raw-body upload and long polls, so outside the JSON company route below.
-      const teamRoute = path.match(/^\/api\/companies\/([0-9a-f-]{36})\/(files|chat|call)(?:\/([^/]+))?$/);
+      const teamRoute = path.match(/^\/api\/companies\/([0-9a-f-]{36})\/(files|chat|call)(?:\/([^/]+(?:\/share)?))?$/);
       if (teamRoute && !user.bot_id) {
         const companyId = teamRoute[1], kind = teamRoute[2], sub = teamRoute[3] || '';
         const { rows: [member] } = await pool.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2', [companyId, user.id]);
@@ -455,11 +466,11 @@ export function createApp(pool, config) {
         const canSee = f => adminish || f.created_by === user.id || f.access === 'all' || (f.access === 'products' && (!member.products || (f.products || []).some(p => member.products.includes(p))));
         // A folder path: segments without slashes or control characters, joined by '/'.
         const folderOf = v => typeof v === 'string' ? v.split('/').map(x => x.replace(/[\\\u0000-\u001f]/g, '').trim()).filter(Boolean).join('/').slice(0, 200) : '';
-        const meta = f => ({ id: f.id, folder: f.folder || '', name: f.name, mime: f.mime, size: f.size, access: f.access, products: f.products, by: f.created_by, byName: f.by_name, createdAt: f.created_at, fromChat: f.from_chat });
+        const meta = f => ({ id: f.id, folder: f.folder || '', shared: !!f.shared_at, name: f.name, mime: f.mime, size: f.size, access: f.access, products: f.products, by: f.created_by, byName: f.by_name, createdAt: f.created_at, fromChat: f.from_chat });
         const seen = (typing = false) => pool.query(`INSERT INTO manager_presence(company_id,user_id,seen_at,typing_until) VALUES($1,$2,now(),${typing ? "now()+interval '6 seconds'" : 'NULL'})
           ON CONFLICT (company_id,user_id) DO UPDATE SET seen_at=now()${typing ? ",typing_until=now()+interval '6 seconds'" : ''}`, [companyId, user.id]);
         if (kind === 'files' && !sub && req.method === 'GET') {
-          const { rows } = await pool.query('SELECT f.id,f.folder,f.name,f.mime,f.size,f.access,f.products,f.created_by,f.created_at,f.from_chat,u.name AS by_name FROM manager_team_files f LEFT JOIN manager_users u ON u.id=f.created_by WHERE f.company_id=$1 ORDER BY f.created_at DESC LIMIT 2000', [companyId]);
+          const { rows } = await pool.query('SELECT f.id,f.folder,f.shared_at,f.name,f.mime,f.size,f.access,f.products,f.created_by,f.created_at,f.from_chat,u.name AS by_name FROM manager_team_files f LEFT JOIN manager_users u ON u.id=f.created_by WHERE f.company_id=$1 ORDER BY f.created_at DESC LIMIT 2000', [companyId]);
           return json(res, 200, { files: rows.filter(canSee).map(meta) });
         }
         if (kind === 'files' && !sub && req.method === 'POST') {
@@ -475,9 +486,20 @@ export function createApp(pool, config) {
             [randomUUID(), companyId, name, mime, data.length, data, access, products, user.id, url.searchParams.get('chat') === '1', folderOf(url.searchParams.get('folder'))]);
           return json(res, 200, { file: meta({ ...row, by_name: user.name }) });
         }
+        // A share link: made (or made again, which stops the old one) by its uploader or an admin; DELETE stops it.
+        const shareSub = sub && sub.match(/^([0-9a-f-]{36})\/share$/);
+        if (kind === 'files' && shareSub && ['POST', 'DELETE'].includes(req.method)) {
+          const { rows: [f] } = await pool.query('SELECT id,created_by,access,products FROM manager_team_files WHERE id=$1 AND company_id=$2', [uuid(shareSub[1]), companyId]);
+          requireThat(f && canSee(f), 404, 'File not found.');
+          requireThat(adminish || f.created_by === user.id, 403, 'Only its uploader or an admin can share it.');
+          if (req.method === 'DELETE') { await pool.query('UPDATE manager_team_files SET share_hash=NULL,shared_at=NULL WHERE id=$1', [f.id]); return json(res, 200, { ok: true }); }
+          const token = opaqueToken();
+          await pool.query('UPDATE manager_team_files SET share_hash=$1,shared_at=now() WHERE id=$2', [digest(token), f.id]);
+          return json(res, 200, { url: `${origin}/f/${token}` });
+        }
         if (kind === 'files' && sub) {
           const id = uuid(sub);
-          const { rows: [f] } = await pool.query(`SELECT id,folder,name,mime,size,access,products,created_by,created_at,from_chat${req.method === 'GET' ? ',data' : ''} FROM manager_team_files WHERE id=$1 AND company_id=$2`, [id, companyId]);
+          const { rows: [f] } = await pool.query(`SELECT id,folder,shared_at,name,mime,size,access,products,created_by,created_at,from_chat${req.method === 'GET' ? ',data' : ''} FROM manager_team_files WHERE id=$1 AND company_id=$2`, [id, companyId]);
           requireThat(f && canSee(f), 404, 'File not found.');
           if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': f.data.length, 'Cache-Control': 'private, max-age=31536000, immutable', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}` }); return res.end(f.data); }
           requireThat(adminish || f.created_by === user.id, 403, 'Only its uploader or an admin can change it.');

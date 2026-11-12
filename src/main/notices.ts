@@ -23,11 +23,11 @@ export function noticesWindow(w: () => BrowserWindow | null): void { win = w }
  * shows the notification and whatever the window is doing. Settings › Notifications › Sounds turns each kind on or off.
  */
 export const SOUND_FILES: Record<string, string> = { chat: 'Pop', call: 'Ping', done: 'Glass', request: 'Hero', agent: 'Purr', todo: 'Tink', memory: 'Basso', update: 'Bottle' }
-let soundOn: (kind: string) => boolean = () => true
+let soundOn: (kind: string) => boolean = () => true, soundName: (kind: string) => string | undefined = () => undefined
 const lastSound = new Map<string, number>()
-export function noticesSound(on: (kind: string) => boolean): void { soundOn = on }
-export function playSound(kind: string, force = false): void {
-  const name = SOUND_FILES[kind]; if (!name || (!force && !soundOn(kind))) return
+export function noticesSound(on: (kind: string) => boolean, name?: (kind: string) => string | undefined): void { soundOn = on; if (name) soundName = name }
+export function playSound(kind: string, force = false, override?: string): void {
+  const name = (override && /^[A-Za-z]+$/.test(override) ? override : undefined) ?? soundName(kind) ?? SOUND_FILES[kind]; if (!name || (!force && !soundOn(kind))) return
   // One per kind every 1.5 s: ten messages arriving together ring once.
   if (!force && Date.now() - (lastSound.get(kind) ?? 0) < 1500) return
   lastSound.set(kind, Date.now())

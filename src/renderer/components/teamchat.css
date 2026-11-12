@@ -148,3 +148,8 @@
 .tc-crumbs-gap { flex: 1; }
 .tc-newfolder { height: 26px; width: 150px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--accent); background: var(--pane); color: var(--fg); font: inherit; font-size: 12.5px; }
 .tc-file-ico.folder { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* Share links: a shared file's link icon is coloured; "Copied" flashes after a copy. */
+.tc-link.on { color: var(--accent); }
+.tc-copied { font-size: 11px; font-weight: 600; color: var(--accent); }
+.tc-linkmenu { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tc-link.danger { color: var(--danger, #e5484d); }

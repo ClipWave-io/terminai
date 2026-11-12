@@ -12,13 +12,14 @@ import { CallIcon, CallView, useCalls } from './Call'
 type Person = { id: string; name: string; seenAt: string | null; readAt: string | null; typing: boolean; online: boolean }
 type ChatFile = { id: string; name: string; mime: string; size: number } | { hidden: true }
 type Message = { id: string; body: string; at: string; from: string; fromName: string; file: ChatFile | null; pending?: boolean }
-type TeamFile = { id: string; folder?: string; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
+type TeamFile = { id: string; folder?: string; shared?: boolean; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
 
 const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : d } catch { return d } }, set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} } }
 
 const P: Record<string, string> = {
   clip: 'M20.5 11.5 12 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.7a1.7 1.7 0 0 1-2.4-2.4L15 7.6',
   folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', back: 'M15 6l-6 6 6 6', plusFolder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2ZM12 11v5M9.5 13.5h5',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   bell: 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0', bellOff: 'M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2H8M10 20.5a2 2 0 0 0 4 0M4 4l16 16',
   send: 'M4 12 20 4l-4 16-4-7-8-1Z', close: 'M6 6l12 12M18 6 6 18', lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5Z',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14', reveal: 'M12 4v11M7 10l5 5 5-5M5 20h14', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6',
@@ -256,6 +257,11 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
     for (const p of paths) { try { await window.term.teamchat.upload(company, p, access.access, access.products, false, cwd) } catch (e) { onError(String((e as Error).message ?? e)) } finally { setBusy(n => n - 1) } }
     load()
   }
+  // Share link: copied to the clipboard; a shared file shows a link mark, and its menu can stop the link.
+  const [copied, setCopied] = useState(''), [linkMenu, setLinkMenu] = useState<string | null>(null)
+  const share = (f: TeamFile, on: boolean) => void window.term.teamchat.share(company, f.id, on).then(r => {
+    setLinkMenu(null); if (r.url) { void navigator.clipboard.writeText(r.url); setCopied(f.id); window.setTimeout(() => setCopied(c => c === f.id ? '' : c), 2500) } load()
+  }).catch(e => onError(String(e.message ?? e)))
   const change = (f: TeamFile, c: object | null) => void window.term.teamchat.change(company, f.id, c).then(load).catch(e => onError(String(e.message ?? e)))
   // Searching looks in every folder; otherwise the files of this folder and the folders inside it.
   const visible = useMemo(() => files.filter(f => showChat || !f.fromChat), [files, showChat])
@@ -302,10 +308,14 @@ function Files({ company, admin, me, onError }: { company: string; admin: boolea
             : <span className={`tc-acc ${f.access}`} title="Who can see it">{f.access === 'products' ? (f.products ?? []).join(', ') || 'No one' : ACCESS[f.access]}</span>}
           <span className="tc-factions">
             <button className="tc-link" title="Show in Finder" aria-label="Show in Finder" onClick={() => void window.term.teamchat.open(company, f.id, f.name, 'reveal')}><Ico n="reveal" s={15} /></button>
+            {mine && <button className={`tc-link${f.shared ? ' on' : ''}`} title={f.shared ? 'Shared by link: copy a new link or stop it' : 'Copy a share link anyone can open'} aria-label="Share link"
+              onClick={() => f.shared ? setLinkMenu(linkMenu === f.id ? null : f.id) : share(f, true)}>{copied === f.id ? <span className="tc-copied">Copied</span> : <Ico n="link" s={15} />}</button>}
             {mine && <button className="tc-link" title="Who can see it" aria-label="Who can see it" onClick={() => setEditing(editing === f.id ? null : f.id)}><Ico n="lock" s={15} /></button>}
             {mine && <button className="tc-link" title="Delete" aria-label="Delete" onClick={() => change(f, null)}><Ico n="trash" s={15} /></button>}
           </span>
         </div>
+        {linkMenu === f.id && <div className="tc-access-pop inline tc-linkmenu"><small>Anyone with the link can open this file.</small>
+          <button className="tc-btn" onClick={() => share(f, true)}>Copy a new link</button><button className="tc-link danger" onClick={() => share(f, false)}>Stop sharing</button></div>}
         {editing === f.id && <div className="tc-access-pop inline"><AccessPicker value={{ access: f.access, products: f.products ?? [] }} admin={admin} options={options}
           onChange={v => change(f, { access: v.access, products: v.access === 'products' ? v.products : undefined })} /><button className="tc-link" onClick={() => setEditing(null)}>Done</button></div>}
       </div>
