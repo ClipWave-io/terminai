@@ -25,7 +25,7 @@
 //   terminai log hook                                      Claude Code's UserPromptSubmit hook: hands finished work of other tabs to this one for the To-do
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus','show','todo','log','team','ask-grok','update'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','no-enter','shared','personal','open','mine','urgent','restart'];
+const COMMANDS=['list','open','send','read','close','focus','show','todo','log','team','ask-grok','update'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','off','no-enter','shared','personal','open','mine','urgent','restart'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -83,7 +83,7 @@ function map(){
 function request(command,flags,words){
  if(command==='update')return {restart:flags.restart===true};
  if(command==='ask-grok')return {question:words.join(' '),agent:flags.agent,bot:flags.bot,tab:process.env.TERMINAI_TAB_ID};
- if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),products:flags.products,as:flags.as,folder:flags.folder,tab:process.env.TERMINAI_TAB_ID};
+ if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),products:flags.products,as:flags.as,folder:flags.folder,to:flags.to,off:flags.off===true||flags.off==='true',tab:process.env.TERMINAI_TAB_ID};
  if(command==='log')return words[0]==='hook'?{action:'hook',session:flags.session}:{action:'day',day:words[0]};
  if(command==='task'){
   const action=words[0];

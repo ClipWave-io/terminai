@@ -202,6 +202,9 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   const seen=(await asBot(`/api/companies/${alpha.id}/conversations`)).body.conversations.map(c=>c.id);
   assert.ok(seen.includes(tabB.id));assert.ok(!seen.includes(tabP.id),'not the private one');
   assert.equal((await asBot(`/api/companies/${alpha.id}/notes`)).status,403,'nothing else');
+  // Team files: a bot key lists and downloads them (read-only), never uploads.
+  assert.equal((await asBot(`/api/companies/${alpha.id}/files`)).status,200,'bot lists files');
+  assert.equal((await asBot(`/api/companies/${alpha.id}/files?name=x.txt`,{method:'POST',data:{}})).status,403,'bot cannot upload');
   assert.equal((await asBot('/api/auth/password',{method:'POST',data:{password:'xxxxxxxxxxxxxxxx'}})).status,403);
   // A bot key never becomes its maker's account: no sign-in hand-off, device approval, account or sessions.
   for(const [path,method] of [['/api/auth/handoff','POST'],['/api/auth/device/approve','POST'],['/api/me','GET'],['/api/auth/sessions','GET'],['/api/companies','POST']])

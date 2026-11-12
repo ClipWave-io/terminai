@@ -148,7 +148,8 @@ export function createApp(pool, config) {
       const url = new URL(req.url, origin), path = url.pathname;
       // A bot key (tbot_) reaches its own routes only: listing, reading and messaging shared sessions. Never sign-in
       // hand-offs, device approval, the account, sessions or passwords, which would turn it into its maker's account.
-      if (/^Bearer tbot_/.test(req.headers.authorization || '') && !/^\/api\/companies\/[^/]+\/(conversations|conversations\/[0-9a-f-]{36}\/messages|agent|agent\/[0-9a-f-]{36}\/replies)$/.test(path))
+      if (/^Bearer tbot_/.test(req.headers.authorization || '') && !/^\/api\/companies\/[^/]+\/(conversations|conversations\/[0-9a-f-]{36}\/messages|agent|agent\/[0-9a-f-]{36}\/replies)$/.test(path)
+        && !(req.method === 'GET' && /^\/api\/companies\/[0-9a-f-]{36}\/files(\/[0-9a-f-]{36})?$/.test(path)))
         return json(res, 403, { error: 'A bot key can list, read and message shared sessions only.' });
       // A shared team file, for anyone with its link: PDFs, pictures, audio and video open in the browser, the rest downloads.
       const shared = path.match(/^\/f\/([A-Za-z0-9_-]{43})$/);
@@ -458,8 +459,10 @@ export function createApp(pool, config) {
       }
       // Team files and chat: a raw-body upload and long polls, so outside the JSON company route below.
       const teamRoute = path.match(/^\/api\/companies\/([0-9a-f-]{36})\/(files|chat|call)(?:\/([^/]+(?:\/share)?))?$/);
-      if (teamRoute && !user.bot_id) {
+      // Bot keys read team files too (list and download, what their maker may see); nothing else of the team routes.
+      if (teamRoute && (!user.bot_id || (teamRoute[2] === 'files' && req.method === 'GET' && !String(teamRoute[3] || '').includes('/')))) {
         const companyId = teamRoute[1], kind = teamRoute[2], sub = teamRoute[3] || '';
+        requireThat(!user.bot_id || companyId === user.bot_company, 403, 'This bot key belongs to another workspace.');
         const { rows: [member] } = await pool.query('SELECT * FROM manager_memberships WHERE company_id=$1 AND user_id=$2', [companyId, user.id]);
         requireThat(member, 404, 'Company not found.');
         const adminish = isAdmin(member);

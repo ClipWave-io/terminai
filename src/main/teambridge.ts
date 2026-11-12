@@ -1,4 +1,6 @@
-import { teamUpload } from './workspace'
+import { teamUpload, teamFiles, teamFetch, teamFileShare } from './workspace'
+import { copyFile } from 'node:fs/promises'
+import { join as joinPath, isAbsolute as absolute } from 'node:path'
 import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -253,7 +255,26 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       const { file } = await teamUpload(team.id, a.id, products.length ? 'products' : 'all', products, false, typeof a.as === 'string' ? a.as : undefined, typeof a.folder === 'string' ? a.folder : undefined)
       return { ok: true, id: file.id, folder: file.folder, name: file.name, access: file.access, products: file.products }
     }
-    throw Error('usage: terminai team list|read|send|reply|replies|upload')
+    // Team files for agents: list (optionally one folder and what is inside it), download one, or make a share link.
+    if (a.action === 'files') {
+      const { files } = await teamFiles(team.id), folder = typeof a.folder === 'string' ? a.folder.replace(/^\/+|\/+$/g, '') : ''
+      return { files: (files as { id: string; folder?: string; name: string; size: number; access: string; products: string[] | null; shared?: boolean }[])
+        .filter(f => !folder || f.folder === folder || (f.folder ?? '').startsWith(`${folder}/`))
+        .map(f => ({ id: f.id, path: [f.folder, f.name].filter(Boolean).join('/'), size: f.size, access: f.access, products: f.products, shared: !!f.shared })) }
+    }
+    if (a.action === 'download') {
+      if (typeof a.id !== 'string') throw Error('usage: terminai team download <file id> [--to <absolute folder>]')
+      const f = ((await teamFiles(team.id)).files as { id: string; name: string }[]).find(x => x.id === a.id); if (!f) throw Error('No such team file (or not visible to you).')
+      const cached = await teamFetch(team.id, f.id, f.name)
+      if (typeof a.to !== 'string') return { ok: true, path: cached }
+      if (!absolute(a.to)) throw Error('--to must be an absolute folder')
+      const dest = joinPath(a.to, f.name); await copyFile(cached, dest); return { ok: true, path: dest }
+    }
+    if (a.action === 'share') {
+      if (typeof a.id !== 'string') throw Error('usage: terminai team share <file id> [--off]')
+      return teamFileShare(team.id, a.id, a.off !== true)
+    }
+    throw Error('usage: terminai team list|read|send|reply|replies|upload|files|download|share')
   }
   // Sessions and turns go up every 5 seconds; messages come down at once (listen).
   return { tick, command, asked: async (keyId: string, conversation: string) => { const t = await opts.team(); if (t) await t.call(`/api/companies/${t.id}/bots/${keyId}/asked`, 'POST', { conversation }) }, conversationFor: (tabId: string): string | null => conversationOf.get(ptys.workspaceKeyOf(tabId)) ?? null, start: () => { setInterval(() => void tick(), 5_000); setTimeout(() => void tick(), 4_000); setTimeout(() => void listen(), 5_000) } }
