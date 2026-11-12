@@ -155,7 +155,11 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
   const [role, setRole] = useState<'admin' | 'member' | 'viewer'>('member')
   const [products, setProducts] = useState<string[]>([])
   const options = useProducts(products)
-  const terms = () => ({ role, ...(role !== 'admin' && products.length ? { products } : {}) })
+  const [scope, setScope] = useState<'all' | 'some'>('all')
+  const limited = role !== 'admin' && scope === 'some'
+  const terms = () => ({ role, ...(limited && products.length ? { products } : {}) })
+  const ready = !limited || products.length > 0
+  const roles: ['admin' | 'member' | 'viewer', string, string][] = [...(owner ? [['admin', 'Admin', 'Sees and manages everything.'] as ['admin', string, string]] : []), ['member', 'Member', 'Works on tasks, notes, files and chat.'], ['viewer', 'Viewer', 'Reads only.']]
   const linkInvite = async () => {
     try { const v = await window.term.workspace.request(`${base}/invites/link`, 'POST', terms()); setLink(v.inviteUrl); setCopied(false) } catch (e) { onError(e) }
   }
@@ -175,20 +179,25 @@ function TeamPeople({ base, state, members, admin, onRenamed, onInvited, onError
       {members.length < 2 && <p className="m-hint">Only you so far. Invite Matteo below: you then share the To-do and notes, on the Mac, the web and the iPhone.</p>}
     </section>}
     <div className="m-grid">
-      {<form className="m-card m-form" onSubmit={e => { e.preventDefault(); void invite() }}>
-        <h3>Invite someone</h3>
-        <p>A link anyone can open for 24 hours to join, or one just for an email. No password needed.</p>
-        <div className="m-terms">
-          <label>Joins as <select value={role} onChange={e => setRole(e.target.value as 'member')}>{owner && <option value="admin">Admin (sees everything)</option>}<option value="member">Member</option><option value="viewer">Viewer (read only)</option></select></label>
-          {role !== 'admin' && <div className="m-products"><span>Products they see</span><ProductPicker value={products} onChange={setProducts} options={options} />
-            <small>{products.length ? `Only ${products.join(', ')}: its tasks, notes, files and chat.` : 'None picked: every product.'}</small></div>}
-        </div>
-        <button type="button" className="btn primary" onClick={() => void linkInvite()}>Create invite link (24 h)</button>
-        <div className="m-inline"><input type="email" required placeholder="name@email.com" value={email} onChange={e => setEmail(e.target.value)} /><button className="btn" type="submit">Link for this email</button></div>
+      <form className="m-card m-form m-invite" onSubmit={e => { e.preventDefault(); if (ready) void invite() }}>
+        <div className="mi-head"><h3>Invite someone</h3><p>They open the link and join. No password needed.</p></div>
+        <div className="mi-row"><span className="mi-label">Role</span>
+          <div className="mi-body"><div className="mi-seg" role="radiogroup" aria-label="Role">{roles.map(([v, label]) => <button type="button" key={v} role="radio" aria-checked={role === v} className={role === v ? 'on' : ''} onClick={() => setRole(v)}>{label}</button>)}</div>
+            <small>{roles.find(r => r[0] === role)?.[2]}</small></div></div>
+        {role !== 'admin' && <div className="mi-row"><span className="mi-label">Access</span>
+          <div className="mi-body"><div className="mi-seg" role="radiogroup" aria-label="Products they see">
+            <button type="button" role="radio" aria-checked={scope === 'all'} className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>All products</button>
+            <button type="button" role="radio" aria-checked={scope === 'some'} className={scope === 'some' ? 'on' : ''} onClick={() => setScope('some')}>Only some</button></div>
+            {scope === 'some' && <ProductPicker value={products} onChange={setProducts} options={options} />}
+            <small>{scope === 'all' ? 'Every product: all tasks, notes, files and the team chat.' : products.length ? `Only ${products.join(', ')}: its tasks, notes, files and chat. Not the team chat.` : 'Pick at least one product.'}</small></div></div>}
+        <div className="mi-row"><span className="mi-label">Send to</span>
+          <div className="mi-body"><div className="m-inline"><input type="email" required placeholder="name@email.com" value={email} onChange={e => setEmail(e.target.value)} />
+            <button className="btn primary" type="submit" disabled={!ready}>Create invite</button></div>
+            <button type="button" className="mi-anylink" disabled={!ready} onClick={() => void linkInvite()}>Or a 24-hour link anyone can open</button></div></div>
         {link && <div className="m-link"><code>{link}</code>
           <button type="button" className="btn" onClick={() => { void navigator.clipboard.writeText(link); setCopied(true) }}>{copied ? 'Copied ✓' : 'Copy'}</button>
           <small>Send it to them. Anyone with a 24-hour link can join, so share it only with the people you mean.</small></div>}
-      </form>}
+      </form>
       <form className="m-card m-form" onSubmit={e => { e.preventDefault(); void allow() }}>
         <h3>Sign in your iPhone or the website</h3>
         <p>Tap “Sign in with a code” in the iPhone app, or “Sign in with TerminAI on your Mac” on terminai.xyz, then type the code it shows here.</p>

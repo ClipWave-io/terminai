@@ -65,7 +65,20 @@ if(!process.versions.electron){
   await js(`[...document.querySelectorAll('.pp-scope')].find(b=>!b.disabled).click()`);await delay(300);
   assert.ok(await js(`[...document.querySelectorAll('.pp-chip.on')].some(b=>b.textContent==='mm.org')`),'Sofia limited to mm.org, shown as a chip');
   await shot('3-people');
-  console.log('PASS team drawer: chat with faces, files with access chips, people with product chips');app.quit();
+  // Members › Invite someone: role and access as segments; Only some shows the products; nothing picked blocks the invite.
+  await js(`document.querySelector('[aria-label^="Team chat"]').click()`);await delay(300);
+  await js(`document.querySelector('[aria-label="Sync"]').click()`);await delay(800);
+  await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Members').click()`);
+  for(let i=0;i<30&&!await js(`!!document.querySelector('.m-invite')`);i++)await delay(200);
+  assert.ok(await js(`[...document.querySelectorAll('.m-invite .mi-seg button')].map(b=>b.textContent).join()==='Admin,Member,Viewer,All products,Only some'`),'role and access segments');
+  await js(`[...document.querySelectorAll('.m-invite .mi-seg button')].find(b=>b.textContent==='Only some').click()`);await delay(200);
+  assert.ok(await js(`document.querySelector('.m-invite .btn.primary').disabled`),'no product picked: cannot invite yet');
+  // No product known in this test workspace yet: add mm.org with + New.
+  await js(`document.querySelector('.m-invite .pp-chip.add').click()`);await delay(150);
+  await js(`(()=>{const i=document.querySelector('.m-invite .pp-new');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'mm.org');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);await delay(200);
+  assert.ok(await js(`!document.querySelector('.m-invite .btn.primary').disabled&&/Only mm.org/.test(document.querySelector('.m-invite').textContent)`),'mm.org picked');
+  await js(`document.querySelector('.m-invite').scrollIntoView()`);win.show();win.focus();win.webContents.invalidate();await delay(1200);await shot('4-invite');
+  console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})}));
  setTimeout(()=>app.exit(1),70000).unref();require('../out/main/index.js');
 }
