@@ -27,6 +27,9 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   const token = link.body.inviteUrl.split('#invite=')[1];
   // Before anyone joins, the open invite already makes the ManyMotions.org chat appear for the admin.
   assert.deepEqual((await request(`${base}/chat/channels`, { token: ilai.token })).body.channels, ['ManyMotions.org']);
+  // Every product in the To-do has its chat too, before anyone is limited to it.
+  await request(`${base}/tasks/t-coldwave`, { token: ilai.token, method: 'PUT', data: { task: { id: 't-coldwave', title: 'Launch', status: 'open', product: 'ColdWave' } } });
+  assert.deepEqual((await request(`${base}/chat/channels`, { token: ilai.token })).body.channels, ['ColdWave', 'ManyMotions.org']);
   const sofia = (await request('/api/auth/accept-invite', { method: 'POST', data: { token, name: 'Sofia', email: 'sofia@example.test', password: pw, client: 'desktop' } })).body;
   const members = (await request(`${base}/members`, { token: ilai.token })).body.members;
   assert.deepEqual(members.find(m => m.name === 'Sofia').products, ['ManyMotions.org'], 'joins limited to the product');
