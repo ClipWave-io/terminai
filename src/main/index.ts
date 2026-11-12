@@ -420,7 +420,8 @@ app.on('before-quit', event => {
   // Persist the last main-process identity before killing PTYs. Renderer polling
   // may not have saved the latest /new or /resume yet.
   const prefs = store.load()
-  store.save({ tabs: prefs.tabs.map(tab => {
+  store.save({ tabs: prefs.tabs.map(tab0 => {
+    const tab = { ...tab0, open: !!tab0.ptyId && tab0.ptyId === activeTabId }
     if (!tab.ptyId) return tab
     const agent = ptys.agentOf(tab.ptyId)
     return agent.kind ? { ...tab, agent: agent.kind, agentSession: agent.sessionId || tab.agentSession, agentArgs: agent.args, wasWorking: agent.alive && ptys.statusOf(tab.ptyId) === 'working', wasAlive: agent.alive } : { ...tab, wasWorking: false, wasAlive: false }

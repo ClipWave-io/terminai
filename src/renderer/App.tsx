@@ -421,6 +421,9 @@ export function App(): JSX.Element {
       forCwd.forEach((t, i) => ids[i] && dealt.set(t, ids[i]))
     }
 
+    // The tab you were on when TerminAI quit (new tabs go to the top, so it is not always the last in the list).
+    const saidOpen = savedTabs.findIndex(t => t.open), openIdx = saidOpen >= 0 ? saidOpen : savedTabs.length - 1
+    let frontId: string | undefined
     restoring.current = true
     try { for (const [i, raw] of savedTabs.entries()) {
       // After a restart the open tab and the ones that were working come back at once; the rest start when opened (or
@@ -428,15 +431,19 @@ export function App(): JSX.Element {
       // froze the Mac for minutes and could sign Claude out. Settings › Resume every conversation brings back the old way.
       // Left without a conversation in a folder other tabs work in: it starts a new one, since `--continue` would take theirs.
       const fresh = !!raw.claude && !raw.claudeSession && !raw.agentSession && !dealt.has(raw) && savedTabs.some((o) => o !== raw && o.cwd === raw.cwd)
-      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: !prefsRef.current.resumeAll && i < savedTabs.length - 1 && !raw.wasWorking && !raw.wasAlive, fresh }
+      const t = { ...(dealt.has(raw) ? { ...raw, claudeSession: dealt.get(raw) } : raw), later: !prefsRef.current.resumeAll && i !== openIdx && !raw.wasWorking && !raw.wasAlive, fresh }
       const running = t.ptyId ? live.get(t.ptyId) : undefined
+      let id: string | undefined
       if (running) {
         taken.add(running.id)
-        adoptTab(running, t)
+        adoptTab(running, t); id = running.id
       } else {
-        await newTab(t.cwd, t)
+        id = await newTab(t.cwd, t)
       }
+      if (i === openIdx && id) frontId = id
     } } finally { restoring.current = false }
+    // Back on the tab you were on.
+    if (frontId) setActiveId(frontId)
 
     // A session with no saved tab: opened and then closed out of prefs, or
     // prefs lost. Still a running shell, so surface it rather than orphan it.
