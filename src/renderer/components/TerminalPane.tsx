@@ -130,6 +130,7 @@ function installSelectionOverride(term: Terminal, host: HTMLElement): void {
 export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const webglRef = useRef<WebglAddon | null>(null)
   // Claude Code's dark-theme colours, translated for light themes (see claude-colors.ts).
   const remapRef = useRef<Remap | null>(claudeDarkOnLight(theme))
   const fitRef = useRef<FitAddon | null>(null)
@@ -173,16 +174,6 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     term.unicode.activeVersion = '11'
 
     term.open(host)
-
-    // WebGL is a large win on redraw-heavy TUIs but is unavailable in some GPU
-    // configurations; the canvas renderer is a correct fallback.
-    try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose())
-      term.loadAddon(webgl)
-    } catch {
-      /* canvas renderer it is */
-    }
 
     termRef.current = term
     fitRef.current = fit
@@ -249,7 +240,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       offExit()
       ro.disconnect()
       cancelAnimationFrame(raf)
-      term.dispose()
+      term.dispose(); webglRef.current = null
       termRef.current = null
       fitRef.current = null
     }
@@ -276,6 +267,28 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     fitRef.current?.fit()
     window.term.pty.resize(ptyId, term.cols, term.rows)
   }, [fontSize, ptyId])
+
+  // ---- the GPU renderer, for the visible tab only ----------------------------
+  // Chromium keeps about 16 WebGL contexts per window and drops the oldest past that: with dozens of tabs (or a PDF or
+  // video opened in Files) the open tab's context was dropped and its terminal showed a white box with a broken-image
+  // icon until the app restarted. Hidden tabs use the plain renderer; a lost context falls back and redraws.
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    if (!active) {
+      const t = window.setTimeout(() => { webglRef.current?.dispose(); webglRef.current = null }, 1500)
+      return () => window.clearTimeout(t)
+    }
+    if (!webglRef.current) {
+      try {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => { webgl.dispose(); if (webglRef.current === webgl) webglRef.current = null; term.refresh(0, term.rows - 1) })
+        term.loadAddon(webgl); webglRef.current = webgl
+      } catch { /* the plain renderer it is */ }
+    }
+    term.refresh(0, term.rows - 1)
+    return undefined
+  }, [active, ptyId])
 
   // ---- refit + focus when this tab becomes visible ------------------------
   useEffect(() => {
