@@ -980,11 +980,19 @@ export function createApp(pool, config) {
           return {ok:true};
         }
         // The To-do's shared page (see manager_tasks). Whoever is in the workspace reads it; viewers cannot change it.
+        // Everyone in the workspace has a key on the To-do: the partners their column (ilai, livio), every other member 'u:<user id>'.
+        const taskPeople=async()=>{
+          const {rows}=await db.query(`SELECT u.id,u.name,m.products,p.key FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id
+            LEFT JOIN manager_task_people p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 ORDER BY u.name,u.id`,[companyId]);
+          return rows.map(r=>({id:r.id,name:r.name,products:r.products??null,key:r.key??`u:${r.id}`}));
+        };
         if(tail==='/tasks'&&req.method==='GET') {
-          const {rows:people}=await db.query('SELECT p.key,u.id,u.name FROM manager_task_people p JOIN manager_users u ON u.id=p.user_id WHERE p.company_id=$1',[companyId]);
+          const people=await taskPeople(), column=people.filter(p=>!p.key.startsWith('u:'));
           const {rows}=await db.query('SELECT id,data,updated_at,deleted_at,changed_by FROM manager_tasks WHERE company_id=$1 ORDER BY updated_at LIMIT 5000',[companyId]);
+          // `column`: this person's partner column or null (what `me` meant before members had keys; older apps and the iPhone read it).
           return { tasks:rows.filter(r=>!r.deleted_at&&sees(r.data.product)).map(r=>r.data), deleted:rows.filter(r=>r.deleted_at).map(r=>({id:r.id,deletedAt:r.deleted_at,by:people.find(p=>p.id===r.changed_by)?.key??null})),
-            people:Object.fromEntries(people.map(p=>[p.key,{id:p.id,name:p.name}])), me:people.find(p=>p.id===user.id)?.key??null };
+            people:Object.fromEntries(column.map(p=>[p.key,{id:p.id,name:p.name}])), me:people.find(p=>p.id===user.id)?.key??`u:${user.id}`,
+            column:column.find(p=>p.id===user.id)?.key??null, members:people.map(p=>({key:p.key,name:p.name,products:p.products})) };
         }
         if(tail==='/tasks/people'&&req.method==='PUT') {
           const key=enumValue(input.key,['ilai','livio'],'column');
@@ -997,17 +1005,24 @@ export function createApp(pool, config) {
         const taskMatch=tail.match(/^\/tasks\/([A-Za-z0-9_-]{1,80})$/);
         if(taskMatch&&['PUT','DELETE'].includes(req.method)) {
           requireThat(member.role!=='viewer',403,'Viewers cannot change the To-do.');
-          if(req.method==='PUT')requireThat(sees(input.task?.product),403,'You have no access to that product.');
           const id=taskMatch[1];
+          // A member limited to products changes only their tasks: the copy here as well as the one sent.
+          const {rows:[had]}=await db.query('SELECT data,deleted_at FROM manager_tasks WHERE company_id=$1 AND id=$2',[companyId,id]);
+          requireThat(!had||had.deleted_at||sees(had.data.product),403,'You have no access to that product.');
+          if(req.method==='PUT')requireThat(sees(input.task?.product),403,'You have no access to that product.');
           if(req.method==='DELETE'){await db.query('UPDATE manager_tasks SET deleted_at=now(),updated_at=now(),changed_by=$3 WHERE company_id=$1 AND id=$2',[companyId,id,user.id]);return {ok:true};}
           const task=input.task;
           requireThat(task&&typeof task==='object'&&!Array.isArray(task)&&task.id===id,400,'Invalid task.');
           requireThat(typeof task.title==='string'&&task.title.trim()&&task.title.length<=500,400,'A task needs a title.');
           requireThat(['open','doing','done'].includes(task.status),400,'Invalid status.');
-          requireThat([null,'ilai','livio','both'].includes(task.assignee??null),400,'Invalid column.');
+          const people=await taskPeople(), mine=people.find(p=>p.id===user.id);
+          // A member's column is theirs by key: only someone in this workspace.
+          requireThat([null,'ilai','livio','both'].includes(task.assignee??null)||people.some(p=>p.key===task.assignee&&p.key.startsWith('u:')),400,'Invalid column.');
           requireThat(JSON.stringify(task).length<=60000,413,'That task is too long.');
           // A Mac copying its repo keeps the time the task really changed; an edit made here (phone, web) is now.
           const data={...task,assignee:task.assignee??null,updatedAt:typeof task.updatedAt==='string'&&!Number.isNaN(Date.parse(task.updatedAt))?task.updatedAt:new Date().toISOString()};
+          // A member signs their own edits; the partners' Macs copy tasks signed by whoever made them, so theirs are kept as sent.
+          if(mine?.key.startsWith('u:')){data.updatedBy=mine.key;data.createdBy=had?.data?.createdBy??mine.key;}
           await db.query(`INSERT INTO manager_tasks(company_id,id,data,changed_by) VALUES($1,$2,$3,$4)
             ON CONFLICT (company_id,id) DO UPDATE SET data=$3,updated_at=now(),deleted_at=NULL,changed_by=$4`,[companyId,id,data,user.id]);
           return {task:data};
