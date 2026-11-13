@@ -1,5 +1,6 @@
 import { useAssignedProducts } from '../assignedProducts'
 import { useEffect, useRef, useState } from 'react'
+import { NoteSide, type SideTab } from './NoteSide'
 import type { WorkspaceNote, WorkspaceNoteFile, WorkspaceState } from '../../shared/workspace'
 
 /**
@@ -7,7 +8,10 @@ import type { WorkspaceNote, WorkspaceNoteFile, WorkspaceState } from '../../sha
  * They live on the Sync server as notes of kind "doc" on the workspace's shared board, so everyone in the
  * workspace (Matteo and Ilai) reads and edits the same ones; the web and iPhone task boards leave them out.
  */
-const COMPANY_KEY = 'terminai.sharedNotesWorkspace'
+const COMPANY_KEY = 'terminai.sharedNotesWorkspace', SIDE_KEY = 'terminai.sharedNotesSide'
+const savedSide = (): { tab: SideTab | ''; scope: 'note' | 'all' } => {
+  try { const v = JSON.parse(localStorage.getItem(SIDE_KEY) ?? '{}'); return { tab: v.tab === 'comments' || v.tab === 'activity' ? v.tab : '', scope: v.scope === 'all' ? 'all' : 'note' } } catch { return { tab: '', scope: 'note' } }
+}
 const ago = (iso: string) => {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000)
   return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(iso).toLocaleDateString()
@@ -35,6 +39,10 @@ export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () =
   useEffect(() => { onProducts?.(products) }, [products.join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
   const [over, setOver] = useState(false)
   const [asking, setAsking] = useState(false)
+  // The side panel beside the open note (Comments or Activity, kept on this Mac).
+  const [side, setSide] = useState(savedSide)
+  const [openComments, setOpenComments] = useState(0)
+  useEffect(() => { try { localStorage.setItem(SIDE_KEY, JSON.stringify(side)) } catch {} }, [side.tab, side.scope])
   const saving = useRef<number | null>(null)
   const title = useRef<HTMLInputElement>(null)
   const base = `/api/companies/${company}/notes`
@@ -108,12 +116,15 @@ export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () =
   const listed = notes.filter(n => !product || (n.product || '') === product)
     .filter(n => !q || `${n.title}\n${n.body}\n${(n.files ?? []).map(f => f.name).join(' ')}`.toLowerCase().includes(q))
   const files = note?.files ?? []
-  return <div className="snotes">
+  const toggle = (tab: SideTab, scope?: 'note' | 'all') => setSide(v => v.tab === tab && (!scope || v.scope === scope) ? { ...v, tab: '' } : { tab, scope: scope ?? v.scope })
+  return <div className={`snotes${side.tab ? ' with-side' : ''}`}>
     <aside className="snotes-list" aria-label="Shared notes">
       <div className="snotes-tools">
         <input className="snotes-search" type="search" placeholder="Search" aria-label="Search notes" value={query} onChange={e => setQuery(e.target.value)} />
         <button className="todo-icon snotes-new" aria-label="New note" title="New note" onClick={() => void create()}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg></button>
+        <button className="todo-icon snotes-act" aria-label="Activity of all notes" title="Activity of all notes" aria-pressed={side.tab === 'activity' && side.scope === 'all'}
+          onClick={() => toggle('activity', 'all')}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg></button>
       </div>
       {(state.identity?.companies.length ?? 0) > 1 && <select className="snotes-workspace" aria-label="Workspace" value={company} onChange={e => { setDraft(null); setOpen(''); setCompany(e.target.value) }}>
         {state.identity?.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
@@ -144,6 +155,10 @@ export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () =
             : <input className="snotes-product" autoFocus placeholder="New product name, then Return" value={newProduct} onChange={e => setNewProduct(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Escape') setNewProduct(null); if (e.key === 'Enter') { const v = newProduct.trim(); setNewProduct(null); if (v) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) } }}
                 onBlur={() => setNewProduct(null)} />)}
+          <button className={`todo-icon snotes-act snotes-comments-btn${side.tab === 'comments' ? ' on' : ''}`} title="Comments" aria-label={side.tab && openComments ? `Comments, ${openComments} open` : 'Comments'}
+            aria-pressed={side.tab === 'comments'} onClick={() => toggle('comments')}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-7l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z" /></svg>{side.tab && openComments > 0 && <b>{openComments}</b>}</button>
+          <button className="todo-icon snotes-act" title="Activity of this note" aria-label="Activity of this note" aria-pressed={side.tab === 'activity' && side.scope === 'note'}
+            onClick={() => toggle('activity', 'note')}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg></button>
           <button className="todo-icon snotes-act" title="Add files" aria-label="Add files" onClick={() => void window.term.workspace.pickFiles().then(attach)}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6" /></svg></button>
           {asking ? <><span className="snotes-ask">Delete for everyone?</span>
@@ -170,5 +185,8 @@ export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () =
         {over && <div className="snotes-drop">Drop to add to this note</div>}
       </>}
     </section>
+    {side.tab && <NoteSide base={base} note={note} notes={notes} tab={side.tab} onTab={tab => setSide(v => ({ ...v, tab }))} scope={side.scope} onScope={scope => setSide(v => ({ ...v, scope }))}
+      product={product} onClose={() => setSide(v => ({ ...v, tab: '' }))} onOpen={id => select(id)} onCount={setOpenComments}
+      refresh={`${notes.length}:${notes.reduce((m, n) => n.updatedAt > m ? n.updatedAt : m, '')}`} />}
   </div>
 }

@@ -28,7 +28,7 @@ if(!process.versions.electron){
   const up=async(name,q)=>fetch(`${url}/api/companies/${company}/files?name=${name}&type=application/pdf${q}`,{method:'POST',headers:{Authorization:`Bearer ${ilai.token}`,'Content-Type':'application/octet-stream'},body:Buffer.from('%PDF-1.4 x')});
   await up('NDA%20-%20Sofia%20v2.pdf','&access=admins');await up('Outreach%20sheet.pdf','&access=products&products=mm.org');await up('Brand%20guide.pdf','');await up('Warwick%20deck.pdf','&folder=Sales%2FUniversities');
   const env={...process.env,TEAM_URL:url,TEAM_EMAIL:`ilai${tag}@example.test`,TEAM_PW:pw};
-  try{cp.execFileSync(path.resolve('node_modules/.bin/electron'),[__filename],{env,stdio:'inherit',timeout:80000})}finally{server.kill()}
+  try{cp.execFileSync(path.resolve('node_modules/.bin/electron'),[__filename],{env,stdio:'inherit',timeout:110000})}finally{server.kill()}
  })().catch(e=>{console.error(e);server.kill();process.exit(1)});
 }else{
  const {app}=require('electron'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'terminai-team-drawer-'));app.setPath('userData',dir);
@@ -125,7 +125,36 @@ if(!process.versions.electron){
   await js(`[...document.querySelectorAll('.todo-seg button')].find(b=>b.textContent==='Notes')?.click()`);await delay(2500);
   if(process.env.DEBUG)console.log('NOTES',await js(`JSON.stringify([document.querySelector('.boundary')?.textContent,!!document.querySelector('.todo-note'),document.body.innerText.length])`));
   assert.ok(await js(`!document.querySelector('.boundary')&&document.body.innerText.length>50&&!!document.querySelector('.todo-note')`),'Notes draws');
-  console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form, new organisation');app.quit();
+  // Comments on a note: a new note, the Comments panel beside it, a comment posted and shown; a half-written one is kept.
+  const typeIn=(sel,value)=>js(`(()=>{const i=document.querySelector(${JSON.stringify(sel)});Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(i,${JSON.stringify(value)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  const until=async(cond,what)=>{for(let i=0;i<40&&!await js(cond);i++)await delay(250);assert.ok(await js(cond),what)};
+  await js(`document.querySelector('[aria-label="New note"]').click()`);
+  await until(`!!document.querySelector('.snotes-title')&&document.querySelectorAll('.snotes-item').length>=1`,'a new note opens');
+  await js(`document.querySelector('.snotes-comments-btn').click()`);
+  await until(`!!document.querySelector('.snotes-side textarea[aria-label="Add a comment"]')`,'the Comments panel opens beside the note');
+  await typeIn('.snotes-side textarea[aria-label="Add a comment"]','Looks good, ship it Friday');await delay(150);
+  await js(`[...document.querySelectorAll('.snotes-side button[type=submit]')].find(b=>b.textContent==='Comment').click()`);
+  await until(`[...document.querySelectorAll('.snotes-comment-body')].some(p=>p.textContent==='Looks good, ship it Friday')`,'the comment shows');
+  assert.match(await js(`document.querySelector('.snotes-comment-head').textContent`),/Ilai.*just now/,'author and time');
+  assert.equal(await js(`document.querySelector('.snotes-side textarea[aria-label="Add a comment"]').value`),'','the box empties once sent');
+  // A reply in the thread.
+  await js(`[...document.querySelectorAll('.snotes-comment-acts button')].find(b=>b.textContent==='Reply').click()`);await delay(200);
+  await typeIn('.snotes-side textarea[aria-label="Reply"]','Friday it is');await delay(150);
+  await js(`[...document.querySelectorAll('.snotes-side button[type=submit]')].find(b=>b.textContent==='Reply').click()`);
+  await until(`[...document.querySelectorAll('.snotes-reply .snotes-comment-body')].some(p=>p.textContent==='Friday it is')`,'the reply shows in the thread');
+  await typeIn('.snotes-side textarea[aria-label="Add a comment"]','half a thought');await delay(150);
+  // Activity of this note, then of all notes, in the To-do Activity look.
+  await js(`[...document.querySelectorAll('.snotes-side-tabs button')].find(b=>b.textContent==='Activity').click()`);
+  await until(`[...document.querySelectorAll('.snotes-side .todo-activity-list li')].some(l=>/commented: “Looks good/.test(l.textContent))`,'the note activity lists the comment');
+  assert.ok(await js(`[...document.querySelectorAll('.snotes-side .todo-activity-list li')].some(l=>/Ilai.*created the note/.test(l.textContent))`),'and its creation');
+  await js(`[...document.querySelectorAll('.snotes-side .todo-activity-filters button')].find(b=>b.textContent==='All notes').click()`);
+  await until(`[...document.querySelectorAll('.snotes-side .todo-activity-list li')].some(l=>/New note · replied/.test(l.textContent))`,'all notes, each row with its note');
+  await shot('5-notes-activity');
+  await js(`[...document.querySelectorAll('.snotes-side-tabs button')].find(b=>b.textContent.startsWith('Comments')).click()`);await delay(300);
+  assert.equal(await js(`document.querySelector('.snotes-side textarea[aria-label="Add a comment"]').value`),'half a thought','the draft is kept');
+  assert.ok(await js(`!document.querySelector('.boundary')`),'no crash');
+  await shot('6-notes-comments');
+  console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form, new organisation, note comments and activity');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})})});
- setTimeout(()=>app.exit(1),70000).unref();require('../out/main/index.js');
+ setTimeout(()=>app.exit(1),100000).unref();require('../out/main/index.js');
 }

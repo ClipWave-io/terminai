@@ -371,3 +371,36 @@ button.todo-circle:hover { border-color: var(--dim); }
 select.snotes-product { height: 30px; min-width: 150px; padding: 0 26px 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--pane); color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; }
 .snotes-act { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--dim); }
 .snotes-act:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* Shared notes' side panel (NoteSide.tsx): comments and activity, in the look of the To-do's Activity panel. */
+.snotes.with-side { grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(260px, 320px); }
+.snotes-side { flex: none; }
+.snotes-side-tabs { flex: 1; display: inline-flex; gap: 2px; }
+.snotes-side-tabs button { border: 0; background: none; color: var(--dim); font: inherit; font-weight: 600; font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer; letter-spacing: .02em; }
+.snotes-side-tabs button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 40%, transparent); }
+.snotes-side-error { margin: 6px 10px 0; }
+.snotes-act[aria-pressed="true"], .snotes-comments-btn.on { color: var(--accent); }
+.snotes-comments-btn { position: relative; }
+.snotes-comments-btn b { position: absolute; top: -3px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; font-size: 9px; line-height: 14px; text-align: center; color: #fff; background: var(--accent); }
+.snotes-new-comment { padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
+.snotes-composer { display: grid; gap: 6px; }
+.snotes-composer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font: inherit; font-size: 12.5px; line-height: 1.45; }
+.snotes-composer textarea:focus { outline: none; border-color: var(--accent); }
+.snotes-composer-bar { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.snotes-composer-bar > span { margin-right: auto; }
+.snotes-composer-bar .btn { padding: 3px 12px; font-size: 12px; }
+.snotes-mention-offers { display: flex; flex-wrap: wrap; gap: 4px; }
+.snotes-mention-offers button { font: inherit; font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--todo-product); cursor: pointer; }
+.snotes-threads { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 8px 8px 10px; display: grid; gap: 8px; align-content: start; }
+.snotes-thread { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 8px 10px; display: grid; gap: 6px; }
+.snotes-thread.resolved { opacity: .72; }
+.snotes-resolved { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+.snotes-comment { display: grid; gap: 2px; }
+.snotes-comment-head { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.snotes-comment-head time { font-size: 11px; color: var(--dim); }
+.snotes-comment-acts { margin-left: auto; display: inline-flex; gap: 8px; opacity: .55; transition: opacity .12s; }
+.snotes-comment:hover .snotes-comment-acts, .snotes-comment:focus-within .snotes-comment-acts { opacity: 1; }
+.snotes-comment-acts .todo-link { font-size: 11px; }
+.snotes-comment-body { margin: 0; font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+.snotes-reply { margin-left: 10px; padding-left: 10px; border-left: 2px solid var(--border); }
+.snotes-act-note { font-weight: 600; color: var(--fg); }
+@media (max-width: 1000px) { .snotes.with-side { grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); } .snotes.with-side .snotes-side { grid-column: 1 / -1; max-height: 45vh; } }

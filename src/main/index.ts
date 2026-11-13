@@ -1007,6 +1007,29 @@ function registerIpc(): void {
   }
   setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
   setInterval(() => void logDay(today()), 10 * 60_000)
+  // ---- comments on shared notes: a comment on your note, a reply in your thread or an @mention of you reaches the bell.
+  // Every minute, the notes' activity since the last look; the first look only marks where it starts (nothing old rings).
+  let notesSeen = ''
+  const noteComments = async () => {
+    if (process.env.TERMINAI_TEST_BUILD) return
+    const team = await teamOf(teamKey(), store.load().workspaceId).catch(() => null); if (!team) return
+    const { activity = [] } = await team.call(`/api/companies/${team.id}/notes/activity?limit=50${notesSeen ? `&after=${notesSeen}` : ''}`)
+    const first = !notesSeen
+    if (activity[0]?.id) notesSeen = activity[0].id; else if (first) notesSeen = '0'
+    if (first) return
+    for (const a of [...activity].reverse()) {
+      if (a.action !== 'commented' || !a.forMe) continue
+      const who = String(a.byName || 'Someone').split(' ')[0], title = `${who} ${a.detail?.reply ? 'replied' : 'commented'} on “${String(a.noteTitle || 'a note').slice(0, 80)}”`
+      notice('todo', title, String(a.detail?.excerpt ?? ''), { open: 'todos' })
+      if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: `${title}: ${a.detail?.excerpt ?? ''}`, mention: true })
+      if (!Notification.isSupported()) continue
+      const n = new Notification({ title, body: String(a.detail?.excerpt ?? ''), silent: true })
+      n.on('click', () => { if (!win || win.isDestroyed()) return; win.show(); win.webContents.send('todos:open') })
+      n.show()
+    }
+  }
+  setTimeout(() => void noteComments().catch(() => {}), 30_000)
+  setInterval(() => void noteComments().catch(err => console.warn('[notes]', err?.message ?? err)), 60_000)
   appIpc.handle('worklog:get', async (_e, day: unknown) => {
     if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Invalid day')
     const user = store.load().tasksUser, mine = user ? await workDay(day, user, store.load().worklogSkip) : null
