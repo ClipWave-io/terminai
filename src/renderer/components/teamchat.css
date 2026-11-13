@@ -160,3 +160,5 @@
 /* Members: when each was last active first (it used to be cut off after the email), the email under it. */
 .pp-who small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pp-who .pp-email { opacity: .7; font-size: 11px; }
+.tc-link-out { color: inherit; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.tc-msg.mine .tc-link-out { color: inherit; }

@@ -174,6 +174,19 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   </aside></>
 }
 
+/** Links in a message are clickable: they open in the browser (the window's open handler sends them out). */
+const URL_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]]|www\.[^\s<>"]+[^\s<>".,;:!?)\]])/g
+function linkify(text: string): (string | JSX.Element)[] {
+  const out: (string | JSX.Element)[] = []; let last = 0
+  for (const m of text.matchAll(URL_RE)) {
+    const at = m.index ?? 0; if (at > last) out.push(text.slice(last, at))
+    const href = m[0].startsWith('www.') ? `https://${m[0]}` : m[0]
+    out.push(<a key={at} className="tc-link-out" href={href} target="_blank" rel="noreferrer">{m[0]}</a>); last = at + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 function Chat({ draftKey, company, messages, me, others, onSend, onShare }: { draftKey: string; company: string; messages: Message[]; me: string; others: Person[]; onSend: (b: string) => void; onShare: (p: string[]) => void }): JSX.Element {
   // What you were writing stays as a draft (per chat, on this Mac) when the chat is closed, switched or the app restarts.
   const [text, setTextState] = useState(() => cache.get(draftKey, '')), [drag, setDrag] = useState(false)
@@ -200,7 +213,7 @@ function Chat({ draftKey, company, messages, me, others, onSend, onShare }: { dr
             <div className="tc-bubble">
               {!mine && first && others.length > 1 && <b className="tc-from">{m.fromName}</b>}
               {m.file && <Attachment company={company} file={m.file} />}
-              {m.body && <span className="tc-text">{m.body}</span>}
+              {m.body && <span className="tc-text">{linkify(m.body)}</span>}
               <span className="tc-meta">{m.fromName === 'failed' ? 'not sent' : clock(m.at)}{mine && <span className={`tc-ticks${readBy(m) ? ' read' : ''}`}><Ico n={m.pending ? 'clock' : readBy(m) || gotBy(m) ? 'checks' : 'check'} s={14} /></span>}</span>
             </div>
           </div>

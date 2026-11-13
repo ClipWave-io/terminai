@@ -16,7 +16,7 @@ if(!process.versions.electron){
   await call(`/api/companies/${company}/members/${members.find(m=>m.name==='Sofia Weber').id}`,{token:ilai.token,method:'PATCH',data:{products:['mm.org']}});
   await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'Hey, did you see the NDA comments?'}});
   await call(`/api/companies/${company}/chat`,{token:ilai.token,method:'POST',data:{body:'Yes, v2 is in Downloads. Can you review it asap?'}});
-  await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'On it, give me 20 minutes.'}});
+  await call(`/api/companies/${company}/chat`,{token:matteo.token,method:'POST',data:{body:'On it, see https://terminai.xyz/download/mac in 20 minutes.'}});
   // Matteo sends a picture in the chat (a 1x1 PNG).
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==','base64');
   const pic=await (await fetch(`${url}/api/companies/${company}/files?name=screen.png&type=image/png&chat=1`,{method:'POST',headers:{Authorization:`Bearer ${matteo.token}`,'Content-Type':'application/octet-stream'},body:png})).json();
@@ -46,6 +46,7 @@ if(!process.versions.electron){
   await js(`(()=>{const h=document.querySelector('.tc-resize'),r=h.getBoundingClientRect();h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:r.left+2,clientY:300}));window.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left-150,clientY:300}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`);await delay(200);
   assert.ok(await js(`document.querySelector('.tc').getBoundingClientRect().width`)>w0+100,'drawer wider');
   await shot('1-chat');
+  assert.equal(await js(`document.querySelector('.tc-link-out')?.getAttribute('href')`),'https://terminai.xyz/download/mac','links are clickable');
   // A half-written message stays when the chat closes and opens again.
   await js(`(()=>{const i=document.querySelector('.tc-chat textarea, .tc-chat input[type=text], .tc-compose textarea');const set=Object.getOwnPropertyDescriptor(i.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;set.call(i,'draft to Matteo');i.dispatchEvent(new Event('input',{bubbles:true}))})()`);await delay(200);
   await js(`document.querySelector('[aria-label^="Team chat"]').click()`);await delay(300);await js(`document.querySelector('[aria-label^="Team chat"]').click()`);await delay(500);
