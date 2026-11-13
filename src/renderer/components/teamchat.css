@@ -153,3 +153,7 @@
 .tc-copied { font-size: 11px; font-weight: 600; color: var(--accent); }
 .tc-linkmenu { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tc-link.danger { color: var(--danger, #e5484d); }
+/* The call always fits the window: a shared screen is shown whole (never cut at the bottom), the card scrolls nothing. */
+.call.card { max-height: calc(100vh - 16px); display: flex; flex-direction: column; }
+.call.card .call-stage { flex: 0 1 auto; min-height: 0; max-height: calc(100vh - 170px); }
+.call.card .call-stage .call-remote { max-height: calc(100vh - 170px); }

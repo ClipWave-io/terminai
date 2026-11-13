@@ -1439,3 +1439,9 @@ textarea.card-notes.editing {
   .files-tree[data-sized] { height: auto; }
   .files-tree[data-wide] { width: var(--tree-w); max-width: none; }
 }
+/* Sidebar hide (in the sidebar's bottom row) and show (a tab on the window's edge while it is hidden). */
+.rail-actions .rail-hide { flex: none; width: 36px; padding: 0; display: grid; place-items: center; }
+.rail-show { position: fixed; top: 50%; transform: translateY(-50%); z-index: 40; width: 16px; height: 56px; display: grid; place-items: center; border: 1px solid var(--border); background: var(--surface); color: var(--dim); cursor: pointer; padding: 0; }
+.rail-show.left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
+.rail-show.right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+.rail-show:hover { color: var(--fg); width: 20px; }

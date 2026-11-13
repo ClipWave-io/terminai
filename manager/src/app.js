@@ -409,7 +409,7 @@ export function createApp(pool, config) {
         return json(res, 200, { ok: true });
       }
       if (req.method === 'GET' && path === '/api/me') {
-        const { rows } = await pool.query('SELECT c.*,m.role,m.classification FROM manager_companies c JOIN manager_memberships m ON m.company_id=c.id WHERE m.user_id=$1 ORDER BY c.name',[user.id]);
+        const { rows } = await pool.query('SELECT c.*,m.role,m.classification,m.products FROM manager_companies c JOIN manager_memberships m ON m.company_id=c.id WHERE m.user_id=$1 ORDER BY c.name',[user.id]);
         return json(res,200,{ user:publicUser(user), companies:rows.map(publicCompany) });
       }
       if (req.method === 'PATCH' && path === '/api/me') {
@@ -946,17 +946,21 @@ export function createApp(pool, config) {
         }
         // The work log (manager_worklogs): everyone in the workspace reads every day; each writes only their own column's.
         const logDay=tail.match(/^\/worklog\/(\d{4}-\d{2}-\d{2})$/);
+        // Whose log this is: the To-do column (ilai, livio) for the two partners, 'u:<user id>' for everyone else.
+        const logKey=async()=>{const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);return col?.key??`u:${user.id}`};
         if(logDay&&req.method==='GET'){
           const {rows}=await db.query('SELECT person,data FROM manager_worklogs WHERE company_id=$1 AND day=$2',[companyId,logDay[1]]);
-          return {day:logDay[1],people:Object.fromEntries(rows.map(r=>[r.person,r.data]))};
+          // Names for every log of the day (columns and members), so the Log tab can show everyone's.
+          const {rows:named}=await db.query(`SELECT tp.key AS person,u.name FROM manager_task_people tp JOIN manager_users u ON u.id=tp.user_id WHERE tp.company_id=$1
+            UNION SELECT 'u:'||m.user_id,u.name FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1`,[companyId]);
+          return {day:logDay[1],me:await logKey(),people:Object.fromEntries(rows.map(r=>[r.person,r.data])),names:Object.fromEntries(named.map(r=>[r.person,r.name]))};
         }
         if(tail==='/worklog'&&req.method==='GET'){
           const {rows}=await db.query("SELECT to_char(day,'YYYY-MM-DD') AS day,array_agg(person) AS people FROM manager_worklogs WHERE company_id=$1 GROUP BY day ORDER BY day DESC LIMIT 120",[companyId]);
           return {days:rows};
         }
         if(logDay&&req.method==='DELETE'){
-          const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
-          if(col)await db.query('DELETE FROM manager_worklogs WHERE company_id=$1 AND person=$2 AND day=$3',[companyId,col.key,logDay[1]]);
+          await db.query('DELETE FROM manager_worklogs WHERE company_id=$1 AND person=$2 AND day=$3',[companyId,await logKey(),logDay[1]]);
           return {ok:true};
         }
         // Everything this person's Macs uploaded here: their sessions (with messages) and their work log days.
@@ -968,12 +972,11 @@ export function createApp(pool, config) {
           return {ok:true,sessions,days};
         }
         if(logDay&&req.method==='PUT'){
-          const {rows:[col]}=await db.query('SELECT key FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
-          requireThat(col,409,'Choose your To-do column on this Mac first.');
+          const person=await logKey();
           requireThat(input.data&&typeof input.data==='object'&&!Array.isArray(input.data),400,'Invalid log.');
           requireThat(JSON.stringify(input.data).length<=400000,413,'That log is too long.');
           await db.query(`INSERT INTO manager_worklogs(company_id,person,day,data) VALUES($1,$2,$3,$4)
-            ON CONFLICT (company_id,person,day) DO UPDATE SET data=$4,updated_at=now()`,[companyId,col.key,logDay[1],{...input.data,person:col.key,day:logDay[1]}]);
+            ON CONFLICT (company_id,person,day) DO UPDATE SET data=$4,updated_at=now()`,[companyId,person,logDay[1],{...input.data,person,day:logDay[1]}]);
           return {ok:true};
         }
         // The To-do's shared page (see manager_tasks). Whoever is in the workspace reads it; viewers cannot change it.

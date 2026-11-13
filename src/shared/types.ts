@@ -423,6 +423,10 @@ export interface Prefs {
   sounds: Record<SoundKind, boolean>
   /** the macOS sound each kind plays (Settings › Notifications › Sounds); missing: its default */
   soundNames: Partial<Record<SoundKind, string>>
+  /** Claude Code's "do you trust this folder" answered Yes for every folder a tab opens in (Settings › General) */
+  autoTrust: boolean
+  /** Claude in Chrome on by default in Claude Code (claudeInChromeDefaultEnabled), set once when this is on */
+  chromeByDefault: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
   /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
@@ -486,6 +490,8 @@ export const DEFAULT_PREFS: Prefs = {
   chatSound: true,
   sounds: { chat: true, call: true, done: true, request: true, agent: true, todo: true, memory: true, update: false },
   soundNames: {},
+  autoTrust: true,
+  chromeByDefault: true,
   tasksUser: 'ilai',
   todoHiddenColumns: [],
   todoProducts: [],

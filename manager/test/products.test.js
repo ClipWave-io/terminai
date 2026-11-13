@@ -71,4 +71,17 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/files`, { token: ilai.token })).body.files.find(f => f.id === up.file.id).shared, true);
   await request(`${base}/files/${up.file.id}/share`, { token: ilai.token, method: 'DELETE' });
   assert.equal((await fetch(`http://127.0.0.1:${port}${path}`)).status, 404, 'stopped');
+  // The app learns which products someone was limited to (their To-do and Notes list them).
+  assert.deepEqual((await request('/api/me', { token: sofia.token })).body.companies[0].products, ['ManyMotions.org']);
+  assert.equal((await request('/api/me', { token: ilai.token })).body.companies[0].products, null);
+  // The work log is everyone's: Fritz has no To-do column and logs under his own key; Sofia logs her day, the admin reads it with her name.
+  assert.equal((await request(`${base}/worklog/2026-11-13`, { token: sofia.token, method: 'PUT', data: { data: { workingMinutes: 42, projects: [], conversations: [] } } })).status, 200);
+  const day = (await request(`${base}/worklog/2026-11-13`, { token: ilai.token })).body;
+  // (Sofia took the free 'livio' column above, so her log is under it; without a column it would be 'u:<her id>'.)
+  const key = Object.keys(day.people).find(k => day.names[k] === 'Sofia');
+  assert.ok(key && day.people[key].workingMinutes === 42, JSON.stringify(day));
+  assert.equal((await request(`${base}/worklog/2026-11-13`, { token: sofia.token })).body.me, key, 'Sofia learns her own key');
+  assert.equal((await request(`${base}/worklog/2026-11-13`, { token: fritz.token, method: 'PUT', data: { data: { workingMinutes: 7, projects: [], conversations: [] } } })).status, 200);
+  const day2 = (await request(`${base}/worklog/2026-11-13`, { token: ilai.token })).body, fk = Object.keys(day2.people).find(k => k.startsWith('u:'));
+  assert.ok(fk && day2.names[fk] === 'Fritz' && day2.people[fk].workingMinutes === 7, JSON.stringify(day2));
 });

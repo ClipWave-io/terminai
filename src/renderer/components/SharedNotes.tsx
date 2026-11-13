@@ -1,3 +1,4 @@
+import { useAssignedProducts } from '../assignedProducts'
 import { useEffect, useRef, useState } from 'react'
 import type { WorkspaceNote, WorkspaceNoteFile, WorkspaceState } from '../../shared/workspace'
 
@@ -97,7 +98,8 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
   </div>
 
   const q = query.trim().toLowerCase()
-  const products = [...new Set(notes.map(n => n.product || '').filter(Boolean))].sort()
+  const assigned = useAssignedProducts()
+  const products = [...new Set([...assigned, ...notes.map(n => n.product || '').filter(Boolean)])].sort()
   const listed = notes.filter(n => !product || (n.product || '') === product)
     .filter(n => !q || `${n.title}\n${n.body}\n${(n.files ?? []).map(f => f.name).join(' ')}`.toLowerCase().includes(q))
   const files = note?.files ?? []

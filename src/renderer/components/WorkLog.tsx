@@ -15,7 +15,7 @@ const clock = (at: string) => new Date(at).toLocaleTimeString([], { hour: '2-dig
 export function WorkLog({ user, team = true }: { user: TasksUser; team?: boolean }): JSX.Element {
   const [day, setDay] = useState(iso(new Date()))
   const [who, setWho] = useState<string>(user)
-  const [data, setData] = useState<{ people: Record<string, WorkDay>; offline: boolean } | null>(null)
+  const [data, setData] = useState<{ people: Record<string, WorkDay>; offline: boolean; me?: string; names?: Record<string, string> } | null>(null)
   const [error, setError] = useState('')
   const [open, setOpen] = useState<number | null>(null)
   useEffect(() => {
@@ -27,6 +27,11 @@ export function WorkLog({ user, team = true }: { user: TasksUser; team?: boolean
   }, [day])
   const step = (n: number) => { const d = new Date(`${day}T12:00:00`); d.setDate(d.getDate() + n); setDay(iso(d)) }
   const isToday = day === iso(new Date())
+  // Everyone in the workspace with a log that day (Sofia, Fritz…), the two partners always; you first.
+  const me = data?.me ?? user
+  useEffect(() => { if (data?.me && who === user && !data.people[who]) setWho(data.me) }, [data?.me]) // eslint-disable-line react-hooks/exhaustive-deps
+  const people = [...new Set([me, ...(team ? ['ilai', 'livio'] : []), ...Object.keys(data?.people ?? {})])]
+  const nameOf = (p: string) => p === me ? 'You' : data?.names?.[p]?.split(' ')[0] ?? NAME[p] ?? 'Someone'
   const log = data?.people[who]
   const max = Math.max(1, ...(log?.projects.map(p => p.minutes) ?? [1]))
   return <div className="wlog">
@@ -36,9 +41,9 @@ export function WorkLog({ user, team = true }: { user: TasksUser; team?: boolean
       <button className="todo-icon" aria-label="Next day" disabled={isToday} onClick={() => step(1)}>›</button>
       {!isToday && <button className="todo-link" onClick={() => setDay(iso(new Date()))}>Today</button>}
       <span className="todo-head-gap" />
-      {team && <span className="todo-seg" role="tablist" aria-label="Whose day">
-        {(['ilai', 'livio'] as const).map(p => <button key={p} role="tab" aria-selected={who === p} className={who === p ? 'on' : ''} onClick={() => setWho(p)}>
-          {NAME[p]}{data?.people[p] ? ` · ${hm(data.people[p].workingMinutes)}` : ''}</button>)}
+      {people.length > 1 && <span className="todo-seg" role="tablist" aria-label="Whose day">
+        {people.map(p => <button key={p} role="tab" aria-selected={who === p} className={who === p ? 'on' : ''} onClick={() => setWho(p)}>
+          {nameOf(p)}{data?.people[p] ? ` · ${hm(data.people[p].workingMinutes)}` : ''}</button>)}
       </span>}
     </div>
     {error && <p className="todo-error">{error}</p>}

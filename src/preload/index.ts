@@ -39,7 +39,7 @@ const api = {
     details: (): Promise<(GuardState & { at: string; sample: Record<string, number>; limits: Record<string, number>; events: { at: string; text: string }[]; sessions: number }) | null> => ipcRenderer.invoke('macguard:details'),
     restart: (): Promise<void> => ipcRenderer.invoke('macguard:restart'),
     onState: (cb: (s: GuardState | null) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, s: GuardState | null) => cb(s); ipcRenderer.on('macguard:state', h); return () => { ipcRenderer.removeListener('macguard:state', h) } } },
-  worklog: { get: (day: string): Promise<{ day: string; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
+  worklog: { get: (day: string): Promise<{ day: string; me?: string; names?: Record<string, string>; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {
     onSignedIn: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('workspace:signed-in', h); return () => { ipcRenderer.removeListener('workspace:signed-in', h) } },
     openManager: (): Promise<void> => ipcRenderer.invoke('workspace:open-manager'),

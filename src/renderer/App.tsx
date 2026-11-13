@@ -873,6 +873,9 @@ export function App(): JSX.Element {
 
   return (
     <div className={`app rail-${prefs.railSide}${fullscreen ? ' window-fullscreen' : ''}`}>
+      {/* The sidebar hidden: a small tab at the window's edge brings it back (also ⌘S and the toolbar). */}
+      {prefs.railHidden && <button className={`rail-show ${prefs.railSide}`} title="Show the sidebar  ⌘S" aria-label="Show sidebar" onClick={() => patchPrefs({ railHidden: false })}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d={prefs.railSide === 'right' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'} /></svg></button>}
       {!prefs.railHidden && (
         <>
           <TabRail
@@ -889,6 +892,7 @@ export function App(): JSX.Element {
             onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd, undefined, true)}
+            onHideRail={() => patchPrefs({ railHidden: true })}
             onNewCloud={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd).then(id => { window.setTimeout(() => window.term.pty.write(id, "claude --cloud ''\x1b[D"), 1200) })}
             onNewIn={() => void window.term.dialog.pickFolder().then((dir) => dir && newTab(dir, undefined, true))}
             onReorder={(from,to)=>{if(!prefs.groupByFolder){reorderTabs(from,to);return}setTabs(prev=>{if(!prev[from]||!prev[to]||groupOf(prev[from])!==groupOf(prev[to]))return prev;const key=groupOf(prev[from]);const slots=prev.map((t,i)=>groupOf(t)===key?i:-1).filter(i=>i>=0);const list=slots.map(i=>prev[i]);list.splice(slots.indexOf(to),0,...list.splice(slots.indexOf(from),1));const next=[...prev];slots.forEach((slot,i)=>next[slot]=list[i]);return next})}}

@@ -257,9 +257,18 @@ export function CallView({ calls, title, beside = false }: { calls: Calls; title
     if ((e.target as HTMLElement).closest('button') || !card.current) return
     const r0 = card.current.getBoundingClientRect(), dx = e.clientX - r0.left, dy = e.clientY - r0.top
     const move = (m: MouseEvent) => setPos({ x: Math.max(4, Math.min(window.innerWidth - r0.width - 4, m.clientX - dx)), y: Math.max(4, Math.min(window.innerHeight - 60, m.clientY - dy)) })
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); e.preventDefault()
+    // Released outside the window (or the window lost focus mid-drag): stop too, so the card never stays stuck to the mouse.
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); window.removeEventListener('blur', up); document.removeEventListener('mouseleave', up) }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); window.addEventListener('blur', up); document.addEventListener('mouseleave', up); e.preventDefault()
   }
+  // Bigger, smaller or the window resized: the card is pulled back so all of it stays on screen.
+  useEffect(() => {
+    const fit = () => { const el = card.current; if (!el || !pos) return; const r = el.getBoundingClientRect()
+      const x = Math.max(4, Math.min(window.innerWidth - r.width - 4, pos.x)), y = Math.max(4, Math.min(window.innerHeight - r.height - 4, pos.y))
+      if (x !== pos.x || y !== pos.y) setPos({ x, y }) }
+    fit(); const ro = new ResizeObserver(fit); if (card.current) ro.observe(card.current); window.addEventListener('resize', fit)
+    return () => { ro.disconnect(); window.removeEventListener('resize', fit) }
+  })
   const style = pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : undefined
   if (phase === 'idle' && !incoming) return ended ? <div className={`call-toast${beside ? ' beside' : ''}`} role="status">{ended}</div> : null
   if (phase === 'incoming' && incoming) return <div className={`call card incoming${beside ? ' beside' : ''}`} data-state="incoming" role="dialog" aria-label={`Call from ${incoming.fromName}`}>

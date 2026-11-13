@@ -187,7 +187,8 @@ export async function teamOf(user: string): Promise<{ id: string; call: (path: s
     for (const id of ids) if ((await call(`/api/companies/${id}/tasks`)).me === user) { pick = id; break }
     if (!pick) pick = ids[0] ?? ''
     if (!pick) return null
-    await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user })
+    // Taking the column fails for anyone but the partners (it is someone else's): they still log and read, under their own name.
+    await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user }).catch(() => {})
     tasksWorkspace = { user, id: pick }
   }
   return { id: tasksWorkspace.id, call }
@@ -197,8 +198,9 @@ export const workspaceWorklog = {
   async put(user: string, day: string, data: unknown): Promise<void> {
     const team = await teamOf(user); if (team) await team.call(`/api/companies/${team.id}/worklog/${day}`, 'PUT', { data })
   },
-  async get(user: string, day: string): Promise<Record<string, any> | null> {
-    const team = await teamOf(user); return team ? (await team.call(`/api/companies/${team.id}/worklog/${day}`)).people ?? {} : null
+  async get(user: string, day: string): Promise<{ me?: string; people: Record<string, any>; names?: Record<string, string> } | null> {
+    const team = await teamOf(user); if (!team) return null
+    const r = await team.call(`/api/companies/${team.id}/worklog/${day}`); return { me: r.me, people: r.people ?? {}, names: r.names ?? {} }
   },
 }
 export const workspaceTasks = {

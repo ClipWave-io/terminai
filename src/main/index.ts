@@ -222,7 +222,7 @@ function startAgent(id: string, line: string, resume?: { carryOn: boolean }): vo
   // A restored conversation's folder is marked trusted (it was when the conversation began). A folder Claude Code has
   // never run in keeps Claude's own "do you trust this folder" question: that question is what stops a cloned repo's hooks.
   const known = folderTrusted(ptys.cwdOf(id))
-  if (resume && claudeLine(line)) trustFolder(ptys.cwdOf(id))
+  if ((resume || store.load().autoTrust) && claudeLine(line)) trustFolder(ptys.cwdOf(id))
   // A restored tab starts on a clean screen with a line saying it is coming back, not blank.
   ptys.execWhenReady(id, resume && line ? `clear; printf '\\n  \\033[2mResuming conversation…\\033[0m\\n'; ${line}` : line)
   if (resume || claudeLine(line)) afterResume(id, resume?.carryOn === true, !!resume || known)
@@ -330,6 +330,13 @@ app.whenReady().then(() => {
   // The first launch after installing: macOS shows its Allow question for TerminAI's notifications once.
   if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void notifyPermission().then(p => { if (p === 'notDetermined') void notifyPermission(true) }), 8000)
   noticesWindow(() => win)
+  // Settings › General › Claude in Chrome by default: Claude Code's own setting, turned on once (what /chrome calls
+  // "Enabled by default"), so every new conversation can use the browser without the --chrome flag.
+  const chromeDefault = () => { if (!store.load().chromeByDefault) return
+    const file = join(homedir(), '.claude.json')
+    try { const d = JSON.parse(readFileSync(file, 'utf8')); if (d.claudeInChromeDefaultEnabled === true) return
+      d.claudeInChromeDefaultEnabled = true; writeFileSync(`${file}.terminai-tmp`, JSON.stringify(d, null, 2), { mode: 0o600 }); renameSync(`${file}.terminai-tmp`, file) } catch {} }
+  if (!process.env.TERMINAI_TEST_BUILD) chromeDefault()
   // The window shows each new notice as a card (top right); with the window hidden or minimised only an allowed macOS
   // notification can show it, so the sound plays only then.
   let macShows = false
@@ -665,9 +672,12 @@ function registerIpc(): void {
   appIpc.handle('browser:command', (_event, command: string) => browser?.command(command))
   appIpc.handle('browser:layout', (_event, bounds) => browser?.layout(bounds))
   // ---- terminal ----------------------------------------------------------
-  appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }) =>
-    ptys.createSession(opts ?? {}),
-  )
+  appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }) => {
+    const created = ptys.createSession(opts ?? {})
+    // Settings › General › Trust folders automatically (on by default): Claude Code does not stop at "do you trust this folder".
+    if (store.load().autoTrust) trustFolder(created.cwd)
+    return created
+  })
   appIpc.on('pty:close', (_event, { id }: {id: string}) => { forgetTab(id); ptys.closeSession(id) })
   // Right-click on a chat in the sidebar: Pause or Resume it, rename, hide or close it. Returns the action picked.
   const sendPaused = () => { if (win && !win.isDestroyed()) win.webContents.send('tab:paused', pausedTabs()) }
@@ -939,8 +949,10 @@ function registerIpc(): void {
     if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Invalid day')
     const user = store.load().tasksUser, mine = user ? await workDay(day, user, store.load().worklogSkip) : null
     // Your own day is read here, always current; the partner's comes from the workspace.
-    const people = user ? await workspaceWorklog.get(user, day).catch(() => null) : null
-    return { day, people: { ...(people ?? {}), ...(mine && user ? { [user]: mine } : {}) }, offline: people === null }
+    const shared = user ? await workspaceWorklog.get(user, day).catch(() => null) : null
+    // Your own key in the workspace: the partners' column (ilai, livio), or 'u:<id>' for every other member.
+    const me = (store.load().teamTasks ? user : shared?.me) || user
+    return { day, me, names: shared?.names ?? {}, people: { ...(shared?.people ?? {}), ...(mine && me ? { [me]: mine } : {}) }, offline: shared === null }
   })
   setInterval(() => void todos.sync(), 60_000)   // a minute: edits from the phone come in through here
 
@@ -971,6 +983,7 @@ function registerIpc(): void {
     // The first clone waits for the user to say who they are in the To-do sheet.
     // Private tasks are per user: the sheet reloads them once the new name is saved.
     if (patch.tasksUser) { todosChanged(); void todos.sync(); writeGuides() }
+    if (patch.chromeByDefault === true && !process.env.TERMINAI_TEST_BUILD) { const file = join(homedir(), '.claude.json'); try { const d = JSON.parse(readFileSync(file, 'utf8')); if (d.claudeInChromeDefaultEnabled !== true) { d.claudeInChromeDefaultEnabled = true; writeFileSync(`${file}.terminai-tmp`, JSON.stringify(d, null, 2), { mode: 0o600 }); renameSync(`${file}.terminai-tmp`, file) } } catch {} }
     if (win && patch.theme) {
       const theme = getTheme(next.theme)
       win.setBackgroundColor(theme.background)

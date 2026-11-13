@@ -1,3 +1,4 @@
+import { useAssignedProducts } from '../assignedProducts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { WorkLog } from './WorkLog'
 import { SharedNotes } from './SharedNotes'
@@ -378,7 +379,8 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
   const open = (list: Task[]) => list.filter(task => task.status !== 'done').sort(byOrder)
   const done = (list: Task[], scope: TaskScope) => list.filter(task => task.status === 'done').map(task => ({ task, scope }))
   // The product filter: only the tasks of the products picked ('' is the ones without a product).
-  const products = [...new Set([...shared, ...personal].map(task => task.product.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  const assigned = useAssignedProducts()
+  const products = [...new Set([...assigned, ...[...shared, ...personal].map(task => task.product.trim()).filter(Boolean)])].sort((a, b) => a.localeCompare(b))
   const picked = prefs.products.filter(p => p === '' || products.includes(p))
   const inFilter = (task: Task) => !picked.length || picked.includes(task.product.trim())
   const toggleProduct = (product: string) => onPrefs({ todoProducts: picked.includes(product) ? picked.filter(p => p !== product) : [...picked, product] })
