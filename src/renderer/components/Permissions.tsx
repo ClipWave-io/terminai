@@ -6,6 +6,8 @@ import './teamchat.css'
  * products used in the shared To-do, plus any already given to someone or to a file, plus new ones typed in.
  */
 export type Member = { id: string; name: string; email: string; role: string; products?: string[] | null; app_version?: string | null; app_seen?: string | null }
+/** When someone's TerminAI was last seen, short: now, 5 min ago, 3 h ago, 12 Nov. */
+export const seenAgo = (at: string) => { const m = Math.round((Date.now() - new Date(at).getTime()) / 60000); return m < 2 ? 'now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' }) }
 export const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
 const HUES = [212, 262, 330, 24, 160, 190, 45, 290]
 /** A steady colour per person, so the same face reads the same everywhere. */
@@ -54,23 +56,19 @@ const ROLE: Record<string, string> = { owner: 'Owner', admin: 'Admin', member: '
  * People and permissions (admins): each person's role and the products they see. Owners and admins see every
  * product and every shared session; a member limited to products sees only those tasks, notes and files.
  */
-export function Permissions({ base, members, me, owner, sessionVisibility, onChanged, onError, online }: { base: string; members: Member[]; me: string; owner: boolean; sessionVisibility: string; onChanged: () => void; onError: (e: unknown) => void; online?: (id: string) => boolean | undefined }): JSX.Element {
-  const [vis, setVis] = useState(sessionVisibility), [open, setOpen] = useState<string | null>(null)
+export function Permissions({ base, members, me, owner, onChanged, onError, online }: { base: string; members: Member[]; me: string; owner: boolean; sessionVisibility: string; onChanged: () => void; onError: (e: unknown) => void; online?: (id: string) => boolean | undefined }): JSX.Element {
+  const [open, setOpen] = useState<string | null>(null)
   const options = useProducts(members.flatMap(m => m.products ?? []))
   const patch = (id: string, body: object) => void window.term.workspace.request(`${base}/members/${id}`, 'PATCH', body).then(onChanged).catch(onError)
-  const setSessions = (v: string) => { setVis(v); void window.term.workspace.request(base, 'PATCH', { sessionVisibility: v }).catch(e => { setVis(sessionVisibility); onError(e) }) }
   return <section className="pp">
     <div className="pp-head"><h3>People and permissions</h3></div>
-    <div className="pp-setting"><div><strong>Shared sessions of others</strong><small>Who can read the conversations people share</small></div>
-      <span className="pp-seg">{[['admins', 'Admins only'], ['all', 'Everyone']].map(([v, l]) =>
-        <button key={v} className={vis === v ? 'on' : ''} disabled={!owner} title={owner ? undefined : 'Only the owner can change this'} onClick={() => setSessions(v)}>{l}</button>)}</span></div>
     <ul className="pp-list">{members.map(m => {
       const self = m.id === me, fixed = self || m.role === 'owner' || (m.role === 'admin' && !owner), full = m.role === 'owner' || m.role === 'admin'
       const limited = Array.isArray(m.products), scope = full || !limited ? 'All products' : m.products!.length ? m.products!.join(', ') : 'No products'
       return <li key={m.id} className={open === m.id ? 'open' : ''}>
         <div className="pp-row">
           <Avatar id={m.id} name={m.name} online={online?.(m.id)} />
-          <div className="pp-who"><strong>{m.name}{self && <em> · you</em>}</strong><small>{m.email}{m.app_version ? ` · TerminAI ${m.app_version}` : ' · not signed in to TerminAI yet'}</small></div>
+          <div className="pp-who" title={m.email}><strong>{m.name}{self && <em> · you</em>}</strong><small>{m.app_seen ? `Active ${seenAgo(m.app_seen)}` : 'Not signed in to TerminAI yet'}{m.app_version ? ` · ${m.app_version}` : ''}</small><small className="pp-email">{m.email}</small></div>
           {fixed ? <span className="pp-role">{ROLE[m.role]}</span>
             : <select className="pp-select" value={m.role} onChange={e => patch(m.id, { role: e.target.value })}>
               {(owner ? ['admin', 'member', 'viewer'] : ['member', 'viewer']).map(r => <option key={r} value={r}>{ROLE[r]}</option>)}</select>}

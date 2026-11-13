@@ -271,8 +271,6 @@ export function TabRail({
       </div>
 
       <div className="rail-actions">
-        {onHideRail && <button className="btn icon rail-hide" onClick={onHideRail} title="Hide the sidebar  ⌘S" aria-label="Hide sidebar">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v14H4ZM9 5v14M15 10l-2 2 2 2" /></svg></button>}
         <button className="btn primary" onClick={onNew} onContextMenu={e => { if (!onNewCloud) return; e.preventDefault(); onNewCloud() }} title={'New tab  ⌘T\nRight-click: new cloud session (runs on Anthropic\'s machines)'}>
           + New tab
         </button>
@@ -289,6 +287,8 @@ export function TabRail({
             />
           </svg>
         </button>
+        {onHideRail && <button className="btn icon rail-hide" onClick={onHideRail} title="Hide the sidebar  ⌘S" aria-label="Hide sidebar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v14H4ZM9 5v14M15 10l-2 2 2 2" /></svg></button>}
       </div>
     </aside>
   )

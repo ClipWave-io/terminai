@@ -302,3 +302,9 @@
 /* Sync › New organisation: a name and Create, under the organisation picker. */
 .team-neworg-btn { margin: 4px 0 10px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; padding: 2px 0; }
 .team-neworg { display: flex; gap: 6px; margin: 4px 0 10px; } .team-neworg input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--accent); background: var(--pane); color: var(--fg); font: inherit; font-size: 12.5px; }
+/* Sync › Conversations: each shared tab's state as a coloured dot and a word, then who and when. */
+.team-convo-vis { margin: 0 0 12px; }
+.team-state { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; font-weight: 600; }
+.team-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.team-state.working i { background: #e8a900; } .team-state.waiting i { background: #3fb68b; } .team-state.question i { background: var(--accent); }
+.team-state.paused i { background: #f08c3c; } .team-state.idle i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim); } .team-state.off i { background: color-mix(in srgb, var(--dim) 45%, transparent); }

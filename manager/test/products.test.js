@@ -11,7 +11,7 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   const schema = `manager_test_${randomUUID().replaceAll('-', '')}`;
   const control = new pg.Pool({ connectionString: databaseUrl }); await control.query(`CREATE SCHEMA ${schema}`);
   const pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
-  const server = createServer(createApp(pool, { publicOrigin: 'http://localhost:8080', trustProxyHops: 0 }));
+  const server = createServer(createApp(pool, { publicOrigin: 'http://localhost:8080', trustProxyHops: 0, setupToken: 'operator-test-token-0123456789abcdef0123' }));
   t.after(async () => { await new Promise(r => server.close(r)); await pool.end(); await control.query(`DROP SCHEMA ${schema} CASCADE`); await control.end(); });
   await migrate(pool); await new Promise(r => server.listen(0, '127.0.0.1', r));
   const request = async (path, { token, method = 'GET', data } = {}) => {
@@ -84,4 +84,11 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/worklog/2026-11-13`, { token: fritz.token, method: 'PUT', data: { data: { workingMinutes: 7, projects: [], conversations: [] } } })).status, 200);
   const day2 = (await request(`${base}/worklog/2026-11-13`, { token: ilai.token })).body, fk = Object.keys(day2.people).find(k => k.startsWith('u:'));
   assert.ok(fk && day2.names[fk] === 'Fritz' && day2.people[fk].workingMinutes === 7, JSON.stringify(day2));
+  // The operator dashboard: every organisation with its people, only with the operator password.
+  const op = async token => (await fetch(`http://127.0.0.1:${server.address().port}/api/operator/orgs`, { headers: { 'x-setup-token': token } }))
+  assert.equal((await op('wrong')).status, 404, 'no password, no dashboard');
+  const board = await (await op('operator-test-token-0123456789abcdef0123')).json();
+  const build = board.orgs.find(o => o.name === 'BUILD');
+  assert.ok(build && build.people.some(p => p.name === 'Sofia' && p.products?.[0] === 'ManyMotions.org') && board.totals.users >= 3, JSON.stringify(board).slice(0, 300));
+  assert.equal((await fetch(`http://127.0.0.1:${server.address().port}/operator`)).status, 200, 'the page');
 });

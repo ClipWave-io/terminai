@@ -22,11 +22,16 @@ if(!process.versions.electron){
    if(phase==='first'){
     // Two tabs running Codex, then a third plain tab, open in front.
     await js(`(async()=>{const t=await window.term.pty.list();window.term.pty.write(t[0].id,'codex resume ${process.env.TEST_THREAD_ID} --model one\\r')})()`);
-    await js(`document.querySelector('.rail-actions .btn, [aria-label="New tab"]')?.click()`);await delay(1500);
-    await js(`(async()=>{const t=await window.term.pty.list();window.term.pty.write(t.at(-1).id,'codex resume ${process.env.TEST_THREAD_ID2} --model two\\r')})()`);
+    const first=await js(`window.term.pty.list().then(t=>t.map(x=>x.id))`);
+    await js(`document.querySelector('.rail-actions .btn.primary')?.click()`);await delay(1500);
+    // The tab just opened (whatever order the list comes in).
+    await js(`(async()=>{const t=await window.term.pty.list(),fresh=t.find(x=>!${JSON.stringify(first)}.includes(x.id));window.term.pty.write(fresh.id,'codex resume ${process.env.TEST_THREAD_ID2} --model two\\r')})()`);
     await delay(2500);
-    await js(`document.querySelector('.rail-actions .btn, [aria-label="New tab"]')?.click()`);await delay(2500);
-    const prefs=JSON.parse(fs.readFileSync(path.join(profile,'prefs.json'),'utf8'));assert.equal(prefs.tabs.filter(t=>t.agent==='codex').length,2,'two Codex tabs saved');
+    await js(`document.querySelector('.rail-actions .btn.primary')?.click()`);await delay(2500);
+    // The window notices each agent within a few seconds and saves it.
+    const codexTabs=()=>JSON.parse(fs.readFileSync(path.join(profile,'prefs.json'),'utf8')).tabs.filter(t=>t.agent==='codex').length;
+    for(let n=0;n<100&&codexTabs()<2;n++)await delay(250);
+    assert.equal(codexTabs(),2,'two Codex tabs saved');
    }else{
     // Both conversations come back by themselves, one every 3 s.
     for(let n=0;n<80&&fs.readFileSync(process.env.TEST_ARGS_LOG,'utf8').split('END').length<5;n++)await delay(250);

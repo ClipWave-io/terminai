@@ -88,6 +88,8 @@ const dataFolder = app.getPath('userData')
 app.setName('TerminAI')
 app.setPath('userData', dataFolder)
 let activeTabId: string | null = null
+/** Tabs MacGuard has paused (its last state): the team sees them as paused. */
+let guardPaused = new Set<string>()
 // Made in registerIpc; the control channel uses it too, for `terminai todo start|done|reopen|add|about`.
 let todos: ReturnType<typeof createTodos>
 let bridge: ReturnType<typeof createBridge> | null = null
@@ -664,7 +666,7 @@ function registerIpc(): void {
   appIpc.handle('macguard:details', async () => { const d = await guardDetails(); return d && { ...d, sessions: ptys.liveIds().filter(id => ptys.agentOf(id).alive).length } })
   appIpc.handle('macguard:restart', () => restartGuard())
   appIpc.handle('macguard:resume', async (_e, ids: unknown) => { await resumeGuard(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []); return guardState() })
-  watchGuard(s => { if (win && !win.isDestroyed()) win.webContents.send('macguard:state', s) }, p => {
+  watchGuard(s => { guardPaused = new Set((s?.paused ?? []).map(p => p.id)); if (win && !win.isDestroyed()) win.webContents.send('macguard:state', s) }, p => {
     const t = store.load().tabs.find(x => x.ptyId === p.id), name = t?.customTitle || t?.name || t?.title || p.name || 'Session'
     notice('memory', `Paused by MacGuard: ${name}`, `At ${p.at.slice(0, 5)} the Mac was about to run out of memory. Open the tab and press Resume, or it resumes by itself once the Mac is back to normal.`, { tab: p.id })
   })
@@ -887,6 +889,7 @@ function registerIpc(): void {
   // ---- the bridge: tabs as shared conversations, agents messaging each other's sessions
   const tabName = (id: string) => { const tab = store.load().tabs.find(t => t.ptyId === id); return tab?.customTitle || tab?.name || tab?.title || basename(ptys.cwdOf(id)) || 'Session' }
   bridge = createBridge({
+    paused: id => !!pausedTabs()[id] || guardPaused.has(id),
     team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
     tabName,
     wake: (tabId: string) => resumeLater(tabId),
@@ -962,6 +965,17 @@ function registerIpc(): void {
     const me = (store.load().teamTasks ? user : shared?.me) || user
     return { day, me, names: shared?.names ?? {}, people: { ...(shared?.people ?? {}), ...(mine && me ? { [me]: mine } : {}) }, offline: shared === null }
   })
+  // Which conversations are running, written down every 30 s (not only at quit): whatever ends TerminAI (an update
+  // installed at night, a crash, a force quit) the next launch starts those again.
+  setInterval(() => {
+    if (quitting) return
+    const prefs = store.load(); let changed = false
+    const tabs = prefs.tabs.map(tab => { if (!tab.ptyId) return tab
+      const a = ptys.agentOf(tab.ptyId), alive = !!a.kind && a.alive, open = tab.ptyId === activeTabId
+      if (!!tab.wasAlive === alive && !!tab.open === open) return tab
+      changed = true; return { ...tab, wasAlive: alive, open } })
+    if (changed) store.save({ tabs })
+  }, 30_000)
   setInterval(() => void todos.sync(), 60_000)   // a minute: edits from the phone come in through here
 
   // ---- Claude accounts ---------------------------------------------------
@@ -987,6 +1001,8 @@ function registerIpc(): void {
   appIpc.handle('prefs:set', (_e, patch: Partial<Prefs>) => {
     // Once quitting has begun the tabs are final (before-quit saved them): the window's last polls see shells going away.
     if (quitting && patch.tabs) { const { tabs: _late, ...rest } = patch; patch = rest }
+    // The window's tab list does not know which conversations run: keep what the main process noted (wasAlive, open).
+    if (patch.tabs) { const before = new Map(store.load().tabs.map(t => [t.ptyId, t])); patch = { ...patch, tabs: patch.tabs.map(t => { const b = t.ptyId ? before.get(t.ptyId) : undefined; return b && t.wasAlive === undefined ? { ...t, wasAlive: b.wasAlive, open: b.open } : t }) } }
     const next = store.save(patch)
     // The first clone waits for the user to say who they are in the To-do sheet.
     // Private tasks are per user: the sheet reloads them once the new name is saved.

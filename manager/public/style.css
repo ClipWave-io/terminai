@@ -196,3 +196,19 @@ nav button{justify-content:flex-start}
 .google-btn{display:block;text-align:center;padding:11px;border-radius:10px;border:1px solid var(--border);color:var(--fg);text-decoration:none;font-weight:600;background:var(--pane)}.google-btn:hover{border-color:var(--dim)}
 .lf-page kbd{padding:1px 7px;border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,monospace}
 .lf-steps ol{margin:0;padding-left:20px;display:grid;gap:12px;line-height:1.5}.lf-page .brand{text-decoration:none;color:inherit}
+/* /operator: TerminAI's own admin dashboard. */
+body.op { margin: 0; padding: 24px 16px 60px; }
+#op { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+.op-login { max-width: 360px; margin: 12vh auto; display: grid; gap: 10px; }
+.op-login input, #op > input { height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid #2a3140; background: transparent; color: inherit; font: inherit; }
+.op-login button, .op-out { height: 38px; border-radius: 10px; border: 0; background: #6d8cff; color: #fff; font: inherit; font-weight: 600; cursor: pointer; padding: 0 14px; }
+.op-err { color: #e5484d; }
+.op-top { display: flex; align-items: center; justify-content: space-between; }
+.op-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.op-stats div { border: 1px solid #2a3140; border-radius: 12px; padding: 14px; display: grid; gap: 4px; }
+.op-stats b { font-size: 26px; } .op-stats span { opacity: .7; font-size: 13px; }
+.op-orgs { display: grid; gap: 12px; }
+.op-org { border: 1px solid #2a3140; border-radius: 12px; padding: 14px; overflow-x: auto; }
+.op-org header { display: grid; gap: 2px; margin-bottom: 8px; } .op-org h2 { margin: 0; font-size: 16px; } .op-org small { opacity: .7; }
+.op-org table { width: 100%; border-collapse: collapse; font-size: 13px; } .op-org th { text-align: left; opacity: .6; font-weight: 600; }
+.op-org th, .op-org td { padding: 6px 8px; border-top: 1px solid #2a3140; white-space: nowrap; }

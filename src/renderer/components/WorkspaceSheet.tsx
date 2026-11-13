@@ -8,7 +8,7 @@ import { tabLabel } from '../../shared/types'
 import './workspace.css'
 
 // The team workspace: the same server, account and data as the website and the iPhone app.
-type Conversation = { id: string; title: string; visibility: string; ownerId?: string; owner_id?: string; updatedAt?: string }
+type Conversation = { id: string; title: string; visibility: string; ownerId?: string; owner_id?: string; ownerName?: string; updatedAt?: string; tab?: boolean; status?: string | null; live?: boolean }
 type Message = { id: string; content: string; kind: string; authorName?: string; author_name?: string; createdAt?: string }
 type Member = { id: string; name: string; email: string; role: string; products?: string[] | null; app_version?: string | null; app_seen?: string | null }
 type Tab = { id: string; title: string; customTitle?: string }
@@ -92,7 +92,8 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose, onTodos }: { act
             {company && section === 'people' && <TeamPeople key={company} base={base} state={state} members={members} admin={['owner', 'admin'].includes(membership?.role ?? '')}
               onRenamed={name => setState(v => v.identity ? { ...v, identity: { ...v.identity, user: { ...v.identity.user, name } } } : v)}
               onInvited={() => void window.term.workspace.request(`${base}/members`).then(v => setMembers(v.members ?? [])).catch(fail)} onError={fail} />}
-            {company && section === 'conversations' && <TeamConversations key={company} base={base} me={state.identity!.user.id} membership={membership} activeTab={activeTab} tabs={tabs} onError={fail} />}
+            {company && section === 'conversations' && <TeamConversations key={company} base={base} me={state.identity!.user.id} membership={membership} activeTab={activeTab} tabs={tabs} onError={fail}
+              owner={membership?.role === 'owner'} sessionVisibility={(membership as { sessionVisibility?: string } | undefined)?.sessionVisibility ?? 'admins'} />}
             {section === 'tools' && <div className="team-page">
               <header><h2>Tools</h2><p>The tools set up for you on this Mac. Change them on the web.</p></header>
               {tools.length ? <div className="team-list">{tools.map(tool => <div className="team-row" key={tool.id}><div><strong>{tool.id}</strong><small>{tool.message}</small></div><span className={`team-badge ${tool.status === 'configured' ? 'ok' : 'warn'}`}>{tool.status === 'configured' ? 'Ready' : tool.status === 'needs-setup' ? 'Needs setup' : 'Error'}</span></div>)}</div>
@@ -235,8 +236,17 @@ function Adder({ placeholder, onAdd, autoFocus }: { placeholder: string; onAdd: 
   </form>
 }
 
-function TeamConversations({ base, me, membership, activeTab, tabs, onError }: { base: string; me: string; membership?: { role: string; allowCompanySharing: boolean; defaultVisibility: string }; activeTab?: Tab; tabs: Tab[]; onError: (e: unknown) => void }): JSX.Element {
+/** A shared tab's state for the list: working, waiting for you, asking, paused, not started, or its Mac is off. */
+const stateOf = (c: Conversation): { key: string; label: string } =>
+  !c.live ? { key: 'off', label: 'Mac offline' } : c.status === 'paused' ? { key: 'paused', label: 'Paused' } : c.status === 'not started' ? { key: 'idle', label: 'Not started' }
+    : c.status === 'working' ? { key: 'working', label: 'Working' } : c.status === 'question' ? { key: 'question', label: 'Asking' } : { key: 'waiting', label: 'Active' }
+const agoText = (at: string) => { const m = Math.round((Date.now() - new Date(at).getTime()) / 60000); return m < 1 ? 'now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' }) }
+
+function TeamConversations({ base, me, membership, activeTab, tabs, onError, owner: isOwner, sessionVisibility }: { owner?: boolean; sessionVisibility?: string; base: string; me: string; membership?: { role: string; allowCompanySharing: boolean; defaultVisibility: string }; activeTab?: Tab; tabs: Tab[]; onError: (e: unknown) => void }): JSX.Element {
   const [conversations, setConversations] = useState<Conversation[]>([])
+  // Who reads the conversations others share (owner decides; it lived under Members before).
+  const [vis, setVis] = useState(sessionVisibility ?? 'admins')
+  const setSessions = (v: string) => { const was = vis; setVis(v); void window.term.workspace.request(base, 'PATCH', { sessionVisibility: v }).catch(e => { setVis(was); onError(e) }) }
   const [filter, setFilter] = useState<'all' | 'shared' | 'mine'>('all')
   const [selected, setSelected] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -306,13 +316,18 @@ function TeamConversations({ base, me, membership, activeTab, tabs, onError }: {
         <button className="team-primary small" onClick={() => setNaming(true)}>New thread</button>
       </div>}</header>
     <SessionSharing />
+    <div className="pp-setting team-convo-vis"><div><strong>Shared sessions of others</strong><small>Who can read the conversations people share</small></div>
+      <span className="pp-seg">{[['admins', 'Admins only'], ['all', 'Everyone']].map(([v, l]) =>
+        <button key={v} className={vis === v ? 'on' : ''} disabled={!isOwner} title={isOwner ? undefined : 'Only the owner can change this'} onClick={() => setSessions(v)}>{l}</button>)}</span></div>
     <div className="team-convo">
       <div className="team-convo-list">
         <div className="team-seg full">{(['all', 'shared', 'mine'] as const).map(k => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{k === 'all' ? `All ${conversations.length}` : k === 'shared' ? 'Shared' : 'Mine'}</button>)}</div>
         {naming && <Adder placeholder="Thread title, then Return" autoFocus onAdd={newThread} />}
         {shown.map(c => <button key={c.id} className={`team-convo-item ${c.id === selected ? 'active' : ''}`} onClick={() => setSelected(c.id)}>
           <span>{c.title}</span>
-          <small>{live?.conversation === c.id ? <b className="team-live"><Icon d={P.live} size={11} />Live</b> : c.visibility === 'company' ? 'Shared' : 'Private'}</small>
+          <small>{c.tab && <span className={`team-state ${stateOf(c).key}`}><i />{stateOf(c).label}</span>}
+            {live?.conversation === c.id ? <b className="team-live"><Icon d={P.live} size={11} />Live</b> : c.visibility === 'company' ? 'Shared' : 'Private'}
+            {c.ownerName && !owner(c) ? ` · ${c.ownerName.split(' ')[0]}` : ''}{c.updatedAt ? ` · ${agoText(c.updatedAt)}` : ''}</small>
         </button>)}
         {!shown.length && <p className="team-empty small">No conversations yet. Share a session or start a thread.</p>}
       </div>

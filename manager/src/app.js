@@ -163,7 +163,7 @@ export function createApp(pool, config) {
         return res.end(req.method === 'HEAD' ? undefined : f.data);
       }
       if (req.method === 'GET' && path === '/health') { await pool.query('SELECT 1'); return json(res, 200, { ok: true }); }
-      const staticFiles = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/localflow': ['localflow.html', 'text/html'] };
+      const staticFiles = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/localflow': ['localflow.html', 'text/html'], '/operator': ['operator.html', 'text/html'], '/operator.js': ['operator.js', 'text/javascript'] };
       if (req.method === 'GET' && staticFiles[path]) {
         const [file, type] = staticFiles[path]; res.setHeader('Content-Type', `${type}; charset=utf-8`); return res.end(await readFile(new URL(`../public/${file}`, import.meta.url)));
       }
@@ -254,6 +254,26 @@ export function createApp(pool, config) {
       if (req.method === 'GET' && path === '/api/operator/files') {
         requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
         return json(res, 200, { files: (await pool.query('SELECT name,mime,size,access,products,from_chat,created_at FROM manager_team_files ORDER BY created_at DESC LIMIT 20')).rows });
+      }
+      // The operator dashboard (terminai.xyz/operator, TerminAI's own admins only): every organisation with its members.
+      if (req.method === 'GET' && path === '/api/operator/orgs') {
+        const fwd = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()), ip = config.trustProxyHops > 0 ? fwd.at(-config.trustProxyHops) || req.socket.remoteAddress : req.socket.remoteAddress;
+        await limit(pool, `operator:${ip}`, 60, 3600);
+        requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');
+        const { rows } = await pool.query(`SELECT c.id,c.name,c.created_at,
+            (SELECT count(*) FROM manager_memberships m WHERE m.company_id=c.id)::int AS members,
+            (SELECT json_agg(json_build_object('name',u.name,'email',u.email,'role',m.role,'products',m.products,
+               'app',(SELECT s.app_version FROM manager_sessions s WHERE s.user_id=u.id AND s.app_version IS NOT NULL ORDER BY coalesce(s.seen_at,s.created_at) DESC LIMIT 1),
+               'seen',(SELECT max(coalesce(s.seen_at,s.created_at)) FROM manager_sessions s WHERE s.user_id=u.id)) ORDER BY m.role,u.name)
+             FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=c.id) AS people,
+            (SELECT count(*) FROM manager_conversations v WHERE v.company_id=c.id AND v.source_key IS NOT NULL)::int AS sessions,
+            (SELECT count(*) FROM manager_team_files f WHERE f.company_id=c.id)::int AS files,
+            (SELECT max(created_at) FROM manager_chat ch WHERE ch.company_id=c.id) AS last_chat
+          FROM manager_companies c ORDER BY c.created_at`);
+        const { rows: [tot] } = await pool.query(`SELECT (SELECT count(*) FROM manager_users)::int AS users,
+            (SELECT count(DISTINCT user_id) FROM manager_sessions WHERE client='desktop' AND app_version IS NOT NULL)::int AS installs,
+            (SELECT count(DISTINCT user_id) FROM manager_sessions WHERE client='desktop' AND seen_at>now()-interval '1 day')::int AS active_day`);
+        return json(res, 200, { totals: tot, orgs: rows });
       }
       if (req.method === 'GET' && path === '/api/operator/users') {
         requireThat(config.setupToken?.length >= 32 && safeEqual(String(req.headers['x-setup-token'] || ''), config.setupToken), 404, 'Not found.');

@@ -89,7 +89,7 @@ function fakeUuid(seed: string): string {
 
 /** A message that asks for something hard to undo, costly or secret: a bot set to "risky" asks the person first. */
 const RISKY = /\b(rm\s+-|delete|remove|drop\s+table|truncate|wipe|reset\s+--hard|force[- ]?push|push\s+--force|git\s+push|deploy|publish|release|merge|send\s+(an?\s+)?(email|mail|message|invoice)|transfer|pay(ment)?|purchase|buy|refund|subscribe|password|api[_ -]?key|secret|token|credential|sudo|chmod|chown|curl[^\n|]*\|\s*(ba|z)?sh|ssh\s|production|\bprod\b|revoke|cancel)/i
-export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; notify: (title: string, body: string, tabId: string) => void
+export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; paused?: (id: string) => boolean; notify: (title: string, body: string, tabId: string) => void
   /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. `null`: nobody can be asked now (no window), the message waits. */
   approve?: (from: string, tab: string, text: string, tabId: string, force?: boolean) => Promise<boolean | null>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
@@ -128,7 +128,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         if (mode === 'off') continue
         // Only me: the same as Shared, but readable by you alone (your iPhone and the web), never by the team or bots.
         const conv = (await team.call(`/api/companies/${team.id}/conversations/tab/${key}`, 'PUT', {
-          title: scrub(opts.tabName(id)).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: agent.alive ? ptys.statusOf(id) : 'idle', visibility: share ? 'company' : 'owner' })).conversation
+          title: scrub(opts.tabName(id)).slice(0, 200) || 'Session', place: place(ptys.cwdOf(id)), status: opts.paused?.(id) ? 'paused' : agent.alive ? ptys.statusOf(id) : agent.kind ? 'not started' : 'idle', visibility: share ? 'company' : 'owner' })).conversation
         conversationOf.set(key, conv.id)
         const file = transcriptOf(id); if (!file) continue
         const sent = posted.get(conv.id) ?? new Set<string>(); posted.set(conv.id, sent)
