@@ -75,24 +75,27 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
 
 /** Your agents: Claude Code (ticked) and Codex, installed now in a tab you can watch when this Mac does not have them. */
 function Agents({ onNext }: { onNext: () => void }): JSX.Element {
-  const [has, setHas] = useState<{ claude: boolean; codex: boolean } | null>(null)
-  const [pick, setPick] = useState({ claude: true, codex: false })
+  type Kind = 'claude' | 'codex' | 'chrome'
+  const [has, setHas] = useState<{ claude: boolean; codex: boolean; chrome: boolean; chromeApp: boolean } | null>(null)
+  const [pick, setPick] = useState<Record<Kind, boolean>>({ claude: true, codex: false, chrome: true })
   const [busy, setBusy] = useState(false)
-  useEffect(() => { void window.term.agents.status().then(h => { setHas(h); setPick({ claude: !h.claude, codex: false }) }).catch(() => setHas({ claude: false, codex: false })) }, [])
-  const missing = (['claude', 'codex'] as const).filter(a => pick[a] && has && !has[a])
+  useEffect(() => { void window.term.agents.status().then(h => { setHas(h); setPick({ claude: !h.claude, codex: false, chrome: !h.chrome && h.chromeApp }) }).catch(() => setHas({ claude: false, codex: false, chrome: false, chromeApp: false })) }, [])
+  const missing = (['claude', 'codex', 'chrome'] as const).filter(a => pick[a] && has && !has[a])
   const go = async () => { if (missing.length) { setBusy(true); await window.term.agents.install([...missing]).catch(() => false) } onNext() }
-  const row = (a: 'claude' | 'codex', name: string, what: string) => <label className={`onb-agent${has?.[a] ? ' done' : ''}`}>
-    <input type="checkbox" checked={!!has?.[a] || pick[a]} disabled={!has || has[a]} onChange={e => setPick(p => ({ ...p, [a]: e.target.checked }))} />
+  const row = (a: Kind, name: string, what: string, off = false) => <label className={`onb-agent${has?.[a] ? ' done' : ''}`}>
+    <input type="checkbox" checked={!!has?.[a] || pick[a]} disabled={!has || has[a] || off} onChange={e => setPick(p => ({ ...p, [a]: e.target.checked }))} />
     <span><b>{name}</b><small>{has?.[a] ? 'Already on this Mac' : what}</small></span></label>
+  const names = { claude: 'Claude Code', codex: 'Codex', chrome: 'the Chrome extension' }
   return <>
     <h1>Your AI agents</h1>
     <p className="onb-lead">TerminAI runs them in its tabs. Tick what to install now: it opens a tab that installs it, then you sign in there with your account.</p>
     <div className="onb-agents">
       {row('claude', 'Claude Code', "Anthropic's agent. Sign in with a Claude Pro or Max plan.")}
+      {row('chrome', 'Claude in Chrome', has && !has.chromeApp ? 'Needs Google Chrome on this Mac first.' : 'Lets Claude Code use your Chrome: Chrome opens at the extension, click Add to Chrome.', !!has && !has.chromeApp)}
       {row('codex', 'Codex', "OpenAI's agent. Sign in with ChatGPT.")}
     </div>
     <div className="onb-row">
-      <button className="onb-primary" disabled={!has || busy} onClick={() => void go()}>{missing.length ? `Install ${missing.length === 2 ? 'both' : missing[0] === 'claude' ? 'Claude Code' : 'Codex'}` : 'Continue'}</button>
+      <button className="onb-primary" disabled={!has || busy} onClick={() => void go()}>{missing.length ? `Install ${missing.length > 1 ? missing.length === 3 ? 'all three' : `${names[missing[0]]} and ${names[missing[1]]}` : names[missing[0]]}` : 'Continue'}</button>
       {missing.length > 0 && <button className="onb-ghost" onClick={onNext}>Not now</button>}
     </div>
   </>

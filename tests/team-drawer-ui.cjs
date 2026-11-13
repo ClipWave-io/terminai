@@ -93,7 +93,14 @@ if(!process.versions.electron){
   await js(`(()=>{const i=document.querySelector('.m-invite .pp-new');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'mm.org');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);await delay(200);
   assert.ok(await js(`!document.querySelector('.m-invite .btn.primary').disabled&&/Only mm.org/.test(document.querySelector('.m-invite').textContent)`),'mm.org picked');
   await js(`document.querySelector('.m-invite').scrollIntoView()`);win.show();win.focus();win.webContents.invalidate();await delay(1200);await shot('4-invite');
-  console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form');app.quit();
+  // A new organisation from Sync: made, picked, and listed next to the first one.
+  if(!await js(`!!document.querySelector('.team-side')`)){await js(`document.querySelector('[aria-label="Sync"]').click()`);await delay(800)}
+  await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='+ New organisation').click()`);await delay(200);
+  await js(`(()=>{const i=document.querySelector('.team-neworg input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Second Org');i.dispatchEvent(new Event('input',{bubbles:true}))})()`);await delay(200);await js(`document.querySelector('.team-neworg button').click()`);
+  for(let i=0;i<30&&!await js(`document.querySelectorAll('.team-side select[aria-label="Organisation"] option').length===2`);i++)await delay(200);
+  assert.equal(await js(`[...document.querySelector('.team-side select[aria-label="Organisation"]').selectedOptions].map(o=>o.textContent).join()`),'Second Org','new organisation picked');
+  assert.ok(await js(`window.term.prefs.get().then(p=>!!p.workspaceId)`),'remembered');
+  console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form, new organisation');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})}));
  setTimeout(()=>app.exit(1),70000).unref();require('../out/main/index.js');
 }

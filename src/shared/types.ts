@@ -437,6 +437,8 @@ export interface Prefs {
   soundNames: Partial<Record<SoundKind, string>>
   /** Claude Code's "do you trust this folder" answered Yes for every folder a tab opens in (Settings › General) */
   autoTrust: boolean
+  /** the organisation (workspace) picked in Sync: the team chat, files and Sync use it; '' is the first one */
+  workspaceId: string
   /** Claude in Chrome on by default in Claude Code (claudeInChromeDefaultEnabled), set once when this is on */
   chromeByDefault: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
@@ -505,6 +507,7 @@ export const DEFAULT_PREFS: Prefs = {
   sounds: { chat: true, call: true, done: true, request: true, agent: true, todo: true, memory: true, update: false },
   soundNames: {},
   autoTrust: true,
+  workspaceId: '',
   chromeByDefault: true,
   tasksUser: 'ilai',
   tasksKey: '',
