@@ -32,6 +32,46 @@ async function rawBody(req) {
   return Buffer.concat(chunks);
 }
 const publicFile = row => ({ id: row.id, name: row.name, mime: row.mime, size: row.size, createdAt: row.created_at });
+
+/* Note comments and activity, as in document Spaces: threads with replies that are resolved as a whole, and a log of
+ * who did what to each note. Both are read with exactly the note's own access: its visibility and the reader's products. */
+const NOTE_ACTIONS = ['created', 'edited', 'product', 'file_added', 'file_removed', 'commented', 'resolved', 'reopened', 'deleted'];
+/** Records one thing done to a note. Autosave sends an edit every few keystrokes and a drop adds files one by one, so the
+ * same person's next edit (10 minutes) or next file (2 minutes) grows the last row instead of adding one. */
+async function logNote(db, note, actorId, action, detail = {}) {
+  requireThat(NOTE_ACTIONS.includes(action), 500, 'Unknown note action.');
+  const span = action === 'edited' ? 600 : action === 'file_added' ? 120 : 0;
+  if (span) {
+    const { rows: [last] } = await db.query(`SELECT id,action,actor_id,detail FROM manager_note_activity WHERE note_id=$1 ORDER BY id DESC LIMIT 1`, [note.id]);
+    if (last && last.action === action && last.actor_id === actorId) {
+      const merged = action === 'edited' ? { fields: [...new Set([...(last.detail.fields || []), ...(detail.fields || [])])] }
+        : { names: [...(last.detail.names || []), ...(detail.names || [])].slice(-20), count: (last.detail.count || 0) + (detail.count || 0) };
+      const { rowCount } = await db.query(`UPDATE manager_note_activity SET detail=$2,note_title=$3,created_at=clock_timestamp() WHERE id=$1 AND created_at>clock_timestamp()-$4*interval '1 second'`,
+        [last.id, merged, note.title, span]);
+      if (rowCount) return;
+    }
+  }
+  await db.query('INSERT INTO manager_note_activity(company_id,note_id,note_title,note_kind,note_product,note_visibility,note_owner,actor_id,action,detail) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    [note.company_id, note.id, note.title, note.kind || 'card', note.product || '', note.visibility, note.owner_id, actorId, action, detail]);
+}
+const publicNoteActivity = (row, userId) => {
+  const { notify, ...detail } = row.detail || {};
+  return { id: String(row.id), noteId: row.note_id, noteTitle: row.title, noteKind: row.kind, product: row.product || '', noteExists: !!row.live,
+    action: row.action, detail, by: row.actor_id, byName: row.actor_name || 'Someone', at: row.created_at,
+    // A comment on your note, a reply in your thread or an @mention of you: what the app tells you about.
+    forMe: row.actor_id !== userId && Array.isArray(notify) && notify.includes(userId) };
+};
+// The note's live title, product, visibility and owner when it still exists, else the ones the row kept.
+const NOTE_ACTIVITY_SELECT = `SELECT a.*,n.id AS live,coalesce(n.title,a.note_title) AS title,coalesce(n.kind,a.note_kind) AS kind,coalesce(n.product,a.note_product) AS product,
+    coalesce(n.visibility,a.note_visibility) AS vis,coalesce(n.owner_id,a.note_owner) AS owner,u.name AS actor_name
+  FROM manager_note_activity a LEFT JOIN manager_notes n ON n.id=a.note_id LEFT JOIN manager_users u ON u.id=a.actor_id`;
+const COMMENT_SELECT = `SELECT c.*,u.name AS author_name,r.name AS resolved_by_name FROM manager_note_comments c
+  LEFT JOIN manager_users u ON u.id=c.author_id LEFT JOIN manager_users r ON r.id=c.resolved_by`;
+/** Who an @word names: a teammate whose first name (or full name without spaces) it is, ignoring case. */
+const mentionedIn = (bodyText, people) => {
+  const words = new Set([...bodyText.matchAll(/(?:^|[^\w@])@([\p{L}\p{N}_.-]{2,40})/gu)].map(m => m[1].toLowerCase().replace(/[.-]+$/, '')));
+  return people.filter(p => { const name = String(p.name || '').toLowerCase(); return words.has(name.split(/\s+/)[0]) || words.has(name.replace(/\s+/g, '')); }).map(p => p.id);
+};
 /** A bot key's limits from a request, over the current ones. */
 function botLimits(input, current) {
   const scope = input.scope === undefined ? current.scope : enumValue(input.scope, ['full', 'reply', 'read'], 'access');
@@ -668,8 +708,9 @@ export function createApp(pool, config) {
           }
           requireThat(note.visibility==='private'||member.role!=='viewer',403,'Viewers cannot change shared notes.');
           if (req.method==='DELETE') {
-            const { rowCount } = await db.query('DELETE FROM manager_note_files WHERE id=$1 AND note_id=$2',[fileId,noteId]);
-            requireThat(rowCount,404,'File not found.');
+            const { rows:[gone] } = await db.query('DELETE FROM manager_note_files WHERE id=$1 AND note_id=$2 RETURNING name',[fileId,noteId]);
+            requireThat(gone,404,'File not found.');
+            await logNote(db,note,user.id,'file_removed',{names:[gone.name],count:1});
           } else {
             const { rows:[used] } = await db.query('SELECT count(*)::int AS n FROM manager_note_files WHERE note_id=$1',[noteId]);
             requireThat(used.n < 50, 400, 'A note can hold up to 50 files.');
@@ -680,6 +721,7 @@ export function createApp(pool, config) {
             const { rows:[row] } = await db.query('INSERT INTO manager_note_files(id,note_id,company_id,name,mime,size,data,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,name,mime,size,created_at',
               [randomUUID(),noteId,companyId,name,mime,data.length,data,user.id]);
             await db.query('UPDATE manager_notes SET updated_by=$1,updated_at=now() WHERE id=$2',[user.id,noteId]);
+            await logNote(db,note,user.id,'file_added',{names:[row.name],count:1});
             return { file: publicFile(row) };
           }
           await db.query('UPDATE manager_notes SET updated_by=$1,updated_at=now() WHERE id=$2',[user.id,noteId]);
@@ -961,6 +1003,7 @@ export function createApp(pool, config) {
           const kind=enumValue(input.kind??'card',['card','doc'],'note kind');
           const {rows:[row]}=await db.query('INSERT INTO manager_notes(id,company_id,owner_id,visibility,title,body,assignee_id,position,updated_by,kind,product) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$3,$9,$10) RETURNING *',
             [randomUUID(),companyId,user.id,visibility,kind==='doc'&&!input.title?'New note':text(input.title,'Title',500),typeof input.body==='string'?input.body.slice(0,kind==='doc'?100000:20000):'',visibility==='company'&&kind==='card'?await assignee(input.assigneeId):null,last.p,kind,typeof input.product==='string'?input.product.trim().slice(0,100):'']);
+          await logNote(db,row,user.id,'created');
           return {note:publicNote({...row,updated_by_name:user.name})};
         }
         const noteMatch=tail.match(/^\/notes\/([^/]+)$/);
@@ -968,7 +1011,7 @@ export function createApp(pool, config) {
           const {rows:[note]}=await db.query('SELECT * FROM manager_notes WHERE id=$1 AND company_id=$2 FOR UPDATE',[uuid(noteMatch[1]),companyId]);
           requireThat(note&&(note.visibility==='company'||note.owner_id===user.id),404,'Note not found.');
           requireThat(note.visibility==='private'||member.role!=='viewer',403,'Viewers cannot change the team board.');
-          if(req.method==='DELETE'){requireThat(note.owner_id===user.id||isAdmin(member),403,'Only its author or an admin can delete it.');await db.query('DELETE FROM manager_notes WHERE id=$1',[note.id]);return {ok:true};}
+          if(req.method==='DELETE'){requireThat(note.owner_id===user.id||isAdmin(member),403,'Only its author or an admin can delete it.');await logNote(db,note,user.id,'deleted');await db.query('DELETE FROM manager_notes WHERE id=$1',[note.id]);return {ok:true};}
           const visibility=input.visibility===undefined?note.visibility:enumValue(input.visibility,['private','company'],'visibility');
           requireThat(visibility===note.visibility||note.owner_id===user.id,403,'Only its author can move it between private and team.');
           const {rows:[row]}=await db.query('UPDATE manager_notes SET title=$1,body=$2,status=$3,assignee_id=$4,position=$5,visibility=$6,updated_by=$7,updated_at=now(),product=$9 WHERE id=$8 RETURNING *',[
@@ -978,8 +1021,86 @@ export function createApp(pool, config) {
             visibility==='private'?null:input.assigneeId===undefined?note.assignee_id:await assignee(input.assigneeId),
             input.position===undefined?note.position:(requireThat(Number.isFinite(input.position),400,'Invalid position.'),input.position),
             visibility,user.id,note.id,input.product===undefined?note.product||'':String(input.product).trim().slice(0,100)]);
+          // The activity: what changed, not the position (dragging a card is not news).
+          const fields=[['title','title'],['body','body'],['status','status'],['visibility','visibility'],['assignee_id','assignee']].filter(([k])=>row[k]!==note[k]).map(([,f])=>f);
+          if(fields.length)await logNote(db,row,user.id,'edited',{fields});
+          if((row.product||'')!==(note.product||''))await logNote(db,row,user.id,'product',{from:note.product||'',to:row.product||''});
           const {rows:files}=await db.query('SELECT id,name,mime,size,created_at FROM manager_note_files WHERE note_id=$1 ORDER BY created_at',[note.id]);
           return {note:publicNote({...row,updated_by_name:user.name,files:files.map(publicFile)})};
+        }
+        // Activity of every note this person reads, newest first: ?limit (max 300), ?before=<id> for older, ?after=<id> for newer.
+        if(tail==='/notes/activity'&&req.method==='GET') {
+          const lim=Math.min(300,Math.max(1,Number(url.searchParams.get('limit'))||100));
+          const cursor=k=>{const v=url.searchParams.get(k);if(!v)return null;requireThat(/^\d{1,18}$/.test(v),400,'Invalid cursor.');return v;};
+          const before=cursor('before'),after=cursor('after');
+          const {rows}=await db.query(`${NOTE_ACTIVITY_SELECT} WHERE a.company_id=$1
+              AND (coalesce(n.visibility,a.note_visibility)='company' OR coalesce(n.owner_id,a.note_owner)=$2)
+              AND ($3::text[] IS NULL OR coalesce(n.visibility,a.note_visibility)='private' OR coalesce(n.product,a.note_product)=ANY($3))
+              AND ($4::bigint IS NULL OR a.id<$4) AND ($5::bigint IS NULL OR a.id>$5) ORDER BY a.id DESC LIMIT $6`,
+            [companyId,user.id,isAdmin(member)?null:member.products??null,before,after,lim]);
+          return {activity:rows.map(r=>publicNoteActivity(r,user.id))};
+        }
+        const noteSub=tail.match(/^\/notes\/([^/]+)\/(comments|activity)(?:\/([^/]+))?$/);
+        if(noteSub) {
+          const [,rawNote,what,rawComment]=noteSub, noteId=uuid(rawNote);
+          requireThat(what==='comments'?(rawComment?['PATCH','DELETE']:['GET','POST']).includes(req.method):req.method==='GET'&&!rawComment,405,'Unsupported note action.');
+          // Exactly the note's own access: its author for a private one; for a team one, its product among the reader's.
+          const {rows:[note]}=await db.query(`SELECT * FROM manager_notes WHERE id=$1 AND company_id=$2 FOR ${req.method==='GET'?'SHARE':'UPDATE'}`,[noteId,companyId]);
+          requireThat(note&&(note.visibility==='company'?sees(note.product):note.owner_id===user.id),404,'Note not found.');
+          if(what==='activity'){
+            const {rows}=await db.query(`${NOTE_ACTIVITY_SELECT} WHERE a.company_id=$1 AND a.note_id=$2 ORDER BY a.id DESC LIMIT 300`,[companyId,noteId]);
+            return {activity:rows.map(r=>publicNoteActivity(r,user.id))};
+          }
+          const mayWrite=note.visibility==='private'||member.role!=='viewer';
+          const publicComment=c=>({id:c.id,noteId:c.note_id,parentId:c.parent_id,authorId:c.author_id,authorName:c.author_name||'Someone',body:c.body,mentions:c.mentions||[],
+            createdAt:c.created_at,editedAt:c.edited_at,resolvedAt:c.resolved_at,resolvedBy:c.resolved_by,resolvedByName:c.resolved_by_name||null,mine:c.author_id===user.id,
+            // What this reader may do with it, so the app never has to know who is an admin.
+            canEdit:mayWrite&&(c.author_id===user.id||isAdmin(member)),canResolve:mayWrite&&!c.parent_id&&(c.author_id===user.id||note.owner_id===user.id||isAdmin(member))});
+          const one=async id=>publicComment((await db.query(`${COMMENT_SELECT} WHERE c.id=$1`,[id])).rows[0]);
+          if(req.method==='GET'){
+            const {rows}=await db.query(`${COMMENT_SELECT} WHERE c.note_id=$1 ORDER BY c.created_at,c.id LIMIT 1000`,[noteId]);
+            return {comments:rows.map(publicComment),canComment:mayWrite};
+          }
+          requireThat(mayWrite,403,'Viewers read the comments but cannot write them.');
+          const people=async()=>(await db.query('SELECT u.id,u.name,m.role,m.products FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1',[companyId])).rows
+            // Only who reads the note can be @mentioned: a private note is its author's alone, a team one its product's people.
+            .filter(p=>note.visibility==='company'?isAdmin(p)||!p.products||p.products.includes(note.product||''):p.id===note.owner_id);
+          const bodyOf=()=>{const v=typeof input.body==='string'?input.body.trim():'';requireThat(v&&v.length<=4000,400,'Write a comment of up to 4,000 characters.');return v;};
+          if(req.method==='POST'){
+            const bodyText=bodyOf(), parentId=input.parentId===undefined||input.parentId===null?null:uuid(input.parentId);
+            let thread=null;
+            if(parentId){({rows:[thread]}=await db.query('SELECT id,author_id FROM manager_note_comments WHERE id=$1 AND note_id=$2 AND parent_id IS NULL',[parentId,noteId]));requireThat(thread,404,'Comment thread not found.');}
+            const {rows:[count]}=await db.query('SELECT count(*)::int AS n FROM manager_note_comments WHERE note_id=$1',[noteId]);
+            requireThat(count.n<500,409,'This note has reached its 500 comments.');
+            await limit(db,`note-comment:${user.id}`,300,3600);
+            const mentions=mentionedIn(bodyText,await people());
+            const {rows:[row]}=await db.query('INSERT INTO manager_note_comments(id,note_id,company_id,parent_id,author_id,body,mentions) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+              [randomUUID(),noteId,companyId,parentId,user.id,bodyText,mentions]);
+            // Told about it: the note's author, the thread's author for a reply, and everyone @mentioned (never the writer).
+            const notify=[...new Set([note.owner_id,thread?.author_id,...mentions].filter(id=>id&&id!==user.id))];
+            await logNote(db,note,user.id,'commented',{commentId:row.id,reply:!!parentId,excerpt:bodyText.replace(/\s+/g,' ').slice(0,140),notify,mentioned:mentions.length});
+            return {comment:await one(row.id)};
+          }
+          const {rows:[comment]}=await db.query('SELECT * FROM manager_note_comments WHERE id=$1 AND note_id=$2 FOR UPDATE',[uuid(rawComment),noteId]);
+          requireThat(comment,404,'Comment not found.');
+          const authorOrAdmin=comment.author_id===user.id||isAdmin(member);
+          if(req.method==='DELETE'){
+            requireThat(authorOrAdmin,403,'Only its author or an admin can delete this comment.');
+            await db.query('DELETE FROM manager_note_comments WHERE id=$1',[comment.id]);return {ok:true};
+          }
+          requireThat(input.body!==undefined||typeof input.resolved==='boolean',400,'Send a new body or resolved: true/false.');
+          if(input.body!==undefined){
+            requireThat(authorOrAdmin,403,'Only its author or an admin can edit this comment.');
+            const bodyText=bodyOf();
+            if(bodyText!==comment.body)await db.query('UPDATE manager_note_comments SET body=$2,mentions=$3,edited_at=now() WHERE id=$1',[comment.id,bodyText,mentionedIn(bodyText,await people())]);
+          }
+          if(typeof input.resolved==='boolean'&&input.resolved!==!!comment.resolved_at){
+            requireThat(!comment.parent_id,400,'Resolve the thread, not a reply.');
+            requireThat(authorOrAdmin||note.owner_id===user.id,403,'Only the comment’s author, the note’s author or an admin can resolve it.');
+            await db.query('UPDATE manager_note_comments SET resolved_at=$2,resolved_by=$3 WHERE id=$1',[comment.id,input.resolved?new Date():null,input.resolved?user.id:null]);
+            await logNote(db,note,user.id,input.resolved?'resolved':'reopened',{commentId:comment.id,excerpt:comment.body.replace(/\s+/g,' ').slice(0,140)});
+          }
+          return {comment:await one(comment.id)};
         }
         // The work log (manager_worklogs): everyone in the workspace reads every day; each writes only their own column's.
         const logDay=tail.match(/^\/worklog\/(\d{4}-\d{2}-\d{2})$/);

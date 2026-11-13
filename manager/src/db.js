@@ -92,6 +92,27 @@ export async function migrate(pool) {
         created_by uuid REFERENCES manager_users ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS manager_note_files_note ON manager_note_files(note_id,created_at);
+      -- Comments on a note: threads (parent_id NULL) with replies, resolved as a whole; whoever reads the note reads them.
+      CREATE TABLE IF NOT EXISTS manager_note_comments (
+        id uuid PRIMARY KEY, note_id uuid NOT NULL REFERENCES manager_notes ON DELETE CASCADE,
+        company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        parent_id uuid REFERENCES manager_note_comments ON DELETE CASCADE,
+        author_id uuid REFERENCES manager_users ON DELETE SET NULL, body text NOT NULL, mentions uuid[] NOT NULL DEFAULT '{}',
+        created_at timestamptz NOT NULL DEFAULT now(), edited_at timestamptz,
+        resolved_at timestamptz, resolved_by uuid REFERENCES manager_users ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS manager_note_comments_note ON manager_note_comments(note_id,created_at);
+      -- What happened to each note, who and when. It outlives the note (no foreign key): a deleted note keeps its history,
+      -- read with the note's last title, product, visibility and owner kept here.
+      CREATE TABLE IF NOT EXISTS manager_note_activity (
+        id bigserial PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        note_id uuid NOT NULL, note_title text NOT NULL DEFAULT '', note_kind text NOT NULL DEFAULT 'doc', note_product text NOT NULL DEFAULT '',
+        note_visibility text NOT NULL DEFAULT 'company', note_owner uuid,
+        actor_id uuid REFERENCES manager_users ON DELETE SET NULL, action text NOT NULL, detail jsonb NOT NULL DEFAULT '{}',
+        created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+      );
+      CREATE INDEX IF NOT EXISTS manager_note_activity_company ON manager_note_activity(company_id,id DESC);
+      CREATE INDEX IF NOT EXISTS manager_note_activity_note ON manager_note_activity(note_id,id DESC);
       CREATE TABLE IF NOT EXISTS manager_device_logins (
         id uuid PRIMARY KEY, code_hash text NOT NULL UNIQUE, poll_hash text NOT NULL UNIQUE,
         user_id uuid REFERENCES manager_users ON DELETE CASCADE, created_at timestamptz NOT NULL DEFAULT now(),

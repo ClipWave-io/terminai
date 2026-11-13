@@ -128,7 +128,12 @@ export async function workspaceRequest(path: string, method = 'GET', body?: unkn
     if (!session) throw new Error('Sign in to your company workspace first.')
     return request(session.url, path, method, body, session.token)
   }
-  if (file ? method !== 'DELETE' : (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations|notes)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
+  // A note's comments (GET, POST; PATCH and DELETE one), its activity (GET), and the activity of all notes (GET, paged).
+  const noteExtra = /^\/api\/companies\/[a-zA-Z0-9-]+\/notes\/(?:activity(?:\?(?:limit|before|after)=\d+(?:&(?:limit|before|after)=\d+)*)?|[a-zA-Z0-9-]+\/(activity|comments(\/[a-zA-Z0-9-]+)?))$/.exec(path)
+  if (noteExtra) {
+    const allowed = !noteExtra[1] || noteExtra[1] === 'activity' ? ['GET'] : noteExtra[2] ? ['PATCH', 'DELETE'] : ['GET', 'POST']
+    if (!allowed.includes(method)) throw new Error('Unsupported workspace action.')
+  } else if (file ? method !== 'DELETE' : (!/^\/api\/companies\/[a-zA-Z0-9-]+\/(catalog|members|conversations|notes)(\/[a-zA-Z0-9-]+)?(\/messages)?$/.test(path)
     || !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)
     || (method === 'DELETE' && !/\/notes\/[a-zA-Z0-9-]+$/.test(path)))) throw new Error('Unsupported workspace action.')
   const session = await load()
