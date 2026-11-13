@@ -310,7 +310,14 @@ let crashedLastRun = false
 const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
 app.whenReady().then(() => {
   // Screen sharing in calls: macOS's own picker where it has one, else the main screen.
+  // Sharing the screen in a call. Without Screen Recording permission macOS lets an app capture only its own windows, so
+  // the others saw TerminAI and nothing else: ask for it, open the right Settings page and tell the call why.
   session.defaultSession.setDisplayMediaRequestHandler((_req, cb) => {
+    if (process.platform === 'darwin' && app.isPackaged && systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
+      void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')
+      if (win && !win.isDestroyed()) win.webContents.send('screen:permission')
+      return cb({})
+    }
     void desktopCapturer.getSources({ types: ['screen', 'window'] }).then(s => cb(s[0] ? { video: s[0] } : {})).catch(() => cb({}))
   }, { useSystemPicker: true })
   if (pendingLink) setTimeout(() => void openLink(pendingLink), 1500)
@@ -500,7 +507,9 @@ function registerIpc(): void {
     const want = Array.isArray(which) ? which.filter((w): w is 'claude' | 'codex' => w === 'claude' || w === 'codex') : []
     if (!want.length) return false
     // Claude Code's official installer (no Node needed); Codex through Homebrew when present, else npm.
-    const steps = want.map(w => w === 'claude' ? 'curl -fsSL https://claude.ai/install.sh | bash'
+    // Claude Code lands in ~/.local/bin: its own terminal (and Terminal.app) find it only once that is in ~/.zshrc.
+    const pathLine = `grep -qs '.local/bin' ~/.zshrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`
+    const steps = want.map(w => w === 'claude' ? `curl -fsSL https://claude.ai/install.sh | bash && ${pathLine} && export PATH="$HOME/.local/bin:$PATH"`
       : 'if command -v brew >/dev/null; then brew install codex; else npm install -g @openai/codex; fi')
     const cmd = `${steps.join(' && ')} && echo && echo "Done. Type ${want.includes('claude') ? 'claude' : 'codex'} to sign in and start."`
     await openCommandTab(homedir(), want.length > 1 ? 'Installing Claude Code and Codex' : want[0] === 'claude' ? 'Installing Claude Code' : 'Installing Codex', cmd, false)

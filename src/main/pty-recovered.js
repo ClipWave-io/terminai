@@ -121,6 +121,9 @@ function ptyEnv(tabId) {
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";
   env.TERM_PROGRAM = "clipwave-term";
+  // Claude Code's installer puts it in ~/.local/bin, which a new Mac's shell does not know (13/11: "command not found").
+  const localBin = node_path.join(node_os.homedir(), ".local", "bin");
+  if (!(env.PATH || "").split(":").includes(localBin)) env.PATH = `${localBin}:${env.PATH || "/usr/bin:/bin"}`;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ATTACH_CONSOLE;
   for (const key of Object.keys(env)) {

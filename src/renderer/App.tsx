@@ -147,7 +147,9 @@ export function App(): JSX.Element {
   // Every new notice shows as a card at the top right for a few seconds (the sound that comes with it is never alone).
   const [card, setCard] = useState<{ id: string; kind: string; title: string; body: string; target?: { tab?: string; open?: string } } | null>(null)
   useEffect(() => window.term.notices.onNew(n => { if (n.read) return; setCard(n) }), [])
-  useEffect(() => { if (!card) return; const t = window.setTimeout(() => setCard(null), 7000); return () => window.clearTimeout(t) }, [card])
+  useEffect(() => window.term.teamchat.onScreenPermission(() => setCard({ id: 'screen', kind: 'memory', title: 'Allow screen recording to share your screen',
+    body: 'System Settings just opened at Screen Recording: turn TerminAI on, quit and reopen TerminAI, then share again. Without it macOS only lets the call see TerminAI.' })), [])
+  useEffect(() => { if (!card) return; const t = window.setTimeout(() => setCard(null), card.id === 'screen' ? 30000 : 7000); return () => window.clearTimeout(t) }, [card])
   const openNotice = (n: { target?: { tab?: string; open?: string } }) => {
     const t = n.target
     if (t?.tab && tabs.some(x => x.id === t.tab)) { setActiveId(t.tab); setShowTerminal(true); setCompactPane('terminal'); return }

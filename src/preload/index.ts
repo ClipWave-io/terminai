@@ -164,6 +164,8 @@ const api = {
     install: (which: ('claude' | 'codex')[]): Promise<boolean> => ipcRenderer.invoke('agents:install', which),
   },
   teamchat: {
+    /** Sharing the screen needs macOS Screen Recording permission: called when it is missing (Settings was opened). */
+    onScreenPermission: (cb: () => void) => { const h = () => cb(); ipcRenderer.on('screen:permission', h); return () => { ipcRenderer.removeListener('screen:permission', h) } },
     chat: (company: string, after?: string, typing?: string, pending?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing, pending, channel),
     channels: (company: string): Promise<{ team: boolean; channels: string[] }> => ipcRenderer.invoke('team:channels', company),
     send: (company: string, body: string, fileId?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId, channel),
