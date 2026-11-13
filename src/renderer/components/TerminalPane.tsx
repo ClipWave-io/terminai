@@ -309,6 +309,13 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
   const onDrop = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault()
     e.stopPropagation()
+    // A file or picture from the team chat: its real file, downloaded once, then pasted as a path (Claude Code reads it).
+    const team = e.dataTransfer.getData('application/x-terminai-teamfile')
+    if (team) {
+      try { const f = JSON.parse(team) as { company: string; id: string; name: string }
+        void window.term.teamchat.fetch(f.company, f.id, f.name).then(path => { window.term.pty.write(ptyId, `${shellQuote(path)} `); termRef.current?.focus() }).catch(() => {}) } catch {}
+      return
+    }
     const dropped = Array.from(e.dataTransfer.files)
       .map((f) => window.term.files.pathFor(f))
       .filter(Boolean)
@@ -317,7 +324,8 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     const text = dropped.length
       ? dropped.map(shellQuote).join(' ')
       : e.dataTransfer.getData('text/uri-list').trim() || e.dataTransfer.getData('text/plain')
-    if (!text) return
+    // Never paste a picture's own data (data:/blob: links): it is megabytes of text.
+    if (!text || /^(data|blob):/i.test(text) || text.length > 20000) return
 
     // Trailing space so a second drop does not run into the first.
     const pasteText = () => { window.term.pty.write(ptyId, `${text} `); termRef.current?.focus() }

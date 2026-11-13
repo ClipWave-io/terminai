@@ -181,6 +181,7 @@ const api = {
     upload: (company: string, path: string, access = 'all', products: string[] = [], chat = false, folder = ''): Promise<any> => ipcRenderer.invoke('team:upload', company, path, access, products, chat, folder),
     image: (company: string, id: string, name: string): Promise<string> => ipcRenderer.invoke('team:image', company, id, name),
     open: (company: string, id: string, name: string, how: 'app' | 'pane' | 'reveal' = 'app'): Promise<void> => ipcRenderer.invoke('team:open', company, id, name, how),
+    fetch: (company: string, id: string, name: string): Promise<string> => ipcRenderer.invoke('team:fetch', company, id, name),
     pick: (): Promise<string[]> => ipcRenderer.invoke('team:pick'),
     notify: (title: string, body: string): Promise<boolean> => ipcRenderer.invoke('team:notify', title, body),
     notificationSettings: (): Promise<void> => ipcRenderer.invoke('app:notification-settings'),

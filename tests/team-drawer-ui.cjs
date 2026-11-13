@@ -32,7 +32,7 @@ if(!process.versions.electron){
  fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({seenWelcome:true,tabs:[],voice:{enabled:false},newTabAgent:'none'}));
  const delay=ms=>new Promise(r=>setTimeout(r,ms)),shots=process.env.TEAM_SHOTS;
  app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
-  await delay(1500);win.setSize(1300,860);const js=s=>win.webContents.executeJavaScript(s);
+  await delay(1500);win.setSize(1300,860);const js=s=>win.webContents.executeJavaScript(s).catch(e=>{console.error("FAILED JS:",s.slice(0,160));throw e});
   const shot=async n=>{if(!shots)return;await delay(500);fs.writeFileSync(path.join(shots,n+'.png'),(await win.webContents.capturePage()).toPNG())};
   await js(`window.term.workspace.login({url:${JSON.stringify(process.env.TEAM_URL)},email:${JSON.stringify(process.env.TEAM_EMAIL)},password:${JSON.stringify(process.env.TEAM_PW)}})`);
   await js(`document.querySelector('[aria-label^="Team chat"]').click()`);
@@ -56,6 +56,11 @@ if(!process.versions.electron){
   await js(`document.querySelector('.tc-img').click()`);await delay(300);
   assert.ok(await js(`!!document.querySelector('.tc-viewer img')&&[...document.querySelectorAll('.tc-viewer button')].some(b=>b.textContent==='Open in Files')`),'picture popup with Open in Files');
   await shot('1b-picture');
+  // Dragging the picture onto the terminal gives the tab its file path, never the picture's data.
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
+  await js(`(()=>{const dt=new DataTransfer(),img=document.querySelector('.tc-img'),t=document.querySelector('.term-host.active')||document.querySelector('.term-host');img.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}))})()`);
+  for(let i=0;i<30&&!await js(`/team-files/.test(document.querySelector('.term-host').textContent)`);i++)await delay(200);
+  assert.ok(await js(`(()=>{const t=document.querySelector('.term-host').textContent;return t.includes('team-files')&&t.includes('screen.png')&&!t.includes('data:image')})()`),'the picture arrives as its file path');
   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
   assert.ok(await js(`!document.querySelector('.tc-viewer')`),'Escape closes it');
   await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Files').click()`);
@@ -105,6 +110,10 @@ if(!process.versions.electron){
   for(let i=0;i<30&&!await js(`document.querySelectorAll('.team-side select[aria-label="Organisation"] option').length===2`);i++)await delay(200);
   assert.equal(await js(`[...document.querySelector('.team-side select[aria-label="Organisation"]').selectedOptions].map(o=>o.textContent).join()`),'Second Org','new organisation picked');
   assert.ok(await js(`window.term.prefs.get().then(p=>!!p.workspaceId)`),'remembered');
+  // Notes, signed in: the page draws (a hook after an early return used to blank the whole window here).
+  await js(`document.querySelector('[aria-label^="To-do"]').click()`);await delay(700);
+  await js(`[...document.querySelectorAll('.todo-seg button')].find(b=>b.textContent==='Notes')?.click()`);await delay(2500);
+  assert.ok(await js(`!document.querySelector('.boundary')&&document.body.innerText.length>50&&!!document.querySelector('.todo-note')`),'Notes draws');
   console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form, new organisation');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})}));
  setTimeout(()=>app.exit(1),70000).unref();require('../out/main/index.js');

@@ -174,6 +174,12 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   </aside></>
 }
 
+/** Dragging a file or picture from the chat onto a tab: the tab gets the real file (downloaded once), never the picture's
+ *  data as text (that pasted megabytes of base64 into Claude Code, chunk after chunk). */
+function dragTeamFile(e: React.DragEvent, company: string, file: { id: string; name: string }): void {
+  e.dataTransfer.clearData(); e.dataTransfer.setData('application/x-terminai-teamfile', JSON.stringify({ company, id: file.id, name: file.name })); e.dataTransfer.effectAllowed = 'copy'
+}
+
 /** Links in a message are clickable: they open in the browser (the window's open handler sends them out). */
 const URL_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]]|www\.[^\s<>"]+[^\s<>".,;:!?)\]])/g
 function linkify(text: string): (string | JSX.Element)[] {
@@ -232,7 +238,7 @@ function Chat({ draftKey, company, messages, me, others, onSend, onShare }: { dr
 function Attachment({ company, file }: { company: string; file: ChatFile }): JSX.Element {
   if ('hidden' in file) return <span className="tc-file hidden"><Ico n="lock" s={14} /> A file you have no access to</span>
   if (isImage(file.name)) return <LazyImage company={company} file={file} />
-  return <button className="tc-file" onClick={() => void openInPane(company, file.id, file.name)}>
+  return <button className="tc-file" draggable onDragStart={e => dragTeamFile(e, company, file)} onClick={() => void openInPane(company, file.id, file.name)}>
     <span className="tc-file-ico">{/\.(mp4|mov)$/i.test(file.name) ? <Ico n="play" /> : /\.(mp3|m4a|wav)$/i.test(file.name) ? <Ico n="note" /> : (file.name.split('.').pop() ?? '').slice(0, 4).toUpperCase()}</span>
     <span className="tc-file-name">{file.name}<small>{size(file.size)} · click to open</small></span></button>
 }
@@ -251,8 +257,8 @@ function LazyImage({ company, file }: { company: string; file: { id: string; nam
   }, [company, file.id, file.name])
   const [big, setBig] = useState(false)
   return <>
-    <button className="tc-img" title={`${file.name} · click to view`} onClick={() => src ? setBig(true) : void openInPane(company, file.id, file.name)}>
-      {src ? <img src={src} alt={file.name} /> : <span className="tc-img-wait">{failed ? `${file.name} · click to open` : `Loading · ${size(file.size)}`}</span>}</button>
+    <button className="tc-img" draggable onDragStart={e => dragTeamFile(e, company, file)} title={`${file.name} · click to view or drag onto a tab`} onClick={() => src ? setBig(true) : void openInPane(company, file.id, file.name)}>
+      {src ? <img src={src} alt={file.name} draggable={false} /> : <span className="tc-img-wait">{failed ? `${file.name} · click to open` : `Loading · ${size(file.size)}`}</span>}</button>
     {big && <Viewer src={src} name={file.name} onClose={() => setBig(false)}
       onFiles={() => { setBig(false); void openInPane(company, file.id, file.name) }} onFinder={() => void window.term.teamchat.open(company, file.id, file.name, 'reveal')} />}
   </>

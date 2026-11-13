@@ -582,6 +582,8 @@ function registerIpc(): void {
   appIpc.handle('team:file-share', (_e, company, id, on) => teamFileShare(company, id, on))
   appIpc.handle('team:upload', (_e, company, path, access, products, chat, folder) => teamUpload(company, path, access, products, chat === true, undefined, typeof folder === 'string' ? folder : undefined))
   appIpc.handle('team:image', (_e, company, id, name) => teamImage(company, id, name))
+  // A team file dragged from the chat onto a tab: downloaded once, its path is what the tab gets.
+  appIpc.handle('team:fetch', (_e, company, id, name) => teamFetch(company, id, name))
   appIpc.handle('team:open', async (_e, company, id, name, how) => { const path = await teamFetch(company, id, name); if (how === 'reveal') shell.showItemInFolder(path); else if (how === 'pane') queueOpenFile(path); else await shell.openPath(path) })
   // A chat message as a Mac notification; clicking it opens the chat. Returns false when macOS has them off.
   appIpc.handle('notify:permission', (_e, ask: unknown) => notifyPermission(ask === true))

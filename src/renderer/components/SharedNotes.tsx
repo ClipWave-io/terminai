@@ -17,6 +17,8 @@ const kindOf = (f: WorkspaceNoteFile) => f.mime.startsWith('image/') ? 'IMG' : f
   : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase() || 'FILE'
 
 export function SharedNotes({ onSync }: { onSync: () => void }) {
+  // Hooks first, before any early return (one placed after them blanked the whole window when Notes opened).
+  const assigned = useAssignedProducts()
   const [state, setState] = useState<WorkspaceState | null>(null)
   const [company, setCompany] = useState('')
   const [notes, setNotes] = useState<WorkspaceNote[]>([])
@@ -98,7 +100,6 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
   </div>
 
   const q = query.trim().toLowerCase()
-  const assigned = useAssignedProducts()
   const products = [...new Set([...assigned, ...notes.map(n => n.product || '').filter(Boolean)])].sort()
   const listed = notes.filter(n => !product || (n.product || '') === product)
     .filter(n => !q || `${n.title}\n${n.body}\n${(n.files ?? []).map(f => f.name).join(' ')}`.toLowerCase().includes(q))

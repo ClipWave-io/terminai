@@ -4,6 +4,7 @@ import { ProjectFilesPane } from './components/ProjectFilesPane'
 import { ChatButton } from './components/ChatButton'
 import { TeamChat } from './components/TeamChat'
 import { NoticeBell } from './components/NoticeCenter'
+import { Boundary } from './Boundary'
 import { onOverlayOpened, overlayOpened } from './overlay'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
@@ -1053,19 +1054,19 @@ export function App(): JSX.Element {
         )
       })()}
 
-      <TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} />
-      {showTeam && <WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} />}
+      <Boundary name="Team chat" onClose={() => setShowChat(false)}><TeamChat open={showChat} onClose={() => setShowChat(false)} onUnread={setChatUnread} /></Boundary>
+      {showTeam && <Boundary name="Sync" onClose={() => setShowTeam(false)}><WorkspaceSheet activeTab={tabs.find(tab => tab.id === activeId)} tabs={tabs} onClose={() => setShowTeam(false)} onTodos={() => setShowTodos(true)} /></Boundary>}
       {card && !(card.kind === 'todo' && notice) && <div className={`notice-card k-${card.kind}`} role="status">
         <button className="notice-card-main" onClick={() => { const c = card; setCard(null); void window.term.notices.read([c.id]); openNotice(c) }}>
           <strong>{card.kind === 'done' ? `Finished · ${card.title}` : card.title}</strong><span>{card.body}</span></button>
         <button className="notice-card-x" aria-label="Dismiss" onClick={() => setCard(null)}>×</button></div>}
       {notice && !showTodos && <button className={`todo-notice${notice.mention ? ' mention' : ''}`} role="status" onClick={() => { setNotice(null); setShowTodos(true); patchPrefs({ todoActivity: true }) }}>
         <strong>{notice.mention ? 'Tagged' : 'To-do'}</strong>{notice.text}</button>}
-      {showTodos && <TodoSheet user={prefs.tasksUser} team={prefs.teamTasks} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}
+      {showTodos && <Boundary name="To-do" onClose={() => setShowTodos(false)}><TodoSheet user={prefs.tasksUser} team={prefs.teamTasks} onUser={tasksUser => patchPrefs({ tasksUser })} onClose={() => setShowTodos(false)} onSync={() => { setShowTodos(false); setShowTeam(true) }}
         prefs={{ hiddenColumns: prefs.todoHiddenColumns, products: prefs.todoProducts, activityOpen: prefs.todoActivity, activitySeen: prefs.todoActivitySeen }}
         onPrefs={patch => patchPrefs(patch)} activity={activity}
         tabs={tabs.map(tab => ({ id: tab.id, key: tab.browserKey || tab.id, label: tabLabel(tab) }))}
-        onTab={id => { setActiveId(id); setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal'); setShowTodos(false) }} />}
+        onTab={id => { setActiveId(id); setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal'); setShowTodos(false) }} /></Boundary>}
       {showSettings && (
         <SettingsSheet
           key={settingsSection}
