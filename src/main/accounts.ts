@@ -331,12 +331,18 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       })
     }))
   }
-  /** The key of the tab showing a background session's conversation; the proxy's own key when no tab shows it. */
+  /** The key of the tab showing a background session's conversation, or else the one showing the conversation it was
+   *  forked from (the daemon's `dispatch.launch`, a transcript path); the proxy's own key when no tab shows either. That
+   *  key is the daemon's, so the tab that started it: the daemon is shared by every tab. */
   function backgroundKey(pid: number, key: string): string {
     try {
-      const workers = Object.values<{ replPid?: unknown; sessionId?: unknown }>(JSON.parse(readFileSync(DAEMON_ROSTER, 'utf8'))?.workers ?? {})
-      const session = workers.find(w => w?.replPid === pid)?.sessionId
-      if (typeof session === 'string' && session) for (const ptyId of ptys.liveIds()) if (ptys.agentOf(ptyId).sessionId === session) return ptys.workspaceKeyOf(ptyId)
+      type Worker = { replPid?: unknown; sessionId?: unknown; dispatch?: { launch?: { sessionId?: unknown } } }
+      const w = Object.values<Worker>(JSON.parse(readFileSync(DAEMON_ROSTER, 'utf8'))?.workers ?? {}).find(w => w?.replPid === pid)
+      const origin = String(w?.dispatch?.launch?.sessionId ?? '').split('/').pop()?.replace(/\.jsonl$/, '')
+      for (const session of [w?.sessionId, origin]) {
+        if (typeof session !== 'string' || !session) continue
+        for (const ptyId of ptys.liveIds()) if (ptys.agentOf(ptyId).sessionId === session) return ptys.workspaceKeyOf(ptyId)
+      }
     } catch {}
     return key
   }

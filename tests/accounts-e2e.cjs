@@ -67,13 +67,13 @@ const r=http.request({host:u.hostname,port:u.port,method:'CONNECT',path:'api.ant
 r.on('connect',(res,sock)=>{const t=tls.connect({socket:sock,servername:'api.anthropic.com',ca:fs.readFileSync(ca)},()=>t.write('POST /v1/messages?beta=true HTTP/1.1\r\nHost: api.anthropic.com\r\nauthorization: Bearer '+login+'\r\nanthropic-beta: oauth-2025-04-20\r\ncontent-type: application/json\r\ncontent-length: 13\r\nconnection: close\r\n\r\n{"model":"x"}'));
 let d='';t.on('data',c=>d+=c);t.on('end',()=>{console.log(d.split(' ')[1]);process.exit(0)});t.on('error',e=>{console.log('ERR '+e.message);process.exit(1)})});
 r.on('error',e=>{console.log('ERR '+e.message);process.exit(1)});r.end()})`
-const background = (session, argv0 = 'curl bg-spare') => new Promise((resolve, reject) => {
+const background = (session, argv0 = 'curl bg-spare', origin = '') => new Promise((resolve, reject) => {
   const c = spawn(process.execPath, ['-e', BG_CLIENT, relay, ca, LOGIN], { argv0, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   let out = '', err = '', go = false
   c.stderr.on('data', d => { err += d })
   c.stdout.on('data', d => {
     out += d
-    if (!go && out.includes('\n')) { go = true; fs.writeFileSync(ROSTER, JSON.stringify({ proto: 1, workers: { w: { replPid: Number(out.split('\n')[0]), sessionId: session } } })); c.stdin.write('go\n') }
+    if (!go && out.includes('\n')) { go = true; fs.writeFileSync(ROSTER, JSON.stringify({ proto: 1, workers: { w: { replPid: Number(out.split('\n')[0]), sessionId: session, ...(origin && { dispatch: { launch: { mode: 'resume', sessionId: origin, fork: true } } }) } } })); c.stdin.write('go\n') }
   })
   c.on('error', reject)
   c.on('exit', () => resolve((out.split('\n')[1] || '').trim() || `no answer: ${err.slice(0, 300)}`))
@@ -215,6 +215,11 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   nb = seen.length
   assert.equal(await background(SID, path.join(WORK, 'share', 'curl', 'versions', '9.9.9')), '200')
   assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'so is one the daemon resumed as the versioned binary')
+  // A conversation forked into the daemon gets an id no tab shows: it follows the tab showing the one it was forked from
+  // (the daemon's dispatch.launch, a transcript path), not the tab whose key the shared daemon carries.
+  nb = seen.length
+  assert.equal(await background('00000000-0000-4000-8000-000000000001', path.join(WORK, 'share', 'curl', 'versions', '9.9.9'), path.join(WORK, 'projects', `${SID}.jsonl`)), '200')
+  assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'a fork follows the tab showing the conversation it came from')
   nb = seen.length
   assert.equal(await background('00000000-0000-4000-8000-000000000000'), '200')
   assert.deepEqual(seen.slice(nb).map(s => s.by), ['login'], 'one that no tab shows keeps the key it was started with')
@@ -235,7 +240,7 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   await call('knew', '/v1/messages?beta=true')
   assert.deepEqual(seen.slice(nd).map(s => s.by), ['B'], 'a new tab starts on the default')
   assert.equal(fs.readFileSync(path.join(dir, 'accounts', 'default'), 'utf8'), B, 'the status line reads the default too')
-  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, a plan reset before its time comes back (asked again, the login from its cache, or picked by hand), background sessions (also as the versioned binary) signed with the account of the tab showing them, a hint when Claude Code turned fullscreen off, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
+  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, a plan reset before its time comes back (asked again, the login from its cache, or picked by hand), background sessions (also as the versioned binary, and forks) signed with the account of the tab showing them or their origin, a hint when Claude Code turned fullscreen off, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
   cleanup(); app.quit()
 })().catch(e => { console.error(e); cleanup(); app.exit(1) }) }))
 setTimeout(() => { console.error('e2e timeout'); cleanup(); app.exit(1) }, 120000).unref()
