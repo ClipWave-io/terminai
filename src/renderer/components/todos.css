@@ -365,3 +365,5 @@ button.todo-circle:hover { border-color: var(--dim); }
 .todo-head-r { display: flex; align-items: center; justify-content: flex-end; gap: 8px 10px; min-width: 0; flex-wrap: wrap; }
 .todo-head-r .todo-status { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 900px) { .todo-head { grid-template-columns: 1fr; row-gap: 8px; } .todo-head > .todo-seg { justify-self: center; } .todo-head-r { justify-content: flex-start; } }
+/* A member is who their Sync account is: their name in place of the partners' "You are" menu. */
+.todo-you { font-size: 12px; font-weight: 600; color: var(--dim); padding: 0 4px; }

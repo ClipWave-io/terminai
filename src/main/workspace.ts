@@ -175,20 +175,24 @@ export async function workspaceFetchFile(note: string, fileId: string, name: str
 }
 
 // The To-do's shared page on the server (see todos.ts mirror). Main process only: never reachable from the renderer.
-// The workspace is the one this person's To-do column is registered in; the first time, the first one they are in.
-export async function teamOf(user: string): Promise<{ id: string; call: (path: string, method?: string, body?: unknown) => Promise<any> } | null> {
+// `user` is this person's key on the shared page: a partner's column ('ilai', 'livio'), a member's 'u:<id>', or '' for a member
+// whose key is not known yet. A partner's workspace is the one their column is registered in (the first time, the first one
+// they are in); a member's is the organisation picked in Sync (`prefer`), else the first. Only the partners claim a column.
+export async function teamOf(user: string, prefer = ''): Promise<{ id: string; call: (path: string, method?: string, body?: unknown) => Promise<any> } | null> {
   const session = await load()
   if (!session) return null
   const call = (path: string, method = 'GET', body?: unknown) => request(session.url, path, method, body, session.token)
-  if (tasksWorkspace?.user !== user) {
+  const partner = user === 'ilai' || user === 'livio'
+  if (tasksWorkspace?.user !== user || (!partner && prefer && tasksWorkspace.id !== prefer)) {
     const me = await call('/api/me')
     const ids: string[] = (me.companies ?? []).map((c: { id: string }) => c.id)
     let pick = ''
-    for (const id of ids) if ((await call(`/api/companies/${id}/tasks`)).me === user) { pick = id; break }
+    if (partner) { for (const id of ids) if ((await call(`/api/companies/${id}/tasks`)).me === user) { pick = id; break } }
+    else if (ids.includes(prefer)) pick = prefer
     if (!pick) pick = ids[0] ?? ''
     if (!pick) return null
-    // Taking the column fails for anyone but the partners (it is someone else's): they still log and read, under their own name.
-    await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user }).catch(() => {})
+    // Taking the column fails for anyone but its holder (403); a member never asks for one.
+    if (partner) await call(`/api/companies/${pick}/tasks/people`, 'PUT', { key: user }).catch(() => {})
     tasksWorkspace = { user, id: pick }
   }
   return { id: tasksWorkspace.id, call }
@@ -204,12 +208,12 @@ export const workspaceWorklog = {
   },
 }
 export const workspaceTasks = {
-  async load(user: string): Promise<{ workspace: string; tasks: any[]; deleted: any[] } | null> {
-    const team = await teamOf(user)
+  /** The shared page as the server has it, with who this person is there (`me`) and every member of the workspace. */
+  async load(user: string, prefer = ''): Promise<{ workspace: string; tasks: any[]; deleted: any[]; me: string; members: any[] } | null> {
+    const team = await teamOf(user, prefer)
     if (!team) return null
-    const call = team.call
-    const value = await call(`/api/companies/${team.id}/tasks`)
-    return { workspace: team.id, tasks: value.tasks ?? [], deleted: value.deleted ?? [] }
+    const value = await team.call(`/api/companies/${team.id}/tasks`)
+    return { workspace: team.id, tasks: value.tasks ?? [], deleted: value.deleted ?? [], me: typeof value.me === 'string' ? value.me : '', members: Array.isArray(value.members) ? value.members : [] }
   },
   async put(workspace: string, task: unknown): Promise<void> {
     const session = await load(); if (!session) return

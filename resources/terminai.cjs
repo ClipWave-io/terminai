@@ -44,12 +44,14 @@ const number=v=>v===undefined?undefined:Number(v);
 // The To-do lists without the app: TERMINAI_TASKS_DIR and TERMINAI_TODO_DIR are set in every tab (src/main/todos.ts writes the files).
 function todo(flags){
  const data=process.env.TERMINAI_TODO_DIR||join(homedir(),'Library/Application Support/clipwave-term'),json=file=>{try{return JSON.parse(readFileSync(file,'utf8'))}catch{return null}};
- const dir=process.env.TERMINAI_TASKS_DIR||join(data,'build-tasks','tasks');
- const user=(json(join(data,'prefs.json'))||{}).tasksUser;
+ const prefs=json(join(data,'prefs.json'))||{},member=prefs.teamTasks!==false&&/^u:[0-9a-f-]{36}$/.test(prefs.tasksKey||'');
+ // A workspace member's Mac keeps the server's copy of the shared page in todos-server (todos.ts), never a build-tasks clone.
+ const dir=member?join(data,'todos-server','tasks'):process.env.TERMINAI_TASKS_DIR||join(data,'build-tasks','tasks');
+ const user=prefs.tasksUser,key=member?prefs.tasksKey:user;
  if(flags.mine&&!user)throw Error('Choose who you are in the TerminAI To-do sheet first');
  const open=t=>t&&typeof t==='object'&&(!flags.open||t.status!=='done');
  // Same rule as isMine in src/shared/types.ts.
- const keep=t=>open(t)&&(!flags.mine||t.assignee===user||t.assignee==='both'||(t.assignee===null&&t.createdBy===user));
+ const keep=t=>open(t)&&(!flags.mine||t.assignee===key||t.assignee==='both'||(t.assignee===null&&t.createdBy===key));
  // The order the To-do sheet shows (rank in TodoSheet.tsx): `order` when set, else creation time, then id.
  const rank=t=>t.order??Date.parse(t.createdAt),byOrder=(a,b)=>rank(a)-rank(b)||(a.id<b.id?-1:a.id>b.id?1:0);
  // Where each image under a note is on disk, for a session that wants to look at it; and the tab of this Mac working on it.
@@ -69,15 +71,21 @@ function todo(flags){
 // The To-do as pages, the way the sheet shows them: `to` is what `terminai todo add --to` takes for each.
 function map(){
  const data=process.env.TERMINAI_TODO_DIR||join(homedir(),'Library/Application Support/clipwave-term'),json=file=>{try{return JSON.parse(readFileSync(file,'utf8'))}catch{return null}};
- const user=(json(join(data,'prefs.json'))||{}).tasksUser;
+ const prefs=json(join(data,'prefs.json'))||{},user=prefs.tasksUser;
  if(user!=='livio'&&user!=='ilai')throw Error('Choose who you are in the TerminAI To-do sheet first');
  const all=todo({open:true}),other=user==='livio'?'ilai':'livio',NAME={livio:'Matteo',ilai:'Ilai'};
+ // Every other member of the workspace has a column too (todos-members.json, from the server); a member's own comes first.
+ const key=prefs.teamTasks!==false&&/^u:[0-9a-f-]{36}$/.test(prefs.tasksKey||'')?prefs.tasksKey:user;
+ const members=(json(join(data,'todos-members.json'))||[]).filter(m=>m&&/^u:/.test(m.key)&&typeof m.name==='string'),first=n=>n.trim().split(/\s+/)[0]||n;
  const short=({id,title,status,notes,product,session})=>({id,title,status,...(notes?{notes}:{}),...(product?{product}:{}),...(session?{session}:{})});
  const column=(page,to,assignee)=>({page,to,tasks:all.shared.filter(t=>t.assignee===assignee).map(short)});
  let pages=json(join(data,`todos-lists-${user}.json`));pages=(Array.isArray(pages)?pages:[]).filter(p=>p&&p.id&&typeof p.name==='string'&&!p.deletedAt);
  if(!pages.some(p=>p.id==='private'))pages.unshift({id:'private',name:'Private'});
- return {you:user,
-  shared:[column(NAME[user],NAME[user].toLowerCase(),user),column('Together','together','both'),column(NAME[other],NAME[other].toLowerCase(),other),column('Unassigned','unassigned',null)],
+ const mine=members.find(m=>m.key===key),rest=members.filter(m=>m.key!==key).map(m=>column(first(m.name),first(m.name).toLowerCase(),m.key));
+ const partners=mine?[column(first(mine.name),first(mine.name).toLowerCase(),key),column('Ilai','ilai','ilai'),column('Together','together','both'),column('Matteo','matteo','livio')]
+  :[column(NAME[user],NAME[user].toLowerCase(),user),column('Together','together','both'),column(NAME[other],NAME[other].toLowerCase(),other)];
+ return {you:key,
+  shared:[...partners,column('Unassigned','unassigned',null),...rest],
   private:pages.map(p=>({page:p.name,to:p.name,about:p.about||null,tasks:all.personal.filter(t=>t.list===p.name).map(short)}))};
 }
 function request(command,flags,words){

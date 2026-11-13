@@ -45,6 +45,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 import { getTheme } from '../shared/themes'
 import type { FolderMode, Prefs, Task, TaskInput, TaskScope, VoicePrefs } from '../shared/types'
+import { isMemberKey } from '../shared/types'
 import type { QuestionKind } from '../shared/questions'
 
 /** Injected by electron-vite at build time; see electron.vite.config.ts. */
@@ -70,7 +71,7 @@ async function openLink(link: string) {
     detail: `${who ? `This Mac is signed in as ${who}: the link replaces that account. ` : ''}Shared and Only me chats are sent to the account that made the link. Continue only if you pressed “Open TerminAI” on the TerminAI website yourself, just now.` }
   const { response } = win && !win.isDestroyed() ? await dialog.showMessageBox(win, ask) : await dialog.showMessageBox(ask)
   if (response !== 1) return
-  try { await workspaceHandoff(link); win?.webContents.send('workspace:signed-in') }
+  try { await workspaceHandoff(link); win?.webContents.send('workspace:signed-in'); void syncTodos() }
   catch (err) { dialog.showErrorBox('TerminAI could not sign in', err instanceof Error ? err.message : String(err)) }
 }
 app.on('open-url', (event, link) => { event.preventDefault(); void openLink(link) })
@@ -102,10 +103,44 @@ function guideFiles(): string[] {
 }
 /** The terminai commands and the map of this Mac's To-do pages, at start and whenever the lists or the user change. */
 function writeGuides(): void {
-  const guide = agentGuide(todos ? todoMap(store.load().tasksUser, todos.pages()) : '')
+  const p = store.load(), page = todos?.list()
+  const guide = agentGuide(todos ? todoMap(p.tasksUser, todos.pages(), { key: page?.me, members: page?.members }) : '')
   for (const file of guideFiles()) try { writeAgentGuide(file, guide) } catch (e) { console.error('[agent-guide]', e) }
   const claude = guideFiles().find(f => f.endsWith('CLAUDE.md'))
   if (claude) try { registerLogHook(join(dirname(claude), 'settings.json')) } catch (e) { console.error('[log-hook]', e) }
+}
+
+/** This person's key on the server's shared page: a partner's column, a member's u:<id>, or '' while a member's is not known yet. */
+function teamKey(): string {
+  const p = store.load()
+  return p.tasksKey || (p.teamTasks ? p.tasksUser : '')
+}
+/**
+ * A member who signs in gets the shared page: once the server says who they are (u:<id>, no partner column) their Mac
+ * turns it on and goes through the server from then on. The partners' Macs (the page on, no member key) never change here.
+ */
+async function joinShared(): Promise<void> {
+  const p = store.load()
+  if (p.teamTasks && !p.tasksKey) return
+  const page = await workspaceTasks.load(p.tasksKey, p.workspaceId).catch(() => null)
+  if (!page || !isMemberKey(page.me) || (page.me === p.tasksKey && p.teamTasks)) return
+  store.save({ teamTasks: true, tasksKey: page.me })
+  writeGuides()
+}
+/** How a notice names the author of a change: the partners by name, a member by their first name. */
+function memberName(key: string): string {
+  if (key === 'ilai') return 'Ilai'
+  if (key === 'livio') return 'Matteo'
+  return todos?.list().members.find(m => m.key === key)?.name.trim().split(/\s+/)[0] || 'Someone'
+}
+/** This person's own column for `terminai todo add --to`: matteo or ilai for the partners, a member's first name. */
+function ownColumn(): string {
+  const key = teamKey()
+  return key === 'livio' ? 'matteo' : key === 'ilai' || !key ? 'ilai' : memberName(key).toLowerCase()
+}
+/** A member's join first, then the sync: at start, every minute, and right after signing in. */
+function syncTodos(): Promise<unknown> {
+  return joinShared().catch(err => console.warn('[todos] join:', err?.message ?? err)).then(() => todos?.sync())
 }
 
 // Must run before app-ready, or the scheme is treated as opaque and <audio>
@@ -373,8 +408,8 @@ app.whenReady().then(() => {
     log: {
       day: async (day) => {
         const d = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : today(), user = store.load().tasksUser
-        const people = user ? await workspaceWorklog.get(user, d).catch(() => null) : null
-        return { day: d, people: { ...(people ?? {}), ...(user ? { [user]: await workDay(d, user, store.load().worklogSkip) } : {}) } }
+        const people = user ? await workspaceWorklog.get(teamKey(), d).catch(() => null) : null
+        return { day: d, people: { ...(people ?? {}), ...(user ? { [store.load().tasksKey || user]: await workDay(d, user, store.load().worklogSkip) } : {}) } }
       },
       hook: async (session) => {
         const user = store.load().tasksUser
@@ -383,7 +418,7 @@ app.whenReady().then(() => {
         if (!items.length) return {}
         return { context: `TerminAI work log hand-off: finished work in this person's other conversations since the last hand-off, not yet matched to the To-do. `
           + `Before answering, quietly run \`terminai todo map\`; mark done any open task of the user's (theirs, Together or private) this work finished; for real work with no task, `
-          + `add one with \`terminai todo add "<title>" --to ${user === 'livio' ? 'matteo' : 'ilai'} --note "Done <time>, logged by TerminAI"\` and mark it done. Group small turns into one task; `
+          + `add one with \`terminai todo add "<title>" --to ${ownColumn()} --note "Done <time>, logged by TerminAI"\` and mark it done. Group small turns into one task; `
           + `skip turns that did no work (questions, status). Say in one line what you changed.\n${items.join('\n')}` }
       },
     },
@@ -477,9 +512,9 @@ function registerIpc(): void {
   appIpc.handle('workspace:state', () => workspaceState())
   appIpc.handle('workspace:has-account', () => workspaceHasAccount())
   appIpc.handle('workspace:browser-login-start', (_event, url) => workspaceBrowserLoginStart(url))
-  appIpc.handle('workspace:browser-login-wait', () => workspaceBrowserLoginWait())
+  appIpc.handle('workspace:browser-login-wait', async () => { const state = await workspaceBrowserLoginWait(); void syncTodos(); return state })
   appIpc.handle('workspace:browser-login-cancel', () => workspaceBrowserLoginCancel())
-  appIpc.handle('workspace:login', (_event, input) => workspaceLogin(input))
+  appIpc.handle('workspace:login', async (_event, input) => { const state = await workspaceLogin(input); void syncTodos(); return state })
   appIpc.handle('workspace:logout', () => workspaceLogout())
   appIpc.handle('workspace:request', (_event, path, method, body) => workspaceRequest(path, method, body))
   appIpc.handle('workspace:attach', (_event, note, file) => workspaceAttach(note, file))
@@ -778,14 +813,18 @@ function registerIpc(): void {
   const todosChanged = () => { if (win && !win.isDestroyed()) win.webContents.send('todos:changed') }
   todos = createTodos(app.getPath('userData'), {
     // The test build never falls back to the real shared repo: it syncs only with TERMINAI_TASKS_REMOTE.
-    remote: !store.load().teamTasks ? '' : process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
+    // A member's Mac (tasksKey) never clones: its shared page goes through the server only.
+    remote: !store.load().teamTasks || store.load().tasksKey ? '' : process.env.TERMINAI_TASKS_REMOTE || (process.env.TERMINAI_TEST_BUILD ? '' : DEFAULT_TASKS_REMOTE),
     user: () => store.load().tasksUser,
+    key: () => store.load().tasksKey,
+    serverOnly: () => { const p = store.load(); return p.teamTasks && !!p.tasksKey },
     changed: todosChanged,
     listsChanged: writeGuides,
-    server: workspaceTasks,
+    // A member's To-do is in the organisation picked in Sync; the partners' in the one their column is in.
+    server: { ...workspaceTasks, load: (user: string) => workspaceTasks.load(user, store.load().workspaceId) },
     // The other Mac's edits, pulled by a sync: one notice per sync, a click opens the To-do sheet.
     notify: ({ by, changed, removed, mentioned, requests, answered }) => {
-      const name = by === 'ilai' ? 'Ilai' : 'Matteo', count = changed.length + removed.length
+      const name = memberName(by), count = changed.length + removed.length
       // A request from the partner: its own notice, answered from the notice (Accept, or Reply to add a message).
       for (const t of requests ?? []) {
         if (win && !win.isDestroyed()) win.webContents.send('todos:notice', { text: `${name} asks${t.request?.urgent ? ' (urgent)' : ''}: ${t.title}`, mention: true })
@@ -883,11 +922,11 @@ function registerIpc(): void {
     queueOpenFile(file)
   })
   // Pull on open and every 3 minutes, quietly; pushes happen on every change.
-  void todos.sync()
+  void syncTodos()
   // ---- the bridge: tabs as shared conversations, agents messaging each other's sessions
   const tabName = (id: string) => { const tab = store.load().tabs.find(t => t.ptyId === id); return tab?.customTitle || tab?.name || tab?.title || basename(ptys.cwdOf(id)) || 'Session' }
   bridge = createBridge({
-    team: async () => { const user = store.load().tasksUser; return user && !process.env.TERMINAI_TEST_BUILD ? teamOf(user) : null },
+    team: async () => !process.env.TERMINAI_TEST_BUILD ? teamOf(teamKey(), store.load().workspaceId) : null,
     tabName,
     wake: (tabId: string) => resumeLater(tabId),
     waiting: (tabId: string) => laterResume.has(tabId),
@@ -949,7 +988,7 @@ function registerIpc(): void {
     const user = store.load().tasksUser
     if (!user || process.env.TERMINAI_TEST_BUILD) return
     const p = store.load()
-    await workspaceWorklog.put(user, day, await workDay(day, user, p.worklogSkip, modeOfConversation)).catch(err => console.warn('[worklog]', err?.message ?? err))
+    await workspaceWorklog.put(teamKey(), day, await workDay(day, user, p.worklogSkip, modeOfConversation)).catch(err => console.warn('[worklog]', err?.message ?? err))
   }
   setTimeout(() => { void logDay(today(new Date(Date.now() - 86400_000))).then(() => logDay(today())) }, 20_000)
   setInterval(() => void logDay(today()), 10 * 60_000)
@@ -957,12 +996,12 @@ function registerIpc(): void {
     if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Invalid day')
     const user = store.load().tasksUser, mine = user ? await workDay(day, user, store.load().worklogSkip) : null
     // Your own day is read here, always current; the partner's comes from the workspace.
-    const shared = user ? await workspaceWorklog.get(user, day).catch(() => null) : null
+    const shared = user ? await workspaceWorklog.get(teamKey(), day).catch(() => null) : null
     // Your own key in the workspace: the partners' column (ilai, livio), or 'u:<id>' for every other member.
-    const me = (store.load().teamTasks ? user : shared?.me) || user
+    const p = store.load(), me = (p.teamTasks && !p.tasksKey ? user : shared?.me || p.tasksKey) || user
     return { day, me, names: shared?.names ?? {}, people: { ...(shared?.people ?? {}), ...(mine && me ? { [me]: mine } : {}) }, offline: shared === null }
   })
-  setInterval(() => void todos.sync(), 60_000)   // a minute: edits from the phone come in through here
+  setInterval(() => void syncTodos(), 60_000)   // a minute: edits from the phone, the web and the members come in through here
 
   // ---- Claude accounts ---------------------------------------------------
   const accounts = createAccounts(app.getPath('userData'), {
