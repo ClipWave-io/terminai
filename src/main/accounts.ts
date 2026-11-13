@@ -321,8 +321,10 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       if (pids.length !== 1) { resolve(none); return }
       if (clientCache.has(pids[0])) { resolve(clientCache.get(pids[0])!); return }
       execFile('/bin/ps', ['-o', 'comm=', '-p', String(pids[0])], { timeout: 5_000 }, (_e2, comm) => {
-        const name = String(comm).trim().split('/').pop() ?? ''
-        const background = name.startsWith(`${CLIENT} bg-`)
+        const path = String(comm).trim(), name = path.split('/').pop() ?? ''
+        // Claude Code's daemon runs a session as `claude bg-…`, or, since 2.1.323, one it resumes as its versioned
+        // binary itself (~/.local/share/claude/versions/2.1.323), with no name of its own.
+        const background = name.startsWith(`${CLIENT} bg-`) || path.includes(`/${CLIENT}/versions/`)
         const c = { claude: name === CLIENT || background, background, pid: pids[0] }
         clientCache.set(pids[0], c)
         resolve(c)
