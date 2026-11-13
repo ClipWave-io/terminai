@@ -573,7 +573,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
           <button className="todo-drop" aria-label="Notes of which product" title="Show the notes of one product or all"
             onClick={event => pick(event, [{ heading: 'Show products' }, { label: 'All products', checked: !notesProduct, run: () => setNotesProduct('') },
               ...[...new Set([...products, ...notesProducts])].sort((a, b) => a.localeCompare(b)).map(p => ({ label: p, checked: notesProduct === p, run: () => setNotesProduct(p) }))])}>
-            Notes<span className={`todo-drop-sub${notesProduct ? ' on' : ''}`}>{notesProduct || 'All products'}</span><Chevron /></button>
+            Shared<span className={`todo-drop-sub${notesProduct ? ' on' : ''}`}>{notesProduct || 'All products'}</span><Chevron /></button>
         </div>}
         {user && view !== 'notes' && view !== 'log' && <div className="todo-filters">
           <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
