@@ -11,7 +11,7 @@ import { CallIcon, CallView, useCalls } from './Call'
  */
 type Person = { id: string; name: string; seenAt: string | null; readAt: string | null; typing: boolean; online: boolean }
 type ChatFile = { id: string; name: string; mime: string; size: number } | { hidden: true }
-type Message = { id: string; body: string; at: string; from: string; fromName: string; file: ChatFile | null; pending?: boolean }
+type Message = { id: string; body: string; at: string; from: string; fromName: string; file: ChatFile | null; pending?: boolean; call?: { video: boolean; seconds: number; missed: boolean; declined: boolean } }
 type TeamFile = { id: string; folder?: string; shared?: boolean; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
 
 const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : d } catch { return d } }, set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} } }
@@ -117,7 +117,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
             r.messages.forEach((m: Message) => known.current.add(m.id)); first = false
             setMessages(prev => { const seen = new Set(prev.filter(m => !m.pending).map(m => m.id)); const next = [...prev.filter(m => !m.pending), ...r.messages.filter((m: Message) => !seen.has(m.id))].slice(-500); cache.set(`${key}:m`, next); return next })
             if (fresh.length && (!openRef.current || !document.hasFocus())) {
-              const m = fresh.at(-1); void window.term.teamchat.notify(m.fromName, m.body || (m.file ? 'Sent a file' : ''))
+              const m = fresh.at(-1); void window.term.teamchat.notify(m.fromName, m.call ? (m.call.missed ? `Missed ${m.call.video ? 'video' : 'voice'} call` : `${m.call.video ? 'Video' : 'Voice'} call ended`) : m.body || (m.file ? 'Sent a file' : ''))
             }
           }
         } catch { if (stop) return; setOffline(true); await new Promise(r => setTimeout(r, 4000)) }
@@ -180,6 +180,15 @@ function dragTeamFile(e: React.DragEvent, company: string, file: { id: string; n
   e.dataTransfer.clearData(); e.dataTransfer.setData('application/x-terminai-teamfile', JSON.stringify({ company, id: file.id, name: file.name })); e.dataTransfer.effectAllowed = 'copy'
 }
 
+/** A call in the chat, like WhatsApp: missed or declined, or who called and for how long. */
+const callLine = (m: Message, mine: boolean) => {
+  const c = m.call!, kind = c.video ? 'video call' : 'voice call', who = mine ? 'You' : m.fromName.split(' ')[0]
+  if (c.missed) return mine ? `${who} called · no answer` : `Missed ${kind} from ${who}`
+  if (c.declined) return `${kind[0].toUpperCase()}${kind.slice(1)} from ${who} · declined`
+  const t = c.seconds >= 3600 ? `${Math.floor(c.seconds / 3600)} h ${Math.round((c.seconds % 3600) / 60)} min` : c.seconds >= 60 ? `${Math.floor(c.seconds / 60)} min ${c.seconds % 60} s` : `${c.seconds} s`
+  return `${kind[0].toUpperCase()}${kind.slice(1)} · ${who} called · ${t}`
+}
+
 /** Links in a message are clickable: they open in the browser (the window's open handler sends them out). */
 const URL_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]]|www\.[^\s<>"]+[^\s<>".,;:!?)\]])/g
 function linkify(text: string): (string | JSX.Element)[] {
@@ -215,6 +224,7 @@ function Chat({ draftKey, company, messages, me, others, onSend, onShare }: { dr
         const mine = m.from === me, first = i === 0 || messages[i - 1].from !== m.from || showDay
         return <div key={m.id}>
           {showDay && <div className="tc-day"><span>{d}</span></div>}
+          {m.call ? <div className={`tc-call${m.call.missed && !mine ? ' missed' : ''}`}><span><CallIcon n={m.call.video ? 'video' : 'phone'} s={14} />{callLine(m, mine)}</span><small>{clock(m.at)}</small></div> :
           <div className={`tc-msg${mine ? ' mine' : ''}${first ? ' first' : ''}`}>
             <div className="tc-bubble">
               {!mine && first && others.length > 1 && <b className="tc-from">{m.fromName}</b>}
@@ -222,7 +232,7 @@ function Chat({ draftKey, company, messages, me, others, onSend, onShare }: { dr
               {m.body && <span className="tc-text">{linkify(m.body)}</span>}
               <span className="tc-meta">{m.fromName === 'failed' ? 'not sent' : clock(m.at)}{mine && <span className={`tc-ticks${readBy(m) ? ' read' : ''}`}><Ico n={m.pending ? 'clock' : readBy(m) || gotBy(m) ? 'checks' : 'check'} s={14} /></span>}</span>
             </div>
-          </div>
+          </div>}
         </div>
       })}
     </div>

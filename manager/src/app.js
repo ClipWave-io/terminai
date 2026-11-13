@@ -539,6 +539,22 @@ export function createApp(pool, config) {
         }
         // Calls: terminai.xyz only passes the connection details between the Macs; voice and video go directly Mac to Mac.
         if (kind === 'call' && sub === 'ice' && req.method === 'GET') return json(res, 200, { iceServers: await iceServers() });
+        // The call's line in the chat: started by 'ring', answered by the first 'accept', and written into the chat once it
+        // ends (the caller hangs up unanswered: missed; someone declines: declined; otherwise how long it lasted).
+        const callLog = async (callId, kindOf, data) => {
+          if (kindOf === 'ring') return pool.query('INSERT INTO manager_calls(call_id,company_id,from_user,video) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [callId, companyId, user.id, !!data?.video]);
+          if (kindOf === 'accept') return pool.query('UPDATE manager_calls SET answered_at=coalesce(answered_at,now()),answered_by=coalesce(answered_by,$3) WHERE company_id=$1 AND call_id=$2', [companyId, callId, user.id]);
+          if (kindOf === 'decline') return pool.query('UPDATE manager_calls SET declined=true WHERE company_id=$1 AND call_id=$2 AND answered_at IS NULL', [companyId, callId]);
+          if (kindOf !== 'hangup') return
+          const { rows: [c] } = await pool.query('UPDATE manager_calls SET ended_at=now() WHERE company_id=$1 AND call_id=$2 AND ended_at IS NULL RETURNING *', [companyId, callId]);
+          if (!c || (!c.answered_at && c.from_user !== user.id && !c.declined)) return
+          const seconds = c.answered_at ? Math.round((new Date(c.ended_at) - new Date(c.answered_at)) / 1000) : 0
+          // The team chat, or for someone limited to products their first product's chat.
+          const { rows: [m] } = await pool.query('SELECT products FROM manager_memberships WHERE company_id=$1 AND user_id=$2', [companyId, c.from_user]);
+          const channel = Array.isArray(m?.products) && m.products.length ? m.products[0] : ''
+          await pool.query('INSERT INTO manager_chat(id,company_id,from_user,body,channel,call) VALUES($1,$2,$3,$4,$5,$6)',
+            [randomUUID(), companyId, c.from_user, '', channel, JSON.stringify({ video: c.video, seconds, missed: !c.answered_at && !c.declined, declined: !c.answered_at && c.declined })]);
+        };
         if (kind === 'call' && !sub && req.method === 'POST') {
           const input = await body(req);
           const callId = typeof input.callId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(input.callId) ? input.callId : requireThat(false, 400, 'Invalid call.');
@@ -552,6 +568,7 @@ export function createApp(pool, config) {
           const { rows: [row] } = await pool.query('INSERT INTO manager_call_signals(company_id,from_user,to_user,call_id,kind,data) VALUES($1,$2,$3,$4,$5,$6) RETURNING seq',
             [companyId, user.id, to, callId, kindOf, data]);
           if (Math.random() < 0.05) void pool.query("DELETE FROM manager_call_signals WHERE created_at<now()-interval '10 minutes'").catch(() => {});
+          await callLog(callId, kindOf, input.data).catch(() => {});
           return json(res, 200, { seq: String(row.seq) });
         }
         if (kind === 'call' && !sub && req.method === 'GET') {
@@ -599,7 +616,7 @@ export function createApp(pool, config) {
           const after = url.searchParams.get('after'), wait = Math.min(25, Math.max(0, Number(url.searchParams.get('wait')) || 0));
           requireThat(!after || Number.isFinite(Date.parse(after)), 400, 'Invalid cursor.');
           await seen();
-          const fetchNew = () => pool.query(`SELECT c.id,c.body,c.created_at,c.from_user,u.name AS from_name,f.id AS fid,f.name AS fname,f.mime,f.size,f.access,f.products,f.created_by
+          const fetchNew = () => pool.query(`SELECT c.id,c.body,c.call,c.created_at,c.from_user,u.name AS from_name,f.id AS fid,f.name AS fname,f.mime,f.size,f.access,f.products,f.created_by
               FROM manager_chat c JOIN manager_users u ON u.id=c.from_user LEFT JOIN manager_team_files f ON f.id=c.file_id
               WHERE c.company_id=$1 AND c.channel=$3 AND ($2::timestamptz IS NULL OR date_trunc('milliseconds', c.created_at)>$2) ORDER BY c.created_at DESC LIMIT 200`, [companyId, after || null, channel]).then(r => r.rows.reverse());
           let rows = await fetchNew(), closed = false; req.on('close', () => { closed = true });
@@ -615,7 +632,7 @@ export function createApp(pool, config) {
           if (closed) return;
           const { rows: people } = await pool.query(`SELECT u.id,u.name,p.seen_at,p.read_at,(p.typing_until>now()) AS typing FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id
             LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND ${inChat.replace('$CH', '$2')}`, channel ? [companyId, channel] : [companyId]);
-          return json(res, 200, { messages: rows.map(r => ({ id: r.id, body: r.body, at: r.created_at, from: r.from_user, fromName: r.from_name,
+          return json(res, 200, { messages: rows.map(r => ({ id: r.id, body: r.body, ...(r.call ? { call: r.call } : {}), at: r.created_at, from: r.from_user, fromName: r.from_name,
               file: r.fid ? (canSee({ access: r.access, products: r.products, created_by: r.created_by }) ? { id: r.fid, name: r.fname, mime: r.mime, size: r.size } : { hidden: true }) : null })),
             people: people.map(p => ({ id: p.id, name: p.name, seenAt: p.seen_at, readAt: p.read_at, typing: !!p.typing && p.id !== user.id, online: !!p.seen_at && Date.now() - new Date(p.seen_at).getTime() < 60000 })), me: user.id });
         }

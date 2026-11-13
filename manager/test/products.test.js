@@ -117,4 +117,11 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/tasks/t-coldwave`, { token: nora.token, method: 'PUT', data: { task: { id: 't-coldwave', title: 'Mine now', status: 'open', product: 'ManyMotions.org' } } })).status, 403);
   assert.equal((await request(`${base}/tasks/t-coldwave`, { token: nora.token, method: 'DELETE' })).status, 403);
   assert.ok((await request(`${base}/tasks`, { token: ilai.token })).body.tasks.some(t => t.id === 't-coldwave' && t.title === 'Launch'));
+  // Calls show in the chat like WhatsApp: a missed one, and an answered one with how long it lasted.
+  const sig = (token, callId, kind, data) => request(`${base}/call`, { token, method: 'POST', data: { callId, kind, ...(data ? { data } : {}) } });
+  await sig(ilai.token, 'call-missed-1', 'ring', { video: false }); await sig(ilai.token, 'call-missed-1', 'hangup');
+  await sig(ilai.token, 'call-answered-1', 'ring', { video: true }); await sig(sofia.token, 'call-answered-1', 'accept', { video: true }); await sig(ilai.token, 'call-answered-1', 'hangup');
+  const calls = (await request(`${base}/chat`, { token: ilai.token })).body.messages.filter(m => m.call);
+  assert.equal(calls.length, 2, JSON.stringify(calls));
+  assert.equal(calls[0].call.missed, true); assert.equal(calls[1].call.video, true); assert.equal(calls[1].call.missed, false); assert.ok(calls[1].call.seconds >= 0);
 });

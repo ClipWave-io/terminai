@@ -178,6 +178,14 @@ export async function migrate(pool) {
         file_id uuid REFERENCES manager_team_files ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp()
       );
       CREATE INDEX IF NOT EXISTS manager_chat_company ON manager_chat(company_id,created_at);
+      -- Calls in the chat, like WhatsApp: who called, voice or video, answered for how long, missed or declined.
+      ALTER TABLE manager_chat ADD COLUMN IF NOT EXISTS call jsonb;
+      CREATE TABLE IF NOT EXISTS manager_calls (
+        call_id text NOT NULL, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE,
+        from_user uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE, video boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now(), answered_at timestamptz, answered_by uuid, declined boolean NOT NULL DEFAULT false,
+        ended_at timestamptz, PRIMARY KEY (company_id, call_id)
+      );
       CREATE TABLE IF NOT EXISTS manager_presence (
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
         seen_at timestamptz NOT NULL DEFAULT now(), typing_until timestamptz, read_at timestamptz, PRIMARY KEY (company_id,user_id)
