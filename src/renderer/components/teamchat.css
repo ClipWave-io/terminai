@@ -167,3 +167,11 @@
 .tc-call span { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; font-size: 12.5px; background: color-mix(in srgb, var(--fg) 7%, var(--surface)); color: var(--fg); }
 .tc-call small { font-size: 10.5px; color: var(--dim); }
 .tc-call.missed span { color: #e5484d; background: color-mix(in srgb, #e5484d 12%, var(--surface)); }
+/* Members: the person on one line (name, then last active and version, then the email, each in full), the role and the
+   products on the line under it, so nothing is cut off beside the dropdowns. */
+.pp-list .pp-row { flex-wrap: wrap; row-gap: 8px; align-items: flex-start; }
+.pp-list .pp-row > .pp-who { flex: 1 1 calc(100% - 52px); }
+.pp-list .pp-row > .pp-who small { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.pp-list .pp-row > .pp-who + * { margin-left: 42px; }
+.pp-list .pp-select { max-width: none; }
+.pp-list .pp-scope { max-width: none; }

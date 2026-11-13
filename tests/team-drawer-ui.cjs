@@ -34,7 +34,7 @@ if(!process.versions.electron){
  const {app}=require('electron'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'terminai-team-drawer-'));app.setPath('userData',dir);
  fs.writeFileSync(path.join(dir,'prefs.json'),JSON.stringify({seenWelcome:true,tabs:[],voice:{enabled:false},newTabAgent:'none'}));
  const delay=ms=>new Promise(r=>setTimeout(r,ms)),shots=process.env.TEAM_SHOTS;
- app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load',()=>{void(async()=>{
+ app.on('browser-window-created',(_e,win)=>{if(process.env.DEBUG)win.webContents.on('console-message',(_e,l,m)=>{if(l>=1)console.log('CONSOLE',m.slice(0,300))});win.webContents.once('did-finish-load',()=>{void(async()=>{
   await delay(1500);win.setSize(1300,860);const js=s=>win.webContents.executeJavaScript(s).catch(e=>{console.error("FAILED JS:",s.slice(0,160));throw e});
   const shot=async n=>{if(!shots)return;await delay(500);fs.writeFileSync(path.join(shots,n+'.png'),(await win.webContents.capturePage()).toPNG())};
   await js(`window.term.workspace.login({url:${JSON.stringify(process.env.TEAM_URL)},email:${JSON.stringify(process.env.TEAM_EMAIL)},password:${JSON.stringify(process.env.TEAM_PW)}})`);
@@ -63,8 +63,12 @@ if(!process.versions.electron){
   // Dragging the picture onto the terminal gives the tab its file path, never the picture's data.
   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
   await js(`(()=>{const dt=new DataTransfer(),img=document.querySelector('.tc-img'),t=document.querySelector('.term-host.active')||document.querySelector('.term-host');img.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}))})()`);
-  for(let i=0;i<30&&!await js(`/team-files/.test(document.querySelector('.term-host').textContent)`);i++)await delay(200);
-  assert.ok(await js(`(()=>{const t=document.querySelector('.term-host').textContent;return t.includes('team-files')&&t.includes('screen.png')&&!t.includes('data:image')})()`),'the picture arrives as its file path');
+  const termText=`[...document.querySelectorAll('.term-host .xterm-rows')].map(h=>h.textContent).join(' ')`;
+  for(let i=0;i<75&&!await js(`${termText}.includes('team-files')`);i++)await delay(200);
+  if(process.env.DEBUG)console.log('FETCH',await js(`(async()=>{try{const c=(await window.term.workspace.state()).identity.companies[0].id;const r=await window.term.teamchat.chat(c);const m=r.messages.find(x=>x.file);return await window.term.teamchat.fetch(c,m.file.id,m.file.name)}catch(e){return 'ERR '+e.message}})()`));
+  if(process.env.DEBUG)console.log('DT',await js(`(()=>{const dt=new DataTransfer(),img=document.querySelector('.tc-img');img.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));return JSON.stringify([...dt.types])})()`));
+  if(process.env.DEBUG)console.log('TERM',await js(`${termText}.slice(-300)`),await js(`JSON.stringify([!!document.querySelector('.tc-img'),document.querySelectorAll('.term-host').length])`));
+  assert.ok(await js(`(()=>{const t=${termText};return t.includes('team-files')&&t.includes('screen.png')&&!t.includes('data:image')})()`),'the picture arrives as its file path');
   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
   assert.ok(await js(`!document.querySelector('.tc-viewer')`),'Escape closes it');
   await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Files').click()`);
@@ -119,6 +123,6 @@ if(!process.versions.electron){
   await js(`[...document.querySelectorAll('.todo-seg button')].find(b=>b.textContent==='Notes')?.click()`);await delay(2500);
   assert.ok(await js(`!document.querySelector('.boundary')&&document.body.innerText.length>50&&!!document.querySelector('.todo-note')`),'Notes draws');
   console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form, new organisation');app.quit();
- })().catch(e=>{console.error(e);app.exit(1)})}));
+ })().catch(e=>{console.error(e);app.exit(1)})})});
  setTimeout(()=>app.exit(1),70000).unref();require('../out/main/index.js');
 }
