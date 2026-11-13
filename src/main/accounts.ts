@@ -45,7 +45,7 @@ const LOGIN_USAGE_FILE = process.env.TERMINAI_LOGIN_USAGE_FILE || join(homedir()
 const USAGE_STALE_MS = 5 * 60_000
 // The smallest request Anthropic answers with a plan's usage: a subscription token is only good for
 // requests that present themselves as Claude Code.
-const PROBE = JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 1, system: "You are Claude Code, Anthropic's official CLI for Claude.", messages: [{ role: 'user', content: '.' }] })
+const probeBody = (model = 'claude-haiku-5-5') => JSON.stringify({ model, max_tokens: 1, system: "You are Claude Code, Anthropic's official CLI for Claude.", messages: [{ role: 'user', content: '.' }] })
 
 type Usage = NonNullable<ClaudeAccount['usage']>
 interface Saved { id: string; label: string; fp: string; addedAt: number }
@@ -156,6 +156,8 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   const forTab = (ptyId: string) => accountOfKey(ptys.workspaceKeyOf(ptyId))
   function use(ptyId: string, id: string) {
     if (!ids().includes(id)) throw new Error('Unknown account')
+    // Picked by hand: tried on the next message even if it was marked out.
+    if (!usable(id)) { delete state.exhausted[id]; save() }
     setKey(ptys.workspaceKeyOf(ptyId), id)
   }
   /** The next account after this one, in menu order, that still has usage left. */
@@ -187,11 +189,16 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
   const client = UPSTREAM.protocol === 'http:' ? http : https
   const agent = new client.Agent({ keepAlive: true })
   const limitHeader = (h: http.IncomingHttpHeaders, k: string) => Number(h[`anthropic-ratelimit-unified-${k}`])
+  // When Anthropic last answered for each plan, and the model a plan marked out refused (asked again with it).
+  const answered = new Map<string, number>(), refused = new Map<string, string>(), started = Date.now()
   /** The plan's usage as Anthropic reports it on every answer; false when the answer carries none. */
   function noteUsage(id: string, h: http.IncomingHttpHeaders): boolean {
     if (!h['anthropic-ratelimit-unified-status']) return false
     const at = (k: string) => (limitHeader(h, k) || 0) * 1000
     state.usage[id] = { fiveHour: limitHeader(h, '5h-utilization') || 0, fiveReset: at('5h-reset'), week: limitHeader(h, '7d-utilization') || 0, weekReset: at('7d-reset'), at: Date.now() }
+    answered.set(id, Date.now())
+    // Answering again before its reset (a reset used on claude.ai): the plan is not out any more.
+    if (h['anthropic-ratelimit-unified-status'] !== 'rejected') delete state.exhausted[id]
     return true
   }
   /** A plan or spend limit, as opposed to a passing throttle that Claude Code retries by itself. */
@@ -199,8 +206,10 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     if (status !== 429 || h['anthropic-ratelimit-unified-status'] !== 'rejected') return false
     const reset = limitHeader(h, 'reset')
     state.exhausted[id] = reset > 0 ? reset * 1000 : Date.now() + 5 * 3600_000
+    answered.set(id, Date.now())
     return true
   }
+  const modelOf = (body: Buffer) => { try { return String(JSON.parse(body.toString()).model || '') } catch { return '' } }
   function send(req: http.IncomingMessage, res: http.ServerResponse, path: string, headers: http.OutgoingHttpHeaders, body: Buffer): Promise<http.IncomingMessage> {
     return new Promise((resolve, reject) => {
       const up = client.request({ protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port, path, method: req.method, headers, agent }, resolve)
@@ -231,6 +240,7 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       const r = await send(req, res, path, headers, body)
       const status = r.statusCode ?? 502
       if (model && noteLimit(id, status, r.headers)) {
+        refused.set(id, modelOf(body))
         save()
         const next = state.mode === 'auto' ? nextUsable(id) : ''
         if (next && !tried.has(next)) {
@@ -394,13 +404,17 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
       })
       up.on('error', () => resolve())
       up.on('timeout', () => up.destroy())
-      up.end(PROBE)
+      up.end(probeBody(usable(id) ? undefined : refused.get(id) || undefined))
     })
   }
-  /** Fresh numbers for accounts not seen for a while: the login's from statusline.sh's cache, the others asked for. */
-  async function refreshUsage() {
-    const stale = (id: string) => !(Date.now() - (state.usage[id]?.at ?? 0) < USAGE_STALE_MS) && !probing.has(id)
-    if (stale('login')) {
+  /** Fresh numbers for accounts not seen for a while: the login's from statusline.sh's cache, the others asked for.
+   *  A plan marked out is asked again too, since it can come back before its reset (a reset used on claude.ai):
+   *  every time the menu opens, and with `limited` (the timer below) on its own, every few minutes. */
+  async function refreshUsage(limited = false) {
+    const stale = (id: string) => !(Date.now() - (state.usage[id]?.at ?? 0) < USAGE_STALE_MS)
+    const quiet = (id: string) => !(Date.now() - (answered.get(id) ?? 0) < USAGE_STALE_MS)
+    const due = (id: string) => !probing.has(id) && (limited ? !usable(id) && quiet(id) : stale(id) || !usable(id))
+    if (due('login')) {
       try {
         const at = statSync(LOGIN_USAGE_FILE).mtimeMs
         const limits: any[] = JSON.parse(readFileSync(LOGIN_USAGE_FILE, 'utf8')).limits ?? []
@@ -410,9 +424,14 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
           state.usage.login = { fiveHour: session.percent / 100, fiveReset: Date.parse(session.resets_at) || 0, week: weekly.percent / 100, weekReset: Date.parse(weekly.resets_at) || 0, at }
           save()
         }
+        // The login is never asked: it is back once the cache, written after its last limit, has every bar under 100%.
+        if (!usable('login') && at > (answered.get('login') ?? started) && limits.length && limits.every(l => l.percent < 100)) {
+          delete state.exhausted.login
+          save()
+        }
       } catch {}
     }
-    await Promise.all(state.accounts.filter(a => stale(a.id)).map(async a => {
+    await Promise.all(state.accounts.filter(a => due(a.id)).map(async a => {
       probing.add(a.id)
       try { const token = await tokenOf(a.id); if (token) await probe(a.id, token) } finally { probing.delete(a.id) }
     }))
@@ -519,7 +538,10 @@ export function createAccounts(userData: string, opts: { changed: () => void; fl
     save()
   }
   // A reset passing by changes what the menu shows and where new tabs start.
-  setInterval(() => { if (Object.values(state.exhausted).some(until => !(until > Date.now()))) save() }, 30_000)
+  setInterval(() => {
+    if (Object.values(state.exhausted).some(until => !(until > Date.now()))) save()
+    void refreshUsage(true)
+  }, 30_000)
 
   return { listing, forTab, use, add, openInChrome, cancel, remove, rename, setDefault, setMode, refreshUsage }
 }
