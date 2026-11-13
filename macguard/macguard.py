@@ -335,8 +335,21 @@ def en(text):
     return text
 
 
+def terminai_shows():
+    """TerminAI is running: it shows MacGuard's pauses and memory warnings itself, as TerminAI notifications with its icon."""
+    try:
+        with open(os.path.expanduser("~/Library/Application Support/clipwave-term/control.json")) as f:
+            os.kill(int(json.load(f)["pid"]), 0)
+        return True
+    except Exception:
+        return False
+
+
 def notify(title, text, sound=None):
     """True se osascript ha accettato la notifica (non dice se macOS la mostra davvero)."""
+    # 13/11 (Ilai): notifications from osascript show Script Editor's icon. With TerminAI open it shows them instead.
+    if terminai_shows():
+        return True
     title, text = en(title), en(text)
     # ensure_ascii=False: AppleScript non capisce gli escape \u00f9 (21/10: "Più pesanti" -> syntax error -2741).
     script = "display notification %s with title %s" % (json.dumps(text, ensure_ascii=False), json.dumps(title, ensure_ascii=False))
