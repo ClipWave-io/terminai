@@ -702,6 +702,8 @@ export function createApp(pool, config) {
           requireThat(member,404,'Company not found.');
           const { rows:[note] } = await db.query(`SELECT * FROM manager_notes WHERE id=$1 AND company_id=$2 FOR ${req.method==='GET'?'SHARE':'UPDATE'}`,[noteId,companyId]);
           requireThat(note&&(note.visibility==='company'||note.owner_id===user.id),404,'Note not found.');
+          // Product limits too: a member limited to some products reaches only those notes' files.
+          requireThat(note.owner_id===user.id||isAdmin(member)||!member.products||member.products.includes(note.product||''),404,'Note not found.');
           if (req.method==='GET') {
             const { rows:[file] } = await db.query('SELECT name,data FROM manager_note_files WHERE id=$1 AND note_id=$2',[fileId,noteId]);
             requireThat(file,404,'File not found.'); return file;
@@ -1010,6 +1012,9 @@ export function createApp(pool, config) {
         if(noteMatch&&['PATCH','DELETE'].includes(req.method)) {
           const {rows:[note]}=await db.query('SELECT * FROM manager_notes WHERE id=$1 AND company_id=$2 FOR UPDATE',[uuid(noteMatch[1]),companyId]);
           requireThat(note&&(note.visibility==='company'||note.owner_id===user.id),404,'Note not found.');
+          // A member limited to some products cannot touch another product's note, even with its id.
+          requireThat(note.owner_id===user.id||sees(note.product),404,'Note not found.');
+          requireThat(input.product===undefined||sees(input.product),403,'You have no access to that product.');
           requireThat(note.visibility==='private'||member.role!=='viewer',403,'Viewers cannot change the team board.');
           if(req.method==='DELETE'){requireThat(note.owner_id===user.id||isAdmin(member),403,'Only its author or an admin can delete it.');await logNote(db,note,user.id,'deleted');await db.query('DELETE FROM manager_notes WHERE id=$1',[note.id]);return {ok:true};}
           const visibility=input.visibility===undefined?note.visibility:enumValue(input.visibility,['private','company'],'visibility');

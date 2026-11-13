@@ -79,6 +79,9 @@ test('real PostgreSQL: note comments and activity follow the note’s own access
   assert.equal((await request(comments(secret.id),{token:fritz.token})).status,404);
   assert.equal((await request(comments(secret.id),{token:fritz.token,method:'POST',data:{body:'peek'}})).status,404);
   assert.equal((await request(`${api}/notes/${secret.id}/activity`,{token:fritz.token})).status,404);
+  // Nor can he edit or delete that note.
+  assert.equal((await request(`${api}/notes/${secret.id}`,{token:fritz.token,method:'PATCH',data:{title:'mine now'}})).status,404);
+  assert.equal((await request(`${api}/notes/${secret.id}`,{token:fritz.token,method:'DELETE'})).status,404);
   const fritzAll=(await request(`${api}/notes/activity`,{token:fritz.token})).body.activity;
   assert.ok(fritzAll.length&&fritzAll.every(a=>a.noteId===plan.id),'only his product’s notes');
   assert.ok((await request(`${api}/notes/activity`,{token:sofia.token})).body.activity.some(a=>a.noteId===secret.id));
