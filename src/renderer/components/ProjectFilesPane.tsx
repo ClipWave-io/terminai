@@ -83,18 +83,31 @@ export function ProjectFilesPane({ side, onSide, onClose, onDirty, openRequest, 
     onFocus={e => { const dot = naming.kind === 'new-folder' ? -1 : e.target.value.lastIndexOf('.'); e.target.setSelectionRange(0, dot > 0 ? dot : e.target.value.length) }}
     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void finishNaming(true) } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); void finishNaming(false) } }}
     onBlur={() => void finishNaming(true)} />
+  // The file list and the preview: drag the line between them to give either more room (kept on this Mac). The list sits
+  // above the preview in a narrow pane and beside it in a wide one, so the line moves up and down or left and right.
+  const [treeSize, setTreeSize] = useState<{ h?: number; w?: number }>(() => { try { return JSON.parse(localStorage.getItem('files:tree') || '{}') } catch { return {} } })
+  const dragTree = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const nav = e.currentTarget.previousElementSibling as HTMLElement | null, parent = nav?.parentElement; if (!nav || !parent) return
+    e.preventDefault()
+    const row = getComputedStyle(parent).flexDirection === 'row', start = row ? e.clientX : e.clientY, box = nav.getBoundingClientRect(), outer = parent.getBoundingClientRect()
+    const size0 = row ? box.width : box.height, max = (row ? outer.width : outer.height) - 140
+    const move = (m: MouseEvent) => { const v = Math.round(Math.min(max, Math.max(row ? 120 : 60, size0 + (row ? m.clientX : m.clientY) - start))); setTreeSize(s => row ? { ...s, w: v } : { ...s, h: v }) }
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); setTreeSize(s => { try { localStorage.setItem('files:tree', JSON.stringify(s)) } catch {} return s }) }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
   return <aside className="project-files-pane" aria-label="Project files">
     <div className="files-toolbar"><strong>Files</strong><button className="btn" onClick={() => void choose()}>Choose folder</button>{listing && <button className="btn" title="Open this folder in Finder" aria-label="Open in Finder" onClick={() => void window.term.project.openFolder(listing.path)}><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M1.5 12.5v-9a1 1 0 0 1 1-1h3.2a1 1 0 0 1 .7.3l1 1a1 1 0 0 0 .7.3h5.4a1 1 0 0 1 1 1v7.4a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1Z" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg></button>}{onFull && <button className="btn" onClick={onFull} title={full ? 'Back to the sessions  Esc' : 'Show the file full size'} aria-label={full ? 'Exit full size' : 'Full size'} aria-pressed={full}>{full ? '⤡' : '⤢'}</button>}<button className="btn" onClick={onSide} title={`Move files ${side === 'left' ? 'right' : 'left'}`} aria-label={`Move files ${side === 'left' ? 'right' : 'left'}`}>{side === 'left' ? '⇥' : '⇤'}</button><button className="btn" onClick={() => { if (!busy && discard()) onClose() }} aria-label="Close files">×</button></div>
     {listing && <div className="files-path" title={listing.root}>{listing.root.split('/').pop()}/{listing.path}</div>}
     <div role="status" className="files-status">{/EPERM|EACCES|not permitted/.test(error) ? <span className="files-perm">macOS hasn’t allowed TerminAI into this folder yet. Turn on TerminAI under Files and Folders (or Full Disk Access), then open the folder again.<button className="btn" onClick={() => void window.term.project.privacy()}>Open Privacy Settings</button></span> : error || (busy ? 'Loading…' : !listing ? 'Choose a project folder to edit text files.' : preview?.type === 'pdf' ? 'PDF viewer' : preview && preview.type !== 'text' ? 'Preview' : 'Text editor · ⌘S to save')}</div>
     {listing && <div className="files-body">
-      <nav className="files-tree" aria-label="Project directory" onContextMenu={e => void menu(e, listing.path, true, true)}>
+      <nav className="files-tree" aria-label="Project directory" style={{ ['--tree-h' as string]: treeSize.h ? `${treeSize.h}px` : undefined, ['--tree-w' as string]: treeSize.w ? `${treeSize.w}px` : undefined }} data-sized={treeSize.h ? 'h' : undefined} data-wide={treeSize.w ? 'w' : undefined} onContextMenu={e => void menu(e, listing.path, true, true)}>
         {naming && naming.kind !== 'rename' && nameField()}
         {listing.path && <button onClick={() => void load(listing.path.split('/').slice(0, -1).join('/'))}>↰ Parent folder</button>}
         <button onClick={() => void load(listing.path)} aria-label="Refresh files">↻ Refresh</button>
         {listing.entries.map(entry => naming?.kind === 'rename' && naming.path === entry.path ? <span key={entry.path}>{nameField()}</span> : <button key={entry.path} title={entry.name} onContextMenu={e => void menu(e, entry.path, entry.directory)} aria-label={`${entry.directory ? 'Open folder' : 'Open file'} ${entry.name}`} aria-pressed={!entry.directory && preview?.path === entry.path} onClick={() => void (entry.directory ? load(entry.path) : open(entry.path))}>{entry.directory ? '▸ ' : '· '}{entry.name}</button>)}
         {listing.truncated && <p>Showing first 500 entries.</p>}
       </nav>
+      <div className="files-split" role="separator" aria-orientation="horizontal" aria-label="Resize the file list" title="Drag to resize · double-click to reset" onMouseDown={dragTree} onDoubleClick={() => { setTreeSize({}); try { localStorage.removeItem('files:tree') } catch {} }} />
       <section className="file-preview" aria-label="File preview">
         {preview ? <><div className="file-preview-title">{preview.path}{dirty ? ' • Unsaved' : ''}{preview.type === 'text' && <button className="btn" disabled={!dirty || busy} onClick={()=>void save()}>Save ⌘S</button>}{preview.type !== 'text' && preview.type !== 'pdf' && <button className="btn" title="Open it in the app macOS uses for this kind of file" onClick={()=>void window.term.project.openExternal(preview.path).catch(e=>setError(errorMessage(e)))}>Open with the default app</button>}</div>{preview.type === 'pdf' ? <Suspense fallback={<p>Opening PDF…</p>}><PdfViewer content={preview.content}
           onOpen={()=>void window.term.project.openExternal(preview.path).catch(e=>setError(errorMessage(e)))}

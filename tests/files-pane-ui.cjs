@@ -16,6 +16,12 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await js(`document.querySelector('[aria-label="Fit page"]').click()`); await delay(300)
   assert.equal(await js(`document.querySelector('[aria-label="Fit page"]').getAttribute('aria-pressed')`), 'true', 'fit page')
   assert.ok(await js(`['Show in Finder','Open in the default app','Copy path','Rotate'].every(l=>!!document.querySelector('[aria-label="'+l+'"]'))`), 'file actions and rotate in the toolbar')
+  // The line between the list and the preview resizes the list.
+  const size = `(()=>{const r=document.querySelector('.files-tree').getBoundingClientRect();return Math.round(r.height)+'x'+Math.round(r.width)})()`
+  const s0 = await js(size)
+  await js(`(()=>{const h=document.querySelector('.files-split'),r=h.getBoundingClientRect();h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:r.left+2,clientY:r.top+2}));window.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left+82,clientY:r.top+82}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`); await delay(300)
+  const s1 = await js(size)
+  assert.notEqual(s1, s0, `file list resized (${s0} -> ${s1})`)
   if (process.env.SHOTS) { win.show(); win.webContents.invalidate(); await delay(700); fs.writeFileSync(path.join(process.env.SHOTS, 'pdf-toolbar.png'), (await win.webContents.capturePage()).toPNG()) }
   // Files dropped by its grip onto the terminal: they swap places.
   const order = `[...document.querySelectorAll('.workspace > .pane, .workspace > .files-slot')].map(e=>e.className.split(' ')[0]+':'+getComputedStyle(e).order).join()`

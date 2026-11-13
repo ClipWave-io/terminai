@@ -1429,3 +1429,13 @@ textarea.card-notes.editing {
 .notice-card-x { flex: none; border: 0; background: none; color: var(--dim); font-size: 16px; padding: 8px 10px; cursor: pointer; }
 .notice-card.k-chat { border-left-color: #3fb68b; } .notice-card.k-request { border-left-color: #e8a900; } .notice-card.k-memory { border-left-color: #e5484d; } .notice-card.k-agent { border-left-color: #a78bfa; }
 @keyframes notice-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+/* The line between the file list and the preview: drag to resize (up and down when stacked, sideways when side by side). */
+.files-split { flex: none; height: 6px; margin: -3px 0; position: relative; z-index: 2; cursor: row-resize; }
+.files-split:hover, .files-split:active { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.files-tree[data-sized] { height: var(--tree-h); max-height: none; flex: none; }
+@container (min-width: 640px) {
+  .files-split { width: 6px; height: auto; margin: 0 -3px; cursor: col-resize; }
+  .files-tree { resize: none; }
+  .files-tree[data-sized] { height: auto; }
+  .files-tree[data-wide] { width: var(--tree-w); max-width: none; }
+}
