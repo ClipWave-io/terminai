@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises'
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification, systemPreferences, desktopCapturer, session } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync, readdirSync } from 'node:fs'
-import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
@@ -431,9 +431,13 @@ app.whenReady().then(() => {
     const directory=app.getPath('userData'),script=join(directory,'browser-mcp.cjs')
     await copyFile(app.isPackaged?join(app.getAppPath(),'resources/browser-mcp.cjs'):join(__dirname,'../../resources/browser-mcp.cjs'),script)
     // node cannot run a script inside app.asar from a shell, so every PTY gets a real copy on PATH.
-    const cli=join(directory,'bin','terminai')
+    // `terminai` is a small shell script: Node.js runs terminai.cjs when the Mac has it, otherwise TerminAI's own binary does
+    // (ELECTRON_RUN_AS_NODE), so the command works on a new Mac without Node installed (13/11: Fritz's agent could not reply).
+    const cli=join(directory,'bin','terminai'),js=join(directory,'bin','terminai.cjs')
     await mkdir(join(directory,'bin'),{recursive:true})
-    await copyFile(app.isPackaged?join(app.getAppPath(),'resources/terminai.cjs'):join(__dirname,'../../resources/terminai.cjs'),cli)
+    await copyFile(app.isPackaged?join(app.getAppPath(),'resources/terminai.cjs'):join(__dirname,'../../resources/terminai.cjs'),js)
+    const q=(v:string)=>`'${v.replace(/'/g,`'\\''`)}'`
+    await writeFile(cli,`#!/bin/sh\nif command -v node >/dev/null 2>&1; then exec node ${q(js)} "$@"; fi\nELECTRON_RUN_AS_NODE=1 exec ${q(process.execPath)} ${q(js)} "$@"\n`)
     await chmod(cli,0o755)
     const bridge=await startBrowserBridge(directory,async(command,args,owner)=>{
       if(!browser||!win||win.isDestroyed())throw Error('Open the TerminAI window to browse.')
