@@ -46,6 +46,10 @@ if(!process.versions.electron){
   await js(`(()=>{const h=document.querySelector('.tc-resize'),r=h.getBoundingClientRect();h.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:r.left+2,clientY:300}));window.dispatchEvent(new MouseEvent('mousemove',{clientX:r.left-150,clientY:300}));window.dispatchEvent(new MouseEvent('mouseup',{}))})()`);await delay(200);
   assert.ok(await js(`document.querySelector('.tc').getBoundingClientRect().width`)>w0+100,'drawer wider');
   await shot('1-chat');
+  // A half-written message stays when the chat closes and opens again.
+  await js(`(()=>{const i=document.querySelector('.tc-chat textarea, .tc-chat input[type=text], .tc-compose textarea');const set=Object.getOwnPropertyDescriptor(i.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;set.call(i,'draft to Matteo');i.dispatchEvent(new Event('input',{bubbles:true}))})()`);await delay(200);
+  await js(`document.querySelector('[aria-label^="Team chat"]').click()`);await delay(300);await js(`document.querySelector('[aria-label^="Team chat"]').click()`);await delay(500);
+  assert.equal(await js(`(document.querySelector('.tc-chat textarea, .tc-chat input[type=text], .tc-compose textarea')||{}).value`),'draft to Matteo','draft kept');
   // A picture opens big over the app, with Open in Files; Escape closes it.
   for(let i=0;i<40&&!await js(`!!document.querySelector('.tc-img img')`);i++)await delay(250);
   await js(`document.querySelector('.tc-img').click()`);await delay(300);

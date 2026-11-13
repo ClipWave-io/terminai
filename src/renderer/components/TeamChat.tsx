@@ -168,14 +168,16 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
       {channels.channels.map(c => <button key={c} role="tab" aria-selected={channel === c} className={channel === c ? 'on' : ''} onClick={() => pick(c)}>{c}</button>)}
     </div>}
     {notice && <div className="tc-notice">{notice}</div>}
-    {view === 'chat' ? <Chat company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
+    {view === 'chat' ? <Chat key={key} draftKey={`${key}:draft`} company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
       : view === 'files' ? <Files company={company} admin={admin} me={me} onError={alertLine} />
       : <PeoplePanel company={company} me={me} onError={e => alertLine(String((e as Error).message ?? e))} online={id => people.find(p => p.id === id)?.online} />}
   </aside></>
 }
 
-function Chat({ company, messages, me, others, onSend, onShare }: { company: string; messages: Message[]; me: string; others: Person[]; onSend: (b: string) => void; onShare: (p: string[]) => void }): JSX.Element {
-  const [text, setText] = useState(''), [drag, setDrag] = useState(false)
+function Chat({ draftKey, company, messages, me, others, onSend, onShare }: { draftKey: string; company: string; messages: Message[]; me: string; others: Person[]; onSend: (b: string) => void; onShare: (p: string[]) => void }): JSX.Element {
+  // What you were writing stays as a draft (per chat, on this Mac) when the chat is closed, switched or the app restarts.
+  const [text, setTextState] = useState(() => cache.get(draftKey, '')), [drag, setDrag] = useState(false)
+  const setText = (v: string) => { setTextState(v); if (v) cache.set(draftKey, v); else { try { localStorage.removeItem(draftKey) } catch {} } }
   const list = useRef<HTMLDivElement>(null), stick = useRef(true), lastTyping = useRef(0)
   useEffect(() => { const el = list.current; if (el && stick.current) el.scrollTop = el.scrollHeight }, [messages.length])
   // WhatsApp ticks: one grey sent, two grey on their Mac, two blue read.
