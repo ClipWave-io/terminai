@@ -65,6 +65,11 @@ export function normalizePaneOrder(value: unknown): WorkspacePane[] {
 export type RailSide = 'left' | 'right'
 
 export type TasksUser = 'livio' | 'ilai'
+/** Everyone in the workspace who is not one of the two partners: `u:<their user id>` on the server, on tasks and in the work log. */
+export type MemberKey = `u:${string}`
+export const isMemberKey = (key: unknown): key is MemberKey => typeof key === 'string' && /^u:[0-9a-f-]{36}$/.test(key)
+/** A member of the workspace as the To-do knows them: their key (ilai, livio or u:<id>), name and product limits (null: all). */
+export interface TaskMember { key: string; name: string; products: string[] | null }
 export type TaskStatus = 'open' | 'doing' | 'done'
 export type TaskScope = 'personal' | 'shared'
 
@@ -79,7 +84,8 @@ export interface Task {
   /** Pictures under the note, file names in the task's own folder (images/<id>/ in the repo, todo-images/<id>/ for a private task). */
   images?: string[]
   status: TaskStatus
-  assignee: TasksUser | 'both' | null
+  /** a partner, Together, a member's own column (`u:<id>`), or Unassigned */
+  assignee: TasksUser | 'both' | MemberKey | null
   /** free text, e.g. ManyMotions, Abracadabrax, ResumeNext */
   product: string
   /** Place in its list after a cut and paste; without it the task sorts by Date.parse(createdAt). */
@@ -116,6 +122,12 @@ export interface TaskList {
   lists: TaskListPage[]
   /** The tab working on each task in progress, by task id; only on this Mac, never in the repo. */
   working: Record<string, TaskWorking>
+  /** Who this person is on the shared page: 'ilai', 'livio' or a member's `u:<id>`; '' without a shared page. */
+  me: string
+  /** Everyone in the workspace, from the server's last answer (partners included); one column each beyond Ilai, Together and Matteo. */
+  members: TaskMember[]
+  /** true when the shared page goes through the server only (a member's Mac: no build-tasks repo) */
+  server: boolean
 }
 
 /** A private list, shown as a page of the To-do sheet. */
@@ -431,7 +443,9 @@ export interface Prefs {
   chromeByDefault: boolean
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
-  /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' */
+  /** A member's key on the server (`u:<id>`), set when they sign in: their shared page goes through the server, not git; '' on the partners' Macs */
+  tasksKey: MemberKey | ''
+  /** columns of the shared To-do page tucked away on this Mac: 'livio', 'ilai', 'both' or a member's `u:<id>` */
   todoHiddenColumns: string[]
   /** the To-do shows only these products; '' stands for tasks without one; empty: every task */
   todoProducts: string[]
@@ -496,6 +510,7 @@ export const DEFAULT_PREFS: Prefs = {
   workspaceId: '',
   chromeByDefault: true,
   tasksUser: 'ilai',
+  tasksKey: '',
   todoHiddenColumns: [],
   todoProducts: [],
   todoActivity: false,

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { DEFAULT_PREFS, normalizePaneOrder, RAIL_MIN, RAIL_MAX, RAIL_DEFAULT, SOUND_KINDS, MAC_SOUNDS, type Prefs } from '../shared/types'
+import { DEFAULT_PREFS, normalizePaneOrder, RAIL_MIN, RAIL_MAX, RAIL_DEFAULT, SOUND_KINDS, MAC_SOUNDS, isMemberKey, type Prefs } from '../shared/types'
 
 let cache: Prefs | null = null
 
@@ -63,7 +63,8 @@ function hydrate(raw: unknown): Prefs {
     // A Mac where someone picked Ilai or Matteo keeps the shared page; anyone else gets private lists under a fixed local key.
     teamTasks: p.teamTasks ?? (p.tasksUser === 'livio' || p.tasksUser === 'ilai'),
     tasksUser: p.tasksUser === 'livio' || p.tasksUser === 'ilai' ? p.tasksUser : 'ilai',
-    todoHiddenColumns: Array.isArray(p.todoHiddenColumns) ? p.todoHiddenColumns.filter(c => ['livio', 'ilai', 'both'].includes(c)) : [],
+    tasksKey: isMemberKey(p.tasksKey) ? p.tasksKey : '',
+    todoHiddenColumns: Array.isArray(p.todoHiddenColumns) ? p.todoHiddenColumns.filter(c => ['livio', 'ilai', 'both'].includes(c) || isMemberKey(c)) : [],
     todoProducts: Array.isArray(p.todoProducts) ? p.todoProducts.filter((x): x is string => typeof x === 'string').slice(0, 50) : [],
     todoActivity: p.todoActivity === true,
     todoActivitySeen: typeof p.todoActivitySeen === 'string' ? p.todoActivitySeen : '',

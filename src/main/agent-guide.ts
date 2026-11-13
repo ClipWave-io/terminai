@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DEFAULT_LIST } from '../shared/types'
-import type { TaskListPage } from '../shared/types'
+import type { TaskListPage, TaskMember } from '../shared/types'
 
 /**
  * What a coding agent on this Mac needs to know about TerminAI, written at every start into the
@@ -26,14 +26,23 @@ This Mac runs TerminAI, a terminal app whose tabs run Claude Code and Codex sess
  * This Mac's To-do pages as they are now, a line under the guide: a session knows which list "here" is without
  * asking the app first. The app writes it again when a list is made, renamed, described or deleted.
  */
-export function todoMap(user: string, lists: TaskListPage[]): string {
+export function todoMap(user: string, lists: TaskListPage[], team: { key?: string; members?: TaskMember[] } = {}): string {
   if (user !== 'livio' && user !== 'ilai') return ''
-  const me = user === 'livio' ? 'Matteo' : 'Ilai', other = user === 'livio' ? 'Ilai' : 'Matteo'
   // A list's name and description are typed by a person or an agent and end up in every session's instructions: one
   // plain line each, and never the markers that delimit this section.
   const flat = (text: string) => text.replace(/<!--[\s\S]*?(-->|$)/g, ' ').replace(/[\r\n]+/g, ' ').trim()
+  const first = (name: string) => flat(name).split(/\s+/)[0] || 'Member'
   const pages = lists.map(page => `"${flat(page.name)}"${page.id === DEFAULT_LIST ? ' (the first one)' : ''}: ${flat(page.about ?? '') || 'no description yet'}`).join('; ')
-  return `- This Mac's To-do now (rewritten by the app when the lists change; \`terminai todo map\` has the tasks): you work with ${me} (\`${user}\`). The shared page, which ${other} sees too: the columns ${me}, Together, ${other} and Unassigned. Private lists, only on this Mac: ${pages}.`
+  const others = (team.members ?? []).filter(m => m.key.startsWith('u:') && m.key !== team.key).map(m => first(m.name))
+  const tail = others.length ? `, then one per member (${others.join(', ')}; \`--to <first name>\`)` : ''
+  const self = team.key?.startsWith('u:') ? (team.members ?? []).find(m => m.key === team.key) : undefined
+  // A member's Mac: their own column first, the page through the server (they see the tasks of their products).
+  if (team.key?.startsWith('u:')) {
+    const name = self ? first(self.name) : 'yours'
+    return `- This Mac's To-do now (rewritten by the app when the lists change; \`terminai todo map\` has the tasks): you are ${name} (\`${team.key}\`), a member of the workspace. The shared page, which the whole workspace sees: the columns ${name} (yours, \`--to ${name.toLowerCase()}\`), Ilai, Together, Matteo and Unassigned${tail}. Private lists, only on this Mac: ${pages}.`
+  }
+  const me = user === 'livio' ? 'Matteo' : 'Ilai', other = user === 'livio' ? 'Ilai' : 'Matteo'
+  return `- This Mac's To-do now (rewritten by the app when the lists change; \`terminai todo map\` has the tasks): you work with ${me} (\`${user}\`). The shared page, which ${other} sees too: the columns ${me}, Together, ${other} and Unassigned${tail}. Private lists, only on this Mac: ${pages}.`
 }
 export const agentGuide = (map = '') => map ? `${AGENT_GUIDE}\n${map}` : AGENT_GUIDE
 

@@ -84,6 +84,7 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/worklog/2026-11-13`, { token: fritz.token, method: 'PUT', data: { data: { workingMinutes: 7, projects: [], conversations: [] } } })).status, 200);
   const day2 = (await request(`${base}/worklog/2026-11-13`, { token: ilai.token })).body, fk = Object.keys(day2.people).find(k => k.startsWith('u:'));
   assert.ok(fk && day2.names[fk] === 'Fritz' && day2.people[fk].workingMinutes === 7, JSON.stringify(day2));
+<<<<<<< HEAD
   // The operator dashboard: every organisation with its people, only with the operator password.
   const op = async token => (await fetch(`http://127.0.0.1:${server.address().port}/api/operator/orgs`, { headers: { 'x-setup-token': token } }))
   assert.equal((await op('wrong')).status, 404, 'no password, no dashboard');
@@ -91,4 +92,30 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   const build = board.orgs.find(o => o.name === 'BUILD');
   assert.ok(build && build.people.some(p => p.name === 'Sofia' && p.products?.[0] === 'ManyMotions.org') && board.totals.users >= 3, JSON.stringify(board).slice(0, 300));
   assert.equal((await fetch(`http://127.0.0.1:${server.address().port}/operator`)).status, 200, 'the page');
+=======
+  // Every member has a To-do key: the partners their column, everyone else 'u:<id>'. Nora joins limited to ManyMotions.org, with no column.
+  const noraLink = await request(`${base}/invites/link`, { token: ilai.token, method: 'POST', data: { role: 'member', products: ['ManyMotions.org'] } });
+  const nora = (await request('/api/auth/accept-invite', { method: 'POST', data: { token: noraLink.body.inviteUrl.split('#invite=')[1], name: 'Nora Keller', email: 'nora@example.test', password: pw, client: 'desktop' } })).body;
+  const noraId = (await request('/api/me', { token: nora.token })).body.user.id, noraKey = `u:${noraId}`;
+  const noraTasks = (await request(`${base}/tasks`, { token: nora.token })).body;
+  assert.equal(noraTasks.me, noraKey, 'a member without a column is u:<id>');
+  assert.equal(noraTasks.column, null);
+  assert.equal((await request(`${base}/tasks`, { token: ilai.token })).body.me, 'ilai');
+  // The members list: everyone in the workspace, with their key and products.
+  const listed = Object.fromEntries(noraTasks.members.map(m => [m.name, m]));
+  assert.equal(listed.Ilai.key, 'ilai'); assert.equal(listed.Sofia.key, 'livio'); assert.equal(listed['Nora Keller'].key, noraKey);
+  assert.match(listed.Fritz.key, /^u:[0-9a-f-]{36}$/); assert.deepEqual(listed['Nora Keller'].products, ['ManyMotions.org']); assert.equal(listed.Ilai.products, null);
+  // A task assigned to a member's column; a key that is no member's is refused.
+  assert.equal((await request(`${base}/tasks/t-org`, { token: ilai.token, method: 'PUT', data: { task: { id: 't-org', title: 'Org landing', status: 'open', product: 'ManyMotions.org', assignee: noraKey, createdBy: 'ilai', updatedBy: 'ilai' } } })).status, 200);
+  assert.equal((await request(`${base}/tasks/t-bad`, { token: ilai.token, method: 'PUT', data: { task: { id: 't-bad', title: 'x', status: 'open', product: '', assignee: `u:${randomUUID()}` } } })).status, 400, 'not a member');
+  // Nora sees only her product's tasks, and signs her own edits.
+  const seen = (await request(`${base}/tasks`, { token: nora.token })).body.tasks;
+  assert.deepEqual(seen.map(t => t.id), ['t-org']); assert.equal(seen[0].assignee, noraKey);
+  const edit = await request(`${base}/tasks/t-org`, { token: nora.token, method: 'PUT', data: { task: { ...seen[0], status: 'doing', updatedBy: 'ilai' } } });
+  assert.equal(edit.status, 200); assert.equal(edit.body.task.updatedBy, noraKey, 'signed with her key'); assert.equal(edit.body.task.createdBy, 'ilai', 'the author stays');
+  // Another product's task stays out of her reach, even by its id.
+  assert.equal((await request(`${base}/tasks/t-coldwave`, { token: nora.token, method: 'PUT', data: { task: { id: 't-coldwave', title: 'Mine now', status: 'open', product: 'ManyMotions.org' } } })).status, 403);
+  assert.equal((await request(`${base}/tasks/t-coldwave`, { token: nora.token, method: 'DELETE' })).status, 403);
+  assert.ok((await request(`${base}/tasks`, { token: ilai.token })).body.tasks.some(t => t.id === 't-coldwave' && t.title === 'Launch'));
+>>>>>>> 35c83dfaa93b1544e48e8fe18eb23f9b5f13899b
 });

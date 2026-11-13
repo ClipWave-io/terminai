@@ -2,14 +2,17 @@ import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { Task, TaskActivity, TaskInput, TaskList, TaskListPage, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion, TaskWorking } from '../shared/types'
-import { DEFAULT_LIST, isMine, mentionsOf } from '../shared/types'
+import type { Task, TaskActivity, TaskInput, TaskList, TaskListPage, TaskMember, TaskScope, TasksChange, TasksSync, TasksUser, TaskVersion, TaskWorking } from '../shared/types'
+import { DEFAULT_LIST, isMemberKey, isMine, mentionsOf } from '../shared/types'
 
 /**
  * The To-do sheet's data. Personal tasks are one JSON file per user in userData and never leave the Mac.
  * Shared tasks live in a clone of the build-tasks repo (one file per task, see its README) that
  * this module pulls, commits and pushes by itself, with the user's own git and credential helper.
  * Sessions read the same files through `terminai todo`; nothing else writes them.
+ * Everyone else in the workspace (a member: no repo, no partner column) has the shared page through the server only:
+ * `serverOnly`. Their Mac keeps the server's copy in todos-server/tasks, the same one-file-per-task layout, so the
+ * sheet and `terminai todo` read it the same way; each edit goes to the server at once and a sync takes it all back.
  */
 export const DEFAULT_TASKS_REMOTE = 'https://github.com/ClipWave-io/build-tasks.git'
 
@@ -41,20 +44,27 @@ function git(cwd: string, ...args: string[]): Promise<string> {
 
 /** The shared page's copy on the TerminAI server, read and edited by the iPhone app and the website. */
 export interface TasksServer {
-  /** null when this Mac is not signed in to Sync */
-  load(user: TasksUser): Promise<{ workspace: string; tasks: Task[]; deleted: { id: string; deletedAt: string; by?: string | null }[] } | null>
+  /** null when this Mac is not signed in to Sync. `user`: this person's key on the shared page. `me` and `members` come from the server. */
+  load(user: string): Promise<{ workspace: string; tasks: Task[]; deleted: { id: string; deletedAt: string; by?: string | null }[]; me?: string; members?: TaskMember[] } | null>
   put(workspace: string, task: Task): Promise<void>
   remove(workspace: string, id: string): Promise<void>
 }
 
-export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; changed: () => void; notify?: (change: TasksChange) => void; listsChanged?: () => void; server?: TasksServer }) {
+/**
+ * `user`: whose private lists these are on this Mac. `key`: who they are on the shared page when that is not `user`
+ * (a member's `u:<id>`). `serverOnly`: the shared page through the server, never git (a member's Mac).
+ */
+export function createTodos(dir: string, opts: { remote: string; user: () => TasksUser | ''; key?: () => string; serverOnly?: () => boolean; changed: () => void; notify?: (change: TasksChange) => void; listsChanged?: () => void; server?: TasksServer }) {
   // Before private tasks were per user they were one file per Mac (todos-personal.json).
   const legacyFile = join(dir, 'todos-personal.json')
   const personalFile = (user: TasksUser) => join(dir, `todos-personal-${user}.json`)
   const clone = join(dir, 'build-tasks')
-  const tasksDir = join(clone, 'tasks')
+  const serverOnly = () => !!opts.server && !!opts.serverOnly?.()
+  // A member's copy of the server's shared page: never inside build-tasks, which a clone needs empty.
+  const root = () => serverOnly() ? join(dir, 'todos-server') : clone
+  const tasksDir = () => join(root(), 'tasks')
   /** A task's images: beside it in the repo when shared (so they sync), in userData when private. */
-  const imagesDir = (scope: TaskScope, id: string) => scope === 'shared' ? join(clone, 'images', id) : join(dir, 'todo-images', id)
+  const imagesDir = (scope: TaskScope, id: string) => scope === 'shared' ? join(root(), 'images', id) : join(dir, 'todo-images', id)
   // Images of a deleted task wait here, so Undo can put them back; a day later they go.
   const trashDir = (scope: TaskScope, id: string) => join(dir, 'todo-images-trash', `${scope}-${id}`)
   function trash(scope: TaskScope, id: string): boolean {
@@ -75,7 +85,36 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     const root = join(dir, 'todo-images-trash')
     for (const name of readdirSync(root)) if (Date.now() - statSync(join(root, name)).mtimeMs > 86400_000) rmSync(join(root, name), { recursive: true, force: true })
   } catch {}
-  const status: TasksSync = { enabled: Boolean(opts.remote), syncing: false, lastSync: null, error: opts.remote ? null : 'No shared repository is set for this build.' }
+  const NO_REPO = 'No shared repository is set for this build.'
+  const status: TasksSync = { enabled: Boolean(opts.remote), syncing: false, lastSync: null, error: opts.remote ? null : NO_REPO }
+  // A member's Mac has no repository: its shared page is on as soon as it goes through the server.
+  const syncState = (): TasksSync => serverOnly() ? { ...status, enabled: true, error: status.error === NO_REPO ? null : status.error } : { ...status }
+
+  // ---- who is who on the shared page -----------------------------------------
+  /** Everyone in the workspace, as the server last listed them (a partner's mirror or a member's sync keeps it): their columns. */
+  const membersFile = join(dir, 'todos-members.json')
+  function readMembers(): TaskMember[] {
+    try { const v = JSON.parse(readFileSync(membersFile, 'utf8')); return Array.isArray(v) ? v.filter(m => m && typeof m.key === 'string' && typeof m.name === 'string') : [] } catch { return [] }
+  }
+  function keepMembers(members: unknown): void {
+    if (!Array.isArray(members)) return
+    const next = members.filter(m => m && typeof m.key === 'string' && typeof m.name === 'string' && (ASSIGNEES.includes(m.key) || isMemberKey(m.key)))
+      .map(({ key, name, products }) => ({ key, name: String(name).slice(0, 100), products: Array.isArray(products) ? products.filter((p: unknown) => typeof p === 'string') : null }))
+    if (JSON.stringify(next) === JSON.stringify(readMembers())) return
+    writeList(membersFile, next)
+    // The sessions' map of the To-do names the member columns.
+    opts.listsChanged?.()
+  }
+  const firstName = (name: string) => name.trim().split(/\s+/)[0] || name
+  /** How the sheet and the notices name a column or an author: Matteo, Ilai, Together, else a member's first name. */
+  const nameOf = (key: string | null | undefined): string => key && key in NAME ? NAME[key as keyof typeof NAME] : firstName(readMembers().find(m => m.key === key)?.name ?? '') || 'a member'
+  /** Who this person is on the shared page: their partner column, or on a member's Mac their `u:<id>`. */
+  const me = (): string => {
+    const user = opts.user()
+    return !user ? '' : serverOnly() ? opts.key?.() ?? '' : user
+  }
+  /** A column a shared task can be in: the partners', Together, Unassigned, or a member's own. */
+  const validAssignee = (a: unknown) => a === null || ASSIGNEES.includes(a as string) || (isMemberKey(a) && readMembers().some(m => m.key === a))
 
   function readList(file: string): Task[] {
     try { const list = JSON.parse(readFileSync(file, 'utf8')); return Array.isArray(list) ? list : [] } catch { return [] }
@@ -153,25 +192,27 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   }
   function readShared(): Task[] {
     let names: string[] = []
-    try { names = readdirSync(tasksDir).filter(name => name.endsWith('.json')) } catch { return [] }
-    return names.flatMap(name => readTask(join(tasksDir, name)) ?? [])
+    try { names = readdirSync(tasksDir()).filter(name => name.endsWith('.json')) } catch { return [] }
+    return names.flatMap(name => readTask(join(tasksDir(), name)) ?? [])
   }
   // ---- what the other one changed --------------------------------------------
   /** Per person on this Mac: the updatedAt of each shared task as they last saw it. */
-  const seenFile = (user: TasksUser) => join(dir, `todos-seen-${user}.json`)
-  function readSeen(user: TasksUser): Record<string, string> | null {
+  const seenFile = (user: string) => join(dir, `todos-seen-${user.replace(':', '-')}.json`)
+  function readSeen(user: string): Record<string, string> | null {
     try { const seen = JSON.parse(readFileSync(seenFile(user), 'utf8')); return seen && typeof seen === 'object' ? seen : null } catch { return null }
   }
-  function writeSeen(user: TasksUser, seen: Record<string, string>): void {
+  function writeSeen(user: string, seen: Record<string, string>): void {
     const tmp = `${seenFile(user)}.tmp`
     writeFileSync(tmp, JSON.stringify(seen, null, 2) + '\n', 'utf8')
     renameSync(tmp, seenFile(user))
   }
   /** Shared tasks the other person added or changed since this person last looked. The first look, once the repo is cloned, takes everything as seen. */
-  function unseen(user: TasksUser, shared: Task[]): string[] {
+  // The first copy of the shared page is here: the cloned repo, or a member's first answer from the server.
+  const primed = () => existsSync(serverOnly() ? join(root(), 'state.json') : join(clone, '.git'))
+  function unseen(user: string, shared: Task[]): string[] {
     let seen = readSeen(user)
     if (!seen) {
-      if (!existsSync(join(clone, '.git'))) return []
+      if (!primed()) return []
       seen = Object.fromEntries(shared.map(task => [task.id, task.updatedAt]))
       writeSeen(user, seen)
     }
@@ -179,14 +220,14 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   }
 
   const list = (): TaskList => {
-    const user = opts.user(), shared = readShared()
-    if (!user) return { personal: [], shared, sync: { ...status }, unseen: [], lists: [], working: {} }
+    const user = opts.user(), shared = readShared(), people = { me: me(), members: readMembers(), server: serverOnly() }
+    if (!user) return { personal: [], shared, sync: syncState(), unseen: [], lists: [], working: {}, ...people }
     const pages = readLists(user), gone = new Set(pages.filter(page => page.deletedAt).map(page => page.id))
     const personal = readPersonal(user).filter(task => !task.list || !gone.has(task.list))
     // A task ticked or reopened since (in the menu, or by the other one) is no longer the tab's.
     const doing = new Set([...shared, ...personal].filter(task => task.status === 'doing').map(task => task.id))
     return {
-      personal, shared, sync: { ...status }, unseen: unseen(user, shared),
+      personal, shared, sync: syncState(), unseen: people.me ? unseen(people.me, shared) : [], ...people,
       lists: pages.filter(page => !page.deletedAt).map(({ id, name, about }) => ({ id, name, ...(about ? { about } : {}) })),
       working: Object.fromEntries(Object.entries(readWorking(user)).filter(([id]) => doing.has(id))),
     }
@@ -206,7 +247,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     }
     if ((input.id === undefined || input.title !== undefined) && !input.title?.trim()) throw Error('A task needs a title.')
     if (input.status !== undefined && !STATUSES.includes(input.status)) throw Error('Invalid status')
-    if (input.assignee !== undefined && input.assignee !== null && !ASSIGNEES.includes(input.assignee)) throw Error('Invalid assignee')
+    if (input.assignee !== undefined && !validAssignee(input.assignee)) throw Error('Invalid assignee')
     if (input.order !== undefined && !Number.isFinite(input.order)) throw Error('Invalid order')
     if (input.list !== undefined && !validId(input.list)) throw Error('Invalid list')
     const r = input.request
@@ -216,7 +257,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   const clean = ({ id, title, notes, images, status, assignee, product, order, list, request, createdAt, createdBy, updatedAt, updatedBy, updatedVia }: Task): Task =>
     ({ id, title, notes, ...(images?.length ? { images } : {}), status, assignee, product, ...(request ? { request } : {}), ...(order === undefined ? {} : { order }), ...(list && list !== DEFAULT_LIST ? { list } : {}), createdAt, createdBy, updatedAt, updatedBy, ...(updatedVia === 'ai' ? { updatedVia } : {}) })
   /** `via`: 'ai' when an agent in a tab made the change (`terminai todo`), so both people can tell it from their own. */
-  function build(input: TaskInput, old: Task | undefined, user: TasksUser, via?: 'ai'): Task {
+  function build(input: TaskInput, old: Task | undefined, user: string, via?: 'ai'): Task {
     const now = romeIso()
     // Moving a task up or down its list is not an edit: in a conflict, a change to its content on the other Mac still wins.
     const kept = old && Object.entries(input).every(([field, value]) => field === 'id' || field === 'order' || value === undefined) ? old : undefined
@@ -274,7 +315,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
   const titleOf = (json: string) => { try { return String(JSON.parse(json).title) } catch { return 'task' } }
 
   async function ready(): Promise<boolean> {
-    if (!opts.remote) throw Error(status.error ?? 'No shared repository is set for this build.')
+    if (!opts.remote) throw Error(status.error ?? NO_REPO)
     if (!existsSync(join(clone, '.git'))) {
       await git(dir, 'clone', '-q', opts.remote, clone)
       return true
@@ -347,6 +388,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
 
   /** Write task files, commit and push them. Once committed the change is safe: a failed push is retried by the next sync. */
   async function change(write: () => { paths: string[]; message: string } | null): Promise<void> {
+    if (serverOnly()) return send(write)
     let committed = false
     await job(async () => {
       await ready()
@@ -363,9 +405,54 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     }).catch(err => { if (!committed) throw err })
   }
 
+  // ---- through the server only (a member's Mac) ------------------------------
+  const stateFile = () => join(root(), 'state.json')
+  const workspaceOf = (): string => { try { return String(JSON.parse(readFileSync(stateFile(), 'utf8')).workspace ?? '') } catch { return '' } }
+  /** The server's page becomes the local copy: every task as the server has it (its stamps, its product limits), the rest gone. */
+  async function pull(): Promise<void> {
+    const remote = await opts.server!.load(me())
+    if (!remote) throw Error('Sign in with Sync to see the shared page.')
+    keepMembers(remote.members)
+    mkdirSync(tasksDir(), { recursive: true })
+    const ids = new Set<string>()
+    for (const task of remote.tasks) {
+      if (!validId(task?.id)) continue
+      ids.add(task.id)
+      const file = join(tasksDir(), `${task.id}.json`), next = JSON.stringify(task, null, 2) + '\n'
+      if (!existsSync(file) || readFileSync(file, 'utf8') !== next) writeFileSync(file, next, 'utf8')
+    }
+    for (const name of readdirSync(tasksDir())) if (name.endsWith('.json') && !ids.has(name.slice(0, -5))) rmSync(join(tasksDir(), name), { force: true })
+    writeList(stateFile(), { workspace: remote.workspace })
+  }
+  /**
+   * An edit on a member's Mac: the task files are written as for git, then each goes to the server at once. The server
+   * has the last word: what it refused (another product, offline) leaves the local copy as the server has it, and the error shows.
+   */
+  async function send(write: () => { paths: string[]; message: string } | null): Promise<void> {
+    await job(async () => {
+      if (!workspaceOf()) await pull()
+      const workspace = workspaceOf(), done = write()
+      if (!done) return
+      const ids = [...new Set(done.paths.flatMap(path => /^tasks\/([A-Za-z0-9_-]+)\.json$/.exec(path)?.[1] ?? []))]
+      try {
+        for (const id of ids) {
+          const task = readTask(join(tasksDir(), `${id}.json`))
+          if (task) await opts.server!.put(workspace, task); else await opts.server!.remove(workspace, id)
+        }
+      } finally {
+        // What the server stamped (a member signs with their key) or refused comes back right away.
+        await pull().catch(() => {})
+      }
+    })
+  }
+  /** A picture would stay on this Mac: the server keeps no images, so the others would only see a gap. */
+  const noImages = () => { if (serverOnly()) throw Error('Images stay on private tasks for now: the shared page of a workspace member has no images yet.') }
+
   /** Several tasks in one go: a shared batch is one commit. Every input is checked before anything is written. */
   async function saveMany(scope: TaskScope, inputs: TaskInput[], via?: 'ai'): Promise<TaskList> {
-    const user = who()
+    const user = who(), by = scope === 'shared' ? me() : user
+    // A member limited to one product: a new shared task without one is theirs, which is all the server lets them add.
+    const limits = readMembers().find(m => m.key === by)?.products, onlyProduct = scope === 'shared' && isMemberKey(by) && limits?.length === 1 ? limits[0] : ''
     if (!Array.isArray(inputs) || !inputs.length) throw Error('Nothing to save.')
     inputs.forEach(check)
     if (inputs.some(input => input.list !== undefined && (scope === 'shared' || !liveList(user, input.list)))) throw Error(scope === 'shared' ? 'A shared task is in no list.' : 'That list no longer exists.')
@@ -383,12 +470,12 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     // The old copies are read inside the job, after any sync that was already running.
     await change(() => {
       const made = inputs.map(input => {
-        const old = input.id === undefined ? undefined : readTask(join(tasksDir, `${input.id}.json`))
+        const old = input.id === undefined ? undefined : readTask(join(tasksDir(), `${input.id}.json`))
         if (input.id !== undefined && !old) throw Error('That task no longer exists.')
-        return { old, task: build(input, old, user, via) }
+        return { old, task: build(old || input.product?.trim() || !onlyProduct ? input : { ...input, product: onlyProduct }, old, by, via) }
       })
-      mkdirSync(tasksDir, { recursive: true })
-      for (const { task } of made) writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
+      mkdirSync(tasksDir(), { recursive: true })
+      for (const { task } of made) writeFileSync(join(tasksDir(), `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
       // A paste reassigns the tasks it moves and may renumber the ones around them.
       const verbs = [...new Set(made.map(({ old, task }) => verb(old, task)))], word = verbs.length === 1 ? verbs[0] : verbs.every(v => v === 'reorder' || v.startsWith('assign to')) ? 'move' : 'edit'
       // The trailer marks an agent's commit; the subject stays "<user>: <verb> <titles>" for older builds.
@@ -406,13 +493,30 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       return list()
     }
     await change(() => {
-      const gone = ids.flatMap(id => { const task = readTask(join(tasksDir, `${id}.json`)); return task ? [{ ...task, id }] : [] })
+      const gone = ids.flatMap(id => { const task = readTask(join(tasksDir(), `${id}.json`)); return task ? [{ ...task, id }] : [] })
       if (!gone.length) return null
-      for (const task of gone) rmSync(join(tasksDir, `${task.id}.json`), { force: true })
+      for (const task of gone) rmSync(join(tasksDir(), `${task.id}.json`), { force: true })
       const pictures = gone.filter(task => trash('shared', task.id)).map(task => `images/${task.id}`)
       return { paths: [...gone.map(task => `tasks/${task.id}.json`), ...pictures], message: `${user}: delete ${titles(gone)}` }
     })
     return list()
+  }
+
+  /** What came in from the others since `before`: changes not waiting to be seen before, and tasks gone; one notice for them. */
+  function announce(user: string, before: Task[], waiting: Set<string>): void {
+    const after = readShared(), now = new Set(after.map(task => task.id)), fresh = new Set(unseen(user, after))
+    const changed = after.filter(task => fresh.has(task.id) && !waiting.has(task.id))
+    const removed = before.filter(task => !now.has(task.id)).map(task => task.title)
+    if (!changed.length && !removed.length) return
+    // Tagged: @me is in the title or note now and was not in the copy before the pull.
+    const tags = (task?: Task) => task ? (mentionsOf(`${task.title}\n${task.notes}`) as string[]).includes(user) : false
+    const mentioned = changed.filter(task => tags(task) && !tags(before.find(t => t.id === task.id)))
+    const prior = (t: Task) => before.find(b => b.id === t.id)?.request
+    const requests = changed.filter(t => t.request?.status === 'pending' && t.assignee === user && prior(t)?.status !== 'pending')
+    const answered = changed.filter(t => t.request && t.request.from === user && t.request.status !== 'pending' && prior(t)?.status === 'pending')
+    // Who: the author of the changes; for deletions alone, the partner (or, on a member's Mac, whoever it was).
+    const by = changed.find(t => t.updatedBy)?.updatedBy ?? (user === 'livio' ? 'ilai' : user === 'ilai' ? 'livio' : '')
+    opts.notify?.({ by, changed, removed, ...(mentioned.length ? { mentioned } : {}), ...(requests.length ? { requests } : {}), ...(answered.length ? { answered } : {}) })
   }
 
   // ---- the server copy ------------------------------------------------------
@@ -427,6 +531,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     if (!opts.server) return []
     const remote = await opts.server.load(user).catch(() => null)
     if (!remote) return []
+    keepMembers(remote.members)
     let base: { workspace?: string; ids?: Record<string, string> } = {}
     try { base = JSON.parse(readFileSync(baseFile, 'utf8')) } catch {}
     const known = base.workspace === remote.workspace ? base.ids ?? {} : {}
@@ -447,11 +552,12 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     }
     for (const task of put) await opts.server.put(remote.workspace, task)
     for (const id of remove) await opts.server.remove(remote.workspace, id)
-    const via = (task: Task) => (task as { updatedVia?: string }).updatedVia === 'web' ? 'the website' : 'iPhone app'
+    // A member's edit is committed by this Mac (the subject keeps "<partner>: …" for the Activity); the trailer says whose it was.
+    const via = (task: Task) => isMemberKey(task.updatedBy) ? `TerminAI of ${nameOf(task.updatedBy)}` : (task as { updatedVia?: string }).updatedVia === 'web' ? 'the website' : 'iPhone app'
     for (const task of write) {
       const old = mine.get(task.id), next = clean({ ...task, updatedVia: undefined })
-      mkdirSync(tasksDir, { recursive: true })
-      writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(next, null, 2) + '\n', 'utf8')
+      mkdirSync(tasksDir(), { recursive: true })
+      writeFileSync(join(tasksDir(), `${task.id}.json`), JSON.stringify(next, null, 2) + '\n', 'utf8')
       await git(clone, 'add', '--', `tasks/${task.id}.json`)
       if ((await git(clone, 'status', '--porcelain', '--', `tasks/${task.id}.json`)).trim())
         await git(clone, 'commit', '-q', '-m', `${ASSIGNEES.includes(task.updatedBy) ? task.updatedBy : user}: ${verb(old, next)} ${next.title}\n\nVia: ${via(task)}`)
@@ -479,7 +585,14 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     sync(): Promise<TaskList> {
       // Nothing is cloned until someone has said who they are, so a fresh profile stays offline.
       const user = opts.user()
-      if (!opts.remote || !user) return Promise.resolve(list())
+      if (!user) return Promise.resolve(list())
+      // A member's Mac: the server's page, every minute and after each edit.
+      if (serverOnly()) return job(async () => {
+        const first = !primed(), before = readShared(), key = me(), waiting = new Set(unseen(key, before))
+        await pull()
+        if (!first) announce(key, before, waiting)
+      }).catch(() => {}).then(list)
+      if (!opts.remote) return Promise.resolve(list())
       return job(async () => {
         if (await ready()) return
         const before = readShared(), waiting = new Set(unseen(user, before))
@@ -491,23 +604,14 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         } catch (err) { failed = err }
         await mirror(user).catch(err => { console.warn('[todos] server copy failed:', err instanceof Error ? err.message : err) })
         if (failed) throw failed
-        // What came in from the other Mac: changes not waiting to be seen before, and tasks gone.
-        const after = readShared(), now = new Set(after.map(task => task.id)), fresh = new Set(unseen(user, after))
-        const changed = after.filter(task => fresh.has(task.id) && !waiting.has(task.id))
-        const removed = before.filter(task => !now.has(task.id)).map(task => task.title)
-        // Tagged: @me is in the title or note now and was not in the copy before the pull.
-        const tags = (task?: Task) => task ? mentionsOf(`${task.title}\n${task.notes}`).includes(user) : false
-        const mentioned = changed.filter(task => tags(task) && !tags(before.find(t => t.id === task.id)))
-        const prior = (t: Task) => before.find(b => b.id === t.id)?.request
-        const requests = changed.filter(t => t.request?.status === 'pending' && t.assignee === user && prior(t)?.status !== 'pending')
-        const answered = changed.filter(t => t.request && t.request.from === user && t.request.status !== 'pending' && prior(t)?.status === 'pending')
-        if (changed.length || removed.length) opts.notify?.({ by: user === 'livio' ? 'ilai' : 'livio', changed, removed, ...(mentioned.length ? { mentioned } : {}), ...(requests.length ? { requests } : {}), ...(answered.length ? { answered } : {}) })
+        announce(user, before, waiting)
       }).catch(() => {}).then(list)
     },
 
     /** The person on this Mac has looked at these shared tasks as they are now. */
     markSeen(ids: string[]): TaskList {
-      const user = who()
+      who()
+      const user = me()
       const seen = readSeen(user) ?? {}
       for (const task of readShared()) if (ids.includes(task.id)) seen[task.id] = task.updatedAt
       writeSeen(user, seen)
@@ -518,7 +622,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
 
     /** Every change to the shared tasks, both people's, newest first: the To-do's Activity panel. */
     async activity(limit = 200): Promise<TaskActivity[]> {
-      if (!existsSync(join(clone, '.git'))) return []
+      if (serverOnly() || !existsSync(join(clone, '.git'))) return []
       const log = await git(clone, 'log', '-n', String(Math.min(500, Math.max(1, limit))), '--format=%x1e%H%x1f%aI%x1f%s%x1f%b%x1f', '--name-only', '--', 'tasks/')
       return log.split('\x1e').filter(Boolean).map(entry => {
         const [hash, at, subject, body, files = ''] = entry.split('\x1f')
@@ -531,7 +635,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     /** Every version of a shared task, newest first, from the repo's history. */
     async history(id: string): Promise<TaskVersion[]> {
       if (!validId(id)) throw Error('Invalid task id')
-      if (!existsSync(join(clone, '.git'))) return []
+      if (serverOnly() || !existsSync(join(clone, '.git'))) return []
       const log = await git(clone, 'log', '-n', '60', '--format=%H%x1f%aI%x1f%s', '--', `tasks/${id}.json`)
       const versions: TaskVersion[] = []
       for (const line of log.split('\n').filter(Boolean)) {
@@ -548,10 +652,12 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       if (!validId(id)) throw Error('Invalid task id')
       if (!Buffer.isBuffer(data) || !data.length || data.length > MAX_IMAGE_BYTES || (ext !== 'png' && ext !== 'jpg')) throw Error('That image is too large.')
       const user = who(), name = `${createHash('sha256').update(data).digest('hex').slice(0, 12)}.${ext}`
+      if (scope === 'shared') noImages()
+      const by = scope === 'shared' ? me() : user
       const attach = (task: Task): Task | null => {
         if (task.images?.includes(name)) return null
         if ((task.images?.length ?? 0) >= MAX_IMAGES) throw Error(`A task holds up to ${MAX_IMAGES} images.`)
-        return clean({ ...task, images: [...(task.images ?? []), name], updatedAt: romeIso(), updatedBy: user, updatedVia: undefined })
+        return clean({ ...task, images: [...(task.images ?? []), name], updatedAt: romeIso(), updatedBy: by, updatedVia: undefined })
       }
       const put = () => { mkdirSync(imagesDir(scope, id), { recursive: true }); writeFileSync(join(imagesDir(scope, id), name), data) }
       if (scope === 'personal') {
@@ -562,7 +668,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         return list()
       }
       await change(() => {
-        const file = join(tasksDir, `${id}.json`), old = readTask(file)
+        const file = join(tasksDir(), `${id}.json`), old = readTask(file)
         if (!old) throw Error('That task no longer exists.')
         const next = attach(old)
         if (!next) return null
@@ -575,15 +681,15 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
 
     async removeImage(scope: TaskScope, id: string, name: string): Promise<TaskList> {
       if (!validId(id) || !validImage(name)) throw Error('Invalid image')
-      const user = who()
-      const detach = (task: Task): Task | null => task.images?.includes(name) ? clean({ ...task, images: task.images.filter(n => n !== name), updatedAt: romeIso(), updatedBy: user, updatedVia: undefined }) : null
+      const user = who(), by = scope === 'shared' ? me() : user
+      const detach = (task: Task): Task | null => task.images?.includes(name) ? clean({ ...task, images: task.images.filter(n => n !== name), updatedAt: romeIso(), updatedBy: by, updatedVia: undefined }) : null
       if (scope === 'personal') {
         const tasks = readPersonal(user), at = tasks.findIndex(task => task.id === id), next = at < 0 ? null : detach(tasks[at])
         if (next) { tasks[at] = next; writePersonal(user, tasks); rmSync(join(imagesDir(scope, id), name), { force: true }) }
         return list()
       }
       await change(() => {
-        const file = join(tasksDir, `${id}.json`), old = readTask(file), next = old && detach(old)
+        const file = join(tasksDir(), `${id}.json`), old = readTask(file), next = old && detach(old)
         if (!old || !next) return null
         writeFileSync(file, JSON.stringify(next, null, 2) + '\n', 'utf8')
         rmSync(join(imagesDir(scope, id), name), { force: true })
@@ -608,7 +714,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       const next = action === 'start' ? 'doing' : action === 'done' ? 'done' : action === 'reopen' ? 'open' : null
       if (!next) throw Error('Use start, done or reopen.')
       if (typeof query !== 'string' || !query.trim()) throw Error('Which task? Give its id or title.')
-      const user = who(), all = list(), q = query.trim(), lower = q.toLowerCase()
+      const user = who(), key = me(), all = list(), q = query.trim(), lower = q.toLowerCase()
       const tasks = [...all.shared.map(task => ({ scope: 'shared' as TaskScope, task })), ...all.personal.map(task => ({ scope: 'personal' as TaskScope, task }))]
       const pick = (pool: typeof tasks) => {
         for (const test of [(t: Task) => t.id === q, (t: Task) => t.title.toLowerCase() === lower, (t: Task) => t.title.toLowerCase().includes(lower)]) {
@@ -619,10 +725,10 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         }
         return []
       }
-      const found = pick(tasks.filter(({ scope, task }) => scope === 'personal' || isMine(task, user)))
+      const found = pick(tasks.filter(({ scope, task }) => scope === 'personal' || isMine(task, key)))
       if (!found.length) {
-        const theirs = pick(tasks.filter(({ scope, task }) => scope === 'shared' && !isMine(task, user)))[0]?.task
-        throw Error(theirs ? `“${theirs.title}” is ${NAME[theirs.assignee ?? (theirs.createdBy === 'ilai' ? 'ilai' : 'livio')]}’s task: only they change it.` : `No task matches “${q}”: see terminai todo --open.`)
+        const theirs = pick(tasks.filter(({ scope, task }) => scope === 'shared' && !isMine(task, key)))[0]?.task
+        throw Error(theirs ? `“${theirs.title}” is ${nameOf(theirs.assignee ?? theirs.createdBy)}’s task: only they change it.` : `No task matches “${q}”: see terminai todo --open.`)
       }
       if (found.length > 1) throw Error(`“${q}” matches ${found.length} tasks: ${found.slice(0, 5).map(({ task }) => `${task.title} (${task.id})`).join('; ')}. Give the id.`)
       const [{ scope, task }] = found
@@ -644,6 +750,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     /** A request to the partner (`terminai todo request`): a task in their column that asks them to accept or decline it. */
     async request(title: unknown, notes?: unknown, urgent?: boolean): Promise<Task> {
       const user = who(), other: TasksUser = user === 'livio' ? 'ilai' : 'livio'
+      if (serverOnly()) throw Error('Requests go between Ilai and Matteo for now: add a task to their column instead (terminai todo add … --to ilai).')
       if (typeof title !== 'string' || !title.trim() || (notes !== undefined && typeof notes !== 'string')) throw Error('usage: terminai todo request <title> [--note <text>] [--urgent]')
       const known = new Set(list().shared.map(t => t.id))
       const value = await saveMany('shared', [{ title, ...(notes ? { notes } : {}), assignee: other, request: { from: user, ...(urgent ? { urgent: true } : {}), status: 'pending', at: romeIso() } }], 'ai')
@@ -653,7 +760,8 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     },
     /** Accept (it becomes in progress) or decline a request, with an optional message for the one who asked. */
     async answer(query: unknown, accept: boolean, reply?: unknown, via?: 'ai'): Promise<Task> {
-      const user = who(), all = list().shared
+      who()
+      const user = me(), all = list().shared
       const q = typeof query === 'string' ? query.trim() : ''
       const task = all.find(t => t.id === q) ?? all.find(t => t.request && t.title.toLowerCase() === q.toLowerCase())
       if (!task?.request) throw Error('No such request.')
@@ -664,9 +772,12 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     },
     async addTo(to: unknown, title: unknown, notes?: unknown): Promise<{ scope: TaskScope; page: string; task: Task }> {
       const user = who(), where = typeof to === 'string' ? to.trim().toLowerCase() : ''
-      if (!where) throw Error('Where? --to matteo, together, ilai, unassigned or the name of a private list.')
-      if (typeof title !== 'string' || (notes !== undefined && typeof notes !== 'string')) throw Error('Invalid task')
       const columns: Record<string, Task['assignee']> = { matteo: 'livio', livio: 'livio', ilai: 'ilai', together: 'both', both: 'both', unassigned: null }
+      // Each member's column by their first name (or whole name); a first name two members share takes the whole name.
+      const members = readMembers().filter(m => isMemberKey(m.key)), taken = (n: string) => members.filter(m => firstName(m.name).toLowerCase() === n).length > 1
+      for (const m of members) for (const name of [m.name.trim().toLowerCase(), firstName(m.name).toLowerCase()]) if (!(name in columns) && !taken(name)) columns[name] = m.key as Task['assignee']
+      if (!where) throw Error(`Where? --to ${Object.keys(columns).filter(k => k !== 'livio' && k !== 'both' && !members.some(m => m.name.trim().toLowerCase() === k && firstName(m.name).toLowerCase() !== k)).join(', ')} or the name of a private list.`)
+      if (typeof title !== 'string' || (notes !== undefined && typeof notes !== 'string')) throw Error('Invalid task')
       const shared = where in columns, target = shared ? null : pageNamed(user, to)
       const scope: TaskScope = shared ? 'shared' : 'personal', assignee = shared ? columns[where] : null
       const known = new Set(list()[scope].map(task => task.id))
@@ -674,7 +785,7 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
       if (scope === 'personal') opts.changed()
       const task = value[scope].find(t => !known.has(t.id) && t.title === title.trim())
       if (!task) throw Error('The task was not saved.')
-      return { scope, page: target ? target.name : assignee === null ? 'Unassigned' : NAME[assignee], task }
+      return { scope, page: target ? target.name : assignee === null ? 'Unassigned' : nameOf(assignee), task }
     },
 
     /** A new private list, last; the sheet goes to it. Names stay one per list ("New list 2"), so a session told a name finds one list. */
@@ -740,8 +851,8 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
         return list()
       }
       await change(() => {
-        mkdirSync(tasksDir, { recursive: true })
-        for (const task of back) writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
+        mkdirSync(tasksDir(), { recursive: true })
+        for (const task of back) writeFileSync(join(tasksDir(), `${task.id}.json`), JSON.stringify(task, null, 2) + '\n', 'utf8')
         const pictures = back.filter(task => untrash('shared', task.id)).map(task => `images/${task.id}`)
         return { paths: [...back.map(task => `tasks/${task.id}.json`), ...pictures], message: `${user}: restore ${titles(back)}` }
       })
@@ -757,21 +868,22 @@ export function createTodos(dir: string, opts: { remote: string; user: () => Tas
     async move(from: TaskScope, id: string, assignee?: Task['assignee'], order?: number, into?: string): Promise<TaskList> {
       if (!validId(id)) throw Error('Invalid task id')
       if (into !== undefined && !validId(into)) throw Error('Invalid list')
-      if (assignee !== undefined && assignee !== null && !ASSIGNEES.includes(assignee)) throw Error('Invalid assignee')
+      if (assignee !== undefined && !validAssignee(assignee)) throw Error('Invalid assignee')
       if (order !== undefined && !Number.isFinite(order)) throw Error('Invalid order')
       const placed = order === undefined ? {} : { order }
-      const user = who(), file = join(tasksDir, `${id}.json`), path = `tasks/${id}.json`
+      const user = who(), key = me(), file = join(tasksDir(), `${id}.json`), path = `tasks/${id}.json`
       if (from === 'shared' && into !== undefined && !liveList(user, into)) throw Error('That list no longer exists.')
       // Set inside the git job; `as` keeps TypeScript from treating them as never assigned.
       let before = undefined as string | null | undefined, added = false as boolean
       if (from === 'personal') {
         const task = readPersonal(user).find(t => t.id === id)
         if (!task) throw Error('That task no longer exists.')
+        if (task.images?.length) noImages()
         try {
           await change(() => {
             before = existsSync(file) ? readFileSync(file, 'utf8') : null
-            mkdirSync(tasksDir, { recursive: true })
-            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, list: undefined, assignee: assignee === undefined ? user : assignee, updatedAt: romeIso(), updatedBy: user, updatedVia: undefined }), null, 2) + '\n', 'utf8')
+            mkdirSync(tasksDir(), { recursive: true })
+            writeFileSync(file, JSON.stringify(clean({ ...task, ...placed, list: undefined, assignee: assignee === undefined ? key as Task['assignee'] : assignee, updatedAt: romeIso(), updatedBy: key, updatedVia: undefined }), null, 2) + '\n', 'utf8')
             const pictures = existsSync(imagesDir('personal', id))
             if (pictures) cpSync(imagesDir('personal', id), imagesDir('shared', id), { recursive: true })
             return { paths: pictures ? [path, `images/${id}`] : [path], message: `${user}: share ${task.title}` }

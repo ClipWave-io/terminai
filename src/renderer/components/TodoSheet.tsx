@@ -4,7 +4,7 @@ import { WorkLog } from './WorkLog'
 import { SharedNotes } from './SharedNotes'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
-import { DEFAULT_LIST, mentionsOf } from '../../shared/types'
+import { DEFAULT_LIST, isMemberKey, mentionsOf } from '../../shared/types'
 import type { Prefs, Task, TaskActivity, TaskInput, TaskList, TaskListPage, TaskScope, TasksUser } from '../../shared/types'
 import { TodoHistory, when } from './TodoHistory'
 import './todos.css'
@@ -137,6 +137,9 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
   useEffect(() => { lastPage = page }, [page])
   const lastTasks = useRef<'shared' | 'private'>(!team ? 'private' : lastView === 'notes' || lastView === 'log' ? 'shared' : lastView)
   useEffect(() => { lastView = view; if (view === 'shared' || view === 'private') lastTasks.current = view }, [view])
+  // A member's Mac learns from the server that it has the shared page: the sheet opened on the private lists goes to it, once.
+  const joined = useRef(false)
+  useEffect(() => { if (data?.server && !team && !joined.current) { joined.current = true; if (view === 'private') setView('shared') } }, [data?.server])
   /** The page's name being edited in place; the list the delete question is about. */
   const [renaming, setRenaming] = useState(false)
   // "Add description" in the list's menu opens the description under its name.
@@ -338,14 +341,25 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
     setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   }
 
-  const me: TasksUser = user || 'livio', other: TasksUser = me === 'livio' ? 'ilai' : 'livio'
+  // Who this person is on the shared page: a partner's column, or a member's u:<id> (from the server, never chosen here).
+  const me: string = data?.me || user || 'livio', member = isMemberKey(me)
+  const partner: TasksUser = me === 'ilai' ? 'ilai' : 'livio', other: TasksUser = partner === 'livio' ? 'ilai' : 'livio'
+  // The shared page: the partners' Macs (prefs), and a member's once it has signed in (the server says so).
+  const shareOn = team || !!data?.server
+  const members = (data?.members ?? []).filter(m => isMemberKey(m.key))
+  const firstName = (name: string) => name.trim().split(/\s+/)[0] || name
+  /** A column or an author by name: Ilai, Matteo, Together, Unassigned, else the member's first name. */
+  const nameOf = (key: string | null): string => key === null ? 'Unassigned' : key === 'both' ? 'Together' : key === 'ilai' || key === 'livio' ? NAME[key]
+    : firstName(members.find(m => m.key === key)?.name ?? '') || 'Someone'
+  /** Who loses sight of a task made private, and whose changes the "new" marks are. */
+  const others = member ? 'The others' : NAME[other]
   const unseen = data?.unseen ?? []
   // Looking at what changed is what makes the "edited by" mark go.
   function openHistory(task: Task) {
     setHistory(task)
     void window.term.todos.markSeen([task.id]).then(show).catch(err => setError(errorText(err)))
   }
-  const label = (assignee: Assignee) => assignee === 'both' ? 'Together' : assignee ? NAME[assignee] : 'Unassigned'
+  const label = (assignee: Assignee) => nameOf(assignee)
 
   function openMenu(task: Task, scope: TaskScope, x: number, y: number, up?: number) {
     // On one of several selected rows the menu is about all of them.
@@ -360,12 +374,12 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
       task.status !== 'done' && { label: 'In progress', checked: task.status === 'doing', run: set({ status: task.status === 'doing' ? 'open' : 'doing' }) },
       // A private task that goes to another column becomes shared on the way.
       ...(scope === 'personal'
-        ? [null, { label: 'Make shared', run: share(me) }, { heading: 'Move to' }, ...(['both', other] as const).map(a => ({ label: label(a), run: share(a) })),
+        ? [null, { label: 'Make shared', run: share(me as Assignee) }, { heading: 'Move to' }, ...targets.filter(a => a !== me).map(a => ({ label: label(a), run: share(a) })),
           ...(pages.length > 1 ? [{ heading: 'Move to list' }, ...pages.map(p => ({ label: p.name, checked: pageOf(task, pages) === p.id, run: set({ list: p.id }) }))] : [])]
-        : [null, { heading: 'Move to' }, ...([me, 'both', other] as const).map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm(task.id) }]),
+        : [null, { heading: 'Move to' }, ...targets.map(a => ({ label: label(a), checked: task.assignee === a, run: set({ assignee: a }) })), { label: 'Make private…', run: () => setConfirm(task.id) }]),
       null, { heading: 'Product' }, { input: task.product, placeholder: 'e.g. ManyMotions', run: (product: string) => void save(scope, { id: task.id, product }) },
       !task.notes && { label: 'Add note', run: () => setNoteFor(task.id) },
-      scope === 'shared' && !mentionsOf(`${task.title}\n${task.notes}`).includes(other) && { label: `Tag ${NAME[other]}`, run: set({ notes: `${task.notes}${task.notes ? '\n' : ''}@${NAME[other]}` }) },
+      scope === 'shared' && !member && !mentionsOf(`${task.title}\n${task.notes}`).includes(other) && { label: `Tag ${NAME[other]}`, run: set({ notes: `${task.notes}${task.notes ? '\n' : ''}@${NAME[other]}` }) },
       { label: 'Add image…', run: () => void act(() => window.term.todos.pickImages(scope, task.id)) },
       scope === 'shared' && { label: 'History…', run: () => openHistory(task) },
       null, { label: 'Delete…', danger: true, run: () => setAsk([task.id]) },
@@ -385,14 +399,17 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
   const inFilter = (task: Task) => !picked.length || picked.includes(task.product.trim())
   const toggleProduct = (product: string) => onPrefs({ todoProducts: picked.includes(product) ? picked.filter(p => p !== product) : [...picked, product] })
   const to = (assignee: Assignee) => shared.filter(task => task.assignee === assignee && inFilter(task))
-  const columns: Column[] = [
-    { key: me, label: NAME[me], parts: [{ scope: 'shared', section: me, assignee: me, list: open(to(me)), placeholder: 'New task' }], done: done(to(me), 'shared') },
-    { key: 'both', label: 'Together', parts: [
-      { scope: 'shared', section: 'both', assignee: 'both', list: open(to('both')), placeholder: 'New task' },
-      { scope: 'shared', section: 'none', assignee: null, label: 'Unassigned', list: open(to(null)) },
-    ], done: [...done(to('both'), 'shared'), ...done(to(null), 'shared')] },
-    { key: other, label: NAME[other], parts: [{ scope: 'shared', section: other, assignee: other, list: open(to(other)), placeholder: 'New task' }], done: done(to(other), 'shared') },
-  ]
+  /** One person's column: their tasks, a "New task" row, their completed ones. */
+  const person = (key: string): Column => ({ key, label: nameOf(key), parts: [{ scope: 'shared', section: key, assignee: key as Assignee, list: open(to(key as Assignee)), placeholder: 'New task' }], done: done(to(key as Assignee), 'shared') })
+  const together: Column = { key: 'both', label: 'Together', parts: [
+    { scope: 'shared', section: 'both', assignee: 'both', list: open(to('both')), placeholder: 'New task' },
+    { scope: 'shared', section: 'none', assignee: null, label: 'Unassigned', list: open(to(null)) },
+  ], done: [...done(to('both'), 'shared'), ...done(to(null), 'shared')] }
+  // Mine first: a partner's, Together, the other partner's; a member's own, then Ilai, Together, Matteo. Then every other member.
+  const columns: Column[] = [...(member ? [person(me), person('ilai'), together, person('livio')] : [person(me), together, person(other)]),
+    ...members.filter(m => m.key !== me).map(m => person(m.key))]
+  /** Where "Move to" can send a shared task: every column, Unassigned last. */
+  const targets: Assignee[] = [...columns.map(col => col.key as Assignee), null]
   // Private notes stay on this Mac, one file per person: the other one never sees them. One list at a time, as a page.
   const at = Math.max(0, pages.findIndex(p => p.id === page)), current = pages[at] ?? { id: DEFAULT_LIST, name: 'Private' }
   const onPage = personal.filter(task => pageOf(task, pages) === current.id && inFilter(task))
@@ -429,9 +446,9 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
     const work = data?.working[task.id], tab = work && tabs.find(t => t.key === work.tab)
     return work ? { name: tab?.label || work.name, open: tab ? () => onTab(tab.id) : undefined } : null
   }
-  const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={NAME[other]} session={sessionOf(task)}
-    fresh={scope === 'shared' && unseen.includes(task.id) ? { by: `${NAME[task.updatedBy as TasksUser] ?? task.updatedBy}${task.updatedVia === 'ai' ? '’s AI' : ''}`, at: task.updatedAt, added: task.createdAt === task.updatedAt } : null} onHistory={() => openHistory(task)}
-    tags={{ people: [NAME[other], NAME[me]], products }} onDropTask={dropTask}
+  const row = (task: Task, scope: TaskScope, section?: string, lock = false) => <TaskRow key={task.id} task={task} scope={scope} lock={lock} other={others} session={sessionOf(task)}
+    fresh={scope === 'shared' && unseen.includes(task.id) ? { by: `${nameOf(task.updatedBy)}${task.updatedVia === 'ai' ? '’s AI' : ''}`, at: task.updatedAt, added: task.createdAt === task.updatedAt } : null} onHistory={() => openHistory(task)}
+    tags={{ people: member ? ['Ilai', 'Matteo'] : [NAME[other], NAME[partner]], products }} onDropTask={dropTask}
     product={task.product ? { on: picked.length === 1 && picked[0] === task.product.trim(), toggle: () => onPrefs({ todoProducts: picked.length === 1 && picked[0] === task.product.trim() ? [] : [task.product.trim()] }) } : null} me={me}
     confirming={confirm === task.id} openNote={noteFor === task.id} selected={sel.includes(task.id)} cut={clip?.mode === 'cut' && clip.ids.includes(task.id)}
     onSave={save} onImage={act} onLeave={onClose} onPrivate={() => move('shared', task.id)} onConfirm={on => setConfirm(on ? task.id : null)} onDelete={() => setAsk([task.id])} onNoteOpened={() => setNoteFor(null)}
@@ -526,7 +543,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
     else if (view === 'private' && !event.metaKey && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) take(() => goPage(at + (event.key === 'ArrowLeft' ? -1 : 1)))
   }
   // Rebuilt on every render while open, so a ticked column or product shows its check at once.
-  const showItems = (): MenuItem[] => !team ? [{ heading: 'Lists' }, ...pages.map(p => ({ label: p.name, checked: p.id === current.id, run: () => goPage(pages.indexOf(p)) })), { label: 'New list', run: () => void newList() },
+  const showItems = (): MenuItem[] => !shareOn ? [{ heading: 'Lists' }, ...pages.map(p => ({ label: p.name, checked: p.id === current.id, run: () => goPage(pages.indexOf(p)) })), { label: 'New list', run: () => void newList() },
                 ...productItems().map(item => item && 'heading' in item ? { heading: 'Products' } : item)]
     : [{ heading: 'Show' }, { label: 'Shared', checked: view === 'shared', run: () => setView('shared') }, { heading: 'Private, only on this Mac' },
                 ...pages.map(p => ({ label: p.name, checked: view === 'private' && p.id === current.id, run: () => { setView('private'); goPage(pages.indexOf(p)) } })), { label: 'New list', run: () => void newList() },
@@ -552,7 +569,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         {user && view !== 'notes' && view !== 'log' && <div className="todo-filters">
           <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
             onClick={event => pick(event, showItems(), 'show')}>
-            {view === 'private' && team && <Lock />}{view === 'private' ? current.name : 'Shared'}
+            {view === 'private' && shareOn && <Lock />}{view === 'private' ? current.name : 'Shared'}
             <span className={`todo-drop-sub${picked.length ? ' on' : ''}`}>{picked.length ? picked.length === 1 ? picked[0] || 'No product' : `${picked[0] || 'No product'} +${picked.length - 1}` : 'All products'}</span><Chevron /></button>
           {view === 'shared' && hidden.length > 0 && <button className="todo-link todo-hidden-cols" title={`Hidden: ${hidden.map(c => c.label).join(', ')}`}
             onClick={() => onPrefs({ todoHiddenColumns: [] })}>{hidden.length} hidden · Show all</button>}
@@ -564,16 +581,18 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
           <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'on' : ''} onClick={() => setView('log')}>Log</button>
         </span>}
         <div className="todo-head-r">
-        {user && team && view !== 'notes' && view !== 'log' && <div className="todo-status">
-          {view === 'shared' && unseen.length > 0 && <button className="todo-pill" title={`${unseen.length} changed by ${NAME[other]}. Each changed task carries its mark; this clears them all`}
+        {user && shareOn && view !== 'notes' && view !== 'log' && <div className="todo-status">
+          {view === 'shared' && unseen.length > 0 && <button className="todo-pill" title={`${unseen.length} changed by ${member ? 'the others' : NAME[other]}. Each changed task carries its mark; this clears them all`}
             onClick={() => void act(() => window.term.todos.markSeen(unseen))}>{unseen.length} new · Mark seen</button>}
           <button className={`todo-sync-state${sync?.error ? ' failed' : ''}`} title={sync?.error ? `${sync.error}\nClick to try again.` : 'Sync now'} aria-live="polite"
             disabled={!sync?.enabled || sync.syncing} onClick={() => void act(() => window.term.todos.sync())}>
             <span className="todo-dot" aria-hidden="true" />{syncText}</button>
-          <button className="todo-drop" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
-            onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>
+          {/* A member is who the server says: only the partners pick their column here. */}
+          {member ? <span className="todo-you" title="You on the shared page (your Sync account)">{nameOf(me)}</span>
+            : <button className="todo-drop" aria-label={`You are ${NAME[user]}`} title="Who you are on this Mac"
+            onClick={event => pick(event, [{ heading: 'You are' }, ...(['livio', 'ilai'] as const).map(name => ({ label: NAME[name], checked: user === name, run: () => onUser(name) }))])}>{NAME[user]}<Chevron /></button>}
         </div>}
-        {user && team && (() => {
+        {user && shareOn && !member && (() => {
           const fresh = activity.filter(a => a.by !== user && (!prefs.activitySeen || a.at > prefs.activitySeen)).length
           return <button className="todo-head-activity" aria-pressed={prefs.activityOpen} aria-label={fresh ? `Activity, ${fresh} new` : 'Activity'} title="Activity: every edit, yours and theirs (new ones also reach the bell in the top bar)"
             onClick={() => { if (view === 'notes' || view === 'log') setView(lastTasks.current); onPrefs({ todoActivity: !prefs.activityOpen }) }}>Activity{fresh > 0 ? ` · ${fresh}` : ''}</button>
@@ -587,9 +606,9 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         <p>Who are you on this Mac?</p>
         <div className="todo-who" role="group" aria-label="You are">{(['livio', 'ilai'] as const).map(name => <button key={name} className="btn" onClick={() => onUser(name)}>{NAME[name]}</button>)}</div>
         <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; private ones stay here.</p>
-      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} /></article> : view === 'log' ? <article className="todo-note" aria-label="Work log"><WorkLog user={user} team={team} /></article> : <article className="todo-note" aria-label="BUILD">
+      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} /></article> : view === 'log' ? <article className="todo-note" aria-label="Work log"><WorkLog user={user} team={shareOn} /></article> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
-        {team && sync?.error && <p className="todo-error" role="alert">{/Failed to connect|Could not resolve|timed out|unable to access/.test(sync.error)
+        {shareOn && sync?.error && <p className="todo-error" role="alert">{data?.server ? `Shared page: ${sync.error}` : /Failed to connect|Could not resolve|timed out|unable to access/.test(sync.error)
           ? 'Can’t reach GitHub right now, so Matteo’s Mac gets your changes later. Your phone and the website still sync.' : `Shared sync: ${sync.error}`}</p>}
         <div className="todo-main">
         <div className={`todo-cols${view === 'private' || shownColumns.length === 1 ? ' single' : ''}`} style={view === 'shared' && shownColumns.length > 1 ? { gridTemplateColumns: `repeat(${shownColumns.length}, minmax(300px, 1fr))` } : undefined}>
@@ -617,7 +636,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
             {completed(col)}
           </section>)}
         </div>
-        {prefs.activityOpen && <ActivityPanel activity={activity} me={me} seen={prefs.activitySeen} shared={shared}
+        {prefs.activityOpen && !member && <ActivityPanel activity={activity} me={me} seen={prefs.activitySeen} shared={shared}
           onSeen={at => onPrefs({ todoActivitySeen: at })} onClose={() => onPrefs({ todoActivity: false })}
           onOpen={task => openHistory(task)} />}
         </div>
@@ -647,7 +666,7 @@ function TaskRow({ task, scope, lock, other, session, fresh, onHistory, product,
   /** Changed by the other person since this one last looked: who, when, and whether it is a new task. */
   fresh: { by: string; at: string; added: boolean } | null; onHistory: () => void
   /** The product tag: a click shows only that product's tasks, again shows them all. */
-  product: { on: boolean; toggle: () => void } | null; me: TasksUser
+  product: { on: boolean; toggle: () => void } | null; me: string
   /** What @ offers in the title and the note: the two people, then the products. */
   tags: Tags
   /** This row was dropped on `target` (a row), above or below its middle. */
@@ -901,7 +920,7 @@ const EyeOff = () => <svg className="todo-eye" viewBox="0 0 16 16" aria-hidden="
 const TASK_MIME = 'application/x-terminai-task'
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** A note with its tags marked: @Matteo / @Ilai (this person's stronger) and @<product> in the products' blue. */
-function withMentions(text: string, me: TasksUser, products: string[] = []): (string | JSX.Element)[] {
+function withMentions(text: string, me: string, products: string[] = []): (string | JSX.Element)[] {
   const out: (string | JSX.Element)[] = []
   // Longest first, so "@ManyMotions.org" is not read as "@ManyMotions".
   const names = ['matteo', 'livio', 'ilai', ...[...products].sort((a, b) => b.length - a.length).map(escape)]
@@ -910,7 +929,7 @@ function withMentions(text: string, me: TasksUser, products: string[] = []): (st
   for (const m of text.matchAll(tag)) {
     const at = m.index! + m[1].length, person = mentionsOf(m[2])
     out.push(text.slice(last, at))
-    out.push(<span key={at} className={person.length ? `todo-mention${person.includes(me) ? ' me' : ''}` : 'todo-mention product'}>{m[2]}</span>)
+    out.push(<span key={at} className={person.length ? `todo-mention${(person as string[]).includes(me) ? ' me' : ''}` : 'todo-mention product'}>{m[2]}</span>)
     last = at + m[2].length
   }
   out.push(text.slice(last))
@@ -929,7 +948,7 @@ const WHO_FILTERS = [['all', 'All'], ['ilai', 'Ilai'], ['livio', 'Matteo'], ['ai
  * Every change to the shared tasks, both people's and their agents', newest first. Beside the columns;
  * the bell in the top bar opens and closes it and counts the other one's changes it has not shown yet.
  */
-function ActivityPanel({ activity, me, seen, shared, onSeen, onClose, onOpen }: { activity: TaskActivity[]; me: TasksUser; seen: string; shared: Task[]
+function ActivityPanel({ activity, me, seen, shared, onSeen, onClose, onOpen }: { activity: TaskActivity[]; me: string; seen: string; shared: Task[]
   onSeen: (at: string) => void; onClose: () => void; onOpen: (task: Task) => void }): JSX.Element {
   const [who, setWho] = useState<(typeof WHO_FILTERS)[number][0]>('all')
   // What was new when the panel opened keeps its mark while it is open; the bell clears at once.
@@ -937,7 +956,7 @@ function ActivityPanel({ activity, me, seen, shared, onSeen, onClose, onOpen }: 
   const newest = activity[0]?.at ?? ''
   useEffect(() => { if (newest && newest > seen) onSeen(newest) }, [newest])
   const byId = new Map(shared.map(task => [task.id, task]))
-  const tagged = (a: TaskActivity) => a.by !== me && a.ids.some(id => { const task = byId.get(id); return !!task && mentionsOf(`${task.title}\n${task.notes}`).includes(me) })
+  const tagged = (a: TaskActivity) => a.by !== me && a.ids.some(id => { const task = byId.get(id); return !!task && (mentionsOf(`${task.title}\n${task.notes}`) as string[]).includes(me) })
   const shown = activity.filter(a => who === 'all' || (who === 'ai' ? a.ai : who === 'tagged' ? tagged(a) : a.by === who))
   return <aside className="todo-activity" aria-label="Activity">
     <div className="todo-activity-head">
