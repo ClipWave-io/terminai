@@ -415,8 +415,14 @@ app.whenReady().then(() => {
     writeGuides()
   })().catch(()=>{console.error('Embedded browser MCP setup needs attention. See the browser setup guide.')})
 
+  // A click on the Dock icon brings the window to you: restored if minimised, shown if hidden, on top and focused
+  // (it used to do nothing while the window existed somewhere behind other apps or on another desktop).
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) return void createWindow()
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    if (!win.isVisible()) win.show()
+    app.focus({ steal: true }); win.focus()
   })
 })
 
