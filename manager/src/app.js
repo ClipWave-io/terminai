@@ -1017,7 +1017,9 @@ export function createApp(pool, config) {
         if(tail==='/tasks/people'&&req.method==='PUT') {
           const key=enumValue(input.key,['ilai','livio'],'column');
           const {rows:[taken]}=await db.query('SELECT user_id FROM manager_task_people WHERE company_id=$1 AND key=$2',[companyId,key]);
-          requireThat(!taken||taken.user_id===user.id||isAdmin(member),403,'That column belongs to someone else. An admin can reassign it.');
+          // Someone else's column is never taken; the answer is still OK with taken: true, because TerminAI 0.3.65 and older
+          // stopped all syncing (conversations, work log) when this failed, and Sofia and Fritz first signed in on those.
+          if(taken&&taken.user_id!==user.id&&!isAdmin(member))return {ok:false,taken:true};
           await db.query('DELETE FROM manager_task_people WHERE company_id=$1 AND user_id=$2',[companyId,user.id]);
           await db.query('INSERT INTO manager_task_people(company_id,key,user_id) VALUES($1,$2,$3) ON CONFLICT (company_id,key) DO UPDATE SET user_id=$3',[companyId,key,user.id]);
           return {ok:true};

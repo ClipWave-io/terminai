@@ -58,7 +58,9 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/chat`, { token: fritz.token, method: 'POST', data: { body: 'x', channel: 'ManyMotions.org' } })).status, 403, 'a viewer reads only');
   // Task columns: a member cannot take a column someone else holds; an admin can reassign it.
   assert.equal((await request(`${base}/tasks/people`, { token: ilai.token, method: 'PUT', data: { key: 'ilai' } })).status, 200);
-  assert.equal((await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'ilai' } })).status, 403, 'not her column');
+  const grab = await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'ilai' } });
+  assert.ok(grab.status === 200 && grab.body.taken === true, 'not her column (answered OK so older apps keep syncing)');
+  assert.equal((await request(`${base}/tasks`, { token: ilai.token })).body.me, 'ilai', 'Ilai keeps his column');
   assert.equal((await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'livio' } })).status, 200, 'a free column is fine');
   // Share links: a file in a folder, shared by its uploader, opens for anyone with the link until stopped.
   const port = server.address().port;
