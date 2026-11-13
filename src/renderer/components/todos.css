@@ -367,3 +367,7 @@ button.todo-circle:hover { border-color: var(--dim); }
 @media (max-width: 900px) { .todo-head { grid-template-columns: 1fr; row-gap: 8px; } .todo-head > .todo-seg { justify-self: center; } .todo-head-r { justify-content: flex-start; } }
 /* A member is who their Sync account is: their name in place of the partners' "You are" menu. */
 .todo-you { font-size: 12px; font-weight: 600; color: var(--dim); padding: 0 4px; }
+/* A note's product: a dropdown of the workspace's products (New product… types one), not a free text field. */
+select.snotes-product { height: 30px; min-width: 150px; padding: 0 26px 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--pane); color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; }
+.snotes-act { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--dim); }
+.snotes-act:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 12%, transparent); }

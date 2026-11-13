@@ -16,7 +16,8 @@ const size = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n 
 const kindOf = (f: WorkspaceNoteFile) => f.mime.startsWith('image/') ? 'IMG' : f.mime === 'application/pdf' ? 'PDF' : f.mime.startsWith('video/') ? 'VID' : f.mime.startsWith('audio/') ? 'AUD'
   : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase() || 'FILE'
 
-export function SharedNotes({ onSync }: { onSync: () => void }) {
+/** product: the product the To-do header picked ('' all); onProducts: the products the notes use, for that header's menu. */
+export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () => void; product?: string; onProducts?: (products: string[]) => void }) {
   // Hooks first, before any early return (one placed after them blanked the whole window when Notes opened).
   const assigned = useAssignedProducts()
   const [state, setState] = useState<WorkspaceState | null>(null)
@@ -25,9 +26,13 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
   const [open, setOpen] = useState('')
   const [draft, setDraft] = useState<{ id: string; title: string; body: string } | null>(null)
   const [query, setQuery] = useState('')
-  const [product, setProduct] = useState('')
+  // Typing a new product for a note (the picker's last choice).
+  const [newProduct, setNewProduct] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(0)
+  // Above every early return, like all hooks here (one placed below them blanked the window).
+  const products = [...new Set([...assigned, ...notes.map(n => n.product || '').filter(Boolean)])].sort()
+  useEffect(() => { onProducts?.(products) }, [products.join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
   const [over, setOver] = useState(false)
   const [asking, setAsking] = useState(false)
   const saving = useRef<number | null>(null)
@@ -100,7 +105,6 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
   </div>
 
   const q = query.trim().toLowerCase()
-  const products = [...new Set([...assigned, ...notes.map(n => n.product || '').filter(Boolean)])].sort()
   const listed = notes.filter(n => !product || (n.product || '') === product)
     .filter(n => !q || `${n.title}\n${n.body}\n${(n.files ?? []).map(f => f.name).join(' ')}`.toLowerCase().includes(q))
   const files = note?.files ?? []
@@ -111,8 +115,6 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
         <button className="todo-icon snotes-new" aria-label="New note" title="New note" onClick={() => void create()}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg></button>
       </div>
-      {products.length > 0 && <select className="snotes-workspace" aria-label="Product" value={product} onChange={e => setProduct(e.target.value)}>
-        <option value="">All products</option>{products.map(p => <option key={p} value={p}>{p}</option>)}</select>}
       {(state.identity?.companies.length ?? 0) > 1 && <select className="snotes-workspace" aria-label="Workspace" value={company} onChange={e => { setDraft(null); setOpen(''); setCompany(e.target.value) }}>
         {state.identity?.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
       <ul>
@@ -134,14 +136,21 @@ export function SharedNotes({ onSync }: { onSync: () => void }) {
       {!shown ? <div className="snotes-empty"><p>Pick a note, or make a new one.</p><button className="btn" onClick={() => void create()}>New note</button></div> : <>
         <div className="snotes-head">
           <span>{note && `Edited ${ago(note.updatedAt)}${note.updatedByName ? ` by ${note.updatedByName.split(' ')[0]}` : ''}`}</span>
-          {note && <input className="snotes-product" aria-label="Product" placeholder="Product" list="snotes-products" defaultValue={note.product ?? ''} key={note.id}
-            onBlur={e => { const v = e.target.value.trim(); if (v !== (note.product ?? '')) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) }} />}
-          <datalist id="snotes-products">{products.map(p => <option key={p} value={p} />)}</datalist>
-          <button className="todo-link" onClick={() => void window.term.workspace.pickFiles().then(attach)}>Add files…</button>
+          {note && (newProduct === null
+            ? <select className="snotes-product" aria-label="Product of this note" value={note.product ?? ''} key={note.id}
+                onChange={e => { const v = e.target.value; if (v === '\u0000new') { setNewProduct(''); return } if (v !== (note.product ?? '')) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) }}>
+                <option value="">No product</option>{[...new Set([...products, ...(note.product ? [note.product] : [])])].map(p => <option key={p} value={p}>{p}</option>)}
+                <option value={'\u0000new'}>New product…</option></select>
+            : <input className="snotes-product" autoFocus placeholder="New product name, then Return" value={newProduct} onChange={e => setNewProduct(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') setNewProduct(null); if (e.key === 'Enter') { const v = newProduct.trim(); setNewProduct(null); if (v) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) } }}
+                onBlur={() => setNewProduct(null)} />)}
+          <button className="todo-icon snotes-act" title="Add files" aria-label="Add files" onClick={() => void window.term.workspace.pickFiles().then(attach)}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6" /></svg></button>
           {asking ? <><span className="snotes-ask">Delete for everyone?</span>
             <button className="todo-link danger" onClick={() => void remove()}>Delete</button>
             <button className="todo-link" onClick={() => setAsking(false)}>Keep</button></>
-            : <button className="todo-link" onClick={() => setAsking(true)}>Delete</button>}
+            : <button className="todo-icon snotes-act" title="Delete this note" aria-label="Delete note" onClick={() => setAsking(true)}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></svg></button>}
         </div>
         <input ref={title} className="snotes-title" aria-label="Title" value={shown.title} maxLength={500}
           onChange={e => save({ ...shown, title: e.target.value })} />

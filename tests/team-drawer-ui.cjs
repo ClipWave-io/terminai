@@ -63,12 +63,14 @@ if(!process.versions.electron){
   // Dragging the picture onto the terminal gives the tab its file path, never the picture's data.
   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
   await js(`(()=>{const dt=new DataTransfer(),img=document.querySelector('.tc-img'),t=document.querySelector('.term-host.active')||document.querySelector('.term-host');img.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}))})()`);
+  // What the tab's shell received, read like `terminai read` does (the screen may not be drawn while hidden).
+  const ptyText=async()=>{const id=await js(`window.term.pty.list().then(t=>t[0].id)`);return await new Promise(r=>require('child_process').execFile(process.execPath,[path.join(__dirname,'..','resources/terminai.cjs'),'read',id],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1',TERMINAI_CONTROL:path.join(dir,'control.json')}},(e,out)=>r(String(out||''))))};
   const termText=`[...document.querySelectorAll('.term-host .xterm-rows')].map(h=>h.textContent).join(' ')`;
-  for(let i=0;i<75&&!await js(`${termText}.includes('team-files')`);i++)await delay(200);
+  for(let tries=0;tries<3&&!(await ptyText()).includes('team-files');tries++){for(let i=0;i<25&&!(await ptyText()).includes('team-files');i++)await delay(400);if(!(await ptyText()).includes('team-files'))await js(`(()=>{const dt=new DataTransfer(),img=document.querySelector('.tc-img'),t=document.querySelector('.term-host.active')||document.querySelector('.term-host');img.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));t.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}))})()`);}
   if(process.env.DEBUG)console.log('FETCH',await js(`(async()=>{try{const c=(await window.term.workspace.state()).identity.companies[0].id;const r=await window.term.teamchat.chat(c);const m=r.messages.find(x=>x.file);return await window.term.teamchat.fetch(c,m.file.id,m.file.name)}catch(e){return 'ERR '+e.message}})()`));
   if(process.env.DEBUG)console.log('DT',await js(`(()=>{const dt=new DataTransfer(),img=document.querySelector('.tc-img');img.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));return JSON.stringify([...dt.types])})()`));
   if(process.env.DEBUG)console.log('TERM',await js(`${termText}.slice(-300)`),await js(`JSON.stringify([!!document.querySelector('.tc-img'),document.querySelectorAll('.term-host').length])`));
-  assert.ok(await js(`(()=>{const t=${termText};return t.includes('team-files')&&t.includes('screen.png')&&!t.includes('data:image')})()`),'the picture arrives as its file path');
+  {const t=await ptyText();assert.ok(t.includes('team-files')&&t.includes('screen.png')&&!t.includes('data:image'),'the picture arrives as its file path: '+t.slice(-200))}
   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await delay(200);
   assert.ok(await js(`!document.querySelector('.tc-viewer')`),'Escape closes it');
   await js(`[...document.querySelectorAll('.tc-tabs button')].find(b=>b.textContent==='Files').click()`);
@@ -121,6 +123,7 @@ if(!process.versions.electron){
   // Notes, signed in: the page draws (a hook after an early return used to blank the whole window here).
   await js(`document.querySelector('[aria-label^="To-do"]').click()`);await delay(700);
   await js(`[...document.querySelectorAll('.todo-seg button')].find(b=>b.textContent==='Notes')?.click()`);await delay(2500);
+  if(process.env.DEBUG)console.log('NOTES',await js(`JSON.stringify([document.querySelector('.boundary')?.textContent,!!document.querySelector('.todo-note'),document.body.innerText.length])`));
   assert.ok(await js(`!document.querySelector('.boundary')&&document.body.innerText.length>50&&!!document.querySelector('.todo-note')`),'Notes draws');
   console.log('PASS team drawer: chat with faces, files with access chips, people with product chips, invite form, new organisation');app.quit();
  })().catch(e=>{console.error(e);app.exit(1)})})});

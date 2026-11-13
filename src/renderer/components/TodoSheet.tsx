@@ -394,6 +394,8 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
   const done = (list: Task[], scope: TaskScope) => list.filter(task => task.status === 'done').map(task => ({ task, scope }))
   // The product filter: only the tasks of the products picked ('' is the ones without a product).
   const assigned = useAssignedProducts()
+  // Notes: the product picked in the header, and the products the notes use (for its menu).
+  const [notesProduct, setNotesProduct] = useState(''), [notesProducts, setNotesProducts] = useState<string[]>([])
   const products = [...new Set([...assigned, ...[...shared, ...personal].map(task => task.product.trim()).filter(Boolean)])].sort((a, b) => a.localeCompare(b))
   const picked = prefs.products.filter(p => p === '' || products.includes(p))
   const inFilter = (task: Task) => !picked.length || picked.includes(task.product.trim())
@@ -566,6 +568,13 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
       {/* Everything of the To-do lives in its own header: Tasks | Notes always first, so it never moves. */}
       <header className="todo-head">
         <div className="todo-head-l">
+        {user && view === 'notes' && <div className="todo-filters">
+          {/* Notes: the same product menu as the tasks, here filtering the notes. */}
+          <button className="todo-drop" aria-label="Notes of which product" title="Show the notes of one product or all"
+            onClick={event => pick(event, [{ heading: 'Show products' }, { label: 'All products', checked: !notesProduct, run: () => setNotesProduct('') },
+              ...[...new Set([...products, ...notesProducts])].sort((a, b) => a.localeCompare(b)).map(p => ({ label: p, checked: notesProduct === p, run: () => setNotesProduct(p) }))])}>
+            Notes<span className={`todo-drop-sub${notesProduct ? ' on' : ''}`}>{notesProduct || 'All products'}</span><Chevron /></button>
+        </div>}
         {user && view !== 'notes' && view !== 'log' && <div className="todo-filters">
           <button className="todo-drop" aria-label={`Showing ${view === 'private' ? current.name : 'shared tasks'}`} title="Shared tasks or one of your private lists"
             onClick={event => pick(event, showItems(), 'show')}>
@@ -606,7 +615,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         <p>Who are you on this Mac?</p>
         <div className="todo-who" role="group" aria-label="You are">{(['livio', 'ilai'] as const).map(name => <button key={name} className="btn" onClick={() => onUser(name)}>{NAME[name]}</button>)}</div>
         <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; private ones stay here.</p>
-      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} /></article> : view === 'log' ? <article className="todo-note" aria-label="Work log"><WorkLog user={user} team={shareOn} /></article> : <article className="todo-note" aria-label="BUILD">
+      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} product={notesProduct} onProducts={setNotesProducts} /></article> : view === 'log' ? <article className="todo-note" aria-label="Work log"><WorkLog user={user} team={shareOn} /></article> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
         {shareOn && sync?.error && <p className="todo-error" role="alert">{data?.server ? `Shared page: ${sync.error}` : /Failed to connect|Could not resolve|timed out|unable to access/.test(sync.error)
           ? 'Can’t reach GitHub right now, so Matteo’s Mac gets your changes later. Your phone and the website still sync.' : `Shared sync: ${sync.error}`}</p>}
