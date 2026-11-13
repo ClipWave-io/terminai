@@ -160,8 +160,8 @@ const api = {
     onNew: (cb: (n: Notice) => void): (() => void) => { const h = (_e: IpcRendererEvent, n: Notice) => cb(n); ipcRenderer.on('notices:new', h); return () => { ipcRenderer.removeListener('notices:new', h) } },
   },
   agents: {
-    status: (): Promise<{ claude: boolean; codex: boolean }> => ipcRenderer.invoke('agents:status'),
-    install: (which: ('claude' | 'codex')[]): Promise<boolean> => ipcRenderer.invoke('agents:install', which),
+    status: (): Promise<{ claude: boolean; codex: boolean; chrome: boolean; chromeApp: boolean }> => ipcRenderer.invoke('agents:status'),
+    install: (which: ('claude' | 'codex' | 'chrome')[]): Promise<boolean> => ipcRenderer.invoke('agents:install', which),
   },
   teamchat: {
     /** Sharing the screen needs macOS Screen Recording permission: called when it is missing (Settings was opened). */

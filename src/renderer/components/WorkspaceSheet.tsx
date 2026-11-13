@@ -25,6 +25,9 @@ const P = {
 }
 const Icon = ({ d, size = 15 }: { d: string; size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 
+/** The organisation to show: the one picked before if still yours, else the first. */
+const pickCompany = (s: WorkspaceState, saved: string) => (s.identity?.companies.some(c => c.id === saved) ? saved : s.identity?.companies[0]?.id) ?? ''
+
 export function WorkspaceSheet({ activeTab, tabs = [], onClose, onTodos }: { activeTab?: Tab; tabs?: Tab[]; onClose: () => void; onTodos: () => void }): JSX.Element {
   const [state, setState] = useState<WorkspaceState>({ url: '', signedIn: false })
   const [loading, setLoading] = useState(true)
@@ -38,7 +41,7 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose, onTodos }: { act
   const fail = (err: unknown) => setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : 'The workspace could not be reached.')
 
   useEffect(() => {
-    window.term.workspace.state().then(value => { setState(value); setCompany(value.identity?.companies[0]?.id ?? '') }).catch(fail).finally(() => setLoading(false))
+    window.term.workspace.state().then(value => void window.term.prefs.get().then(p => { setState(value); setCompany(pickCompany(value, p.workspaceId)) })).catch(fail).finally(() => setLoading(false))
   }, [])
   useEffect(() => {
     setTools([]); setMembers([])
@@ -49,6 +52,13 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose, onTodos }: { act
   useEffect(() => { const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest('input,textarea')) onClose() }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key) }, [onClose])
 
   const signedIn = (value: WorkspaceState) => { setState(value); setCompany(value.identity?.companies[0]?.id ?? ''); setError('') }
+  // Organisations: the one picked here is the one the chat, files and Sync use; a new one can be made in a click.
+  const choose = (id: string) => { setCompany(id); void window.term.prefs.set({ workspaceId: id }).then(() => window.dispatchEvent(new Event('workspace:changed'))) }
+  const [creating, setCreating] = useState(false), [orgName, setOrgName] = useState('')
+  const createOrg = async () => {
+    const name = orgName.trim(); if (!name) { setCreating(false); return }
+    try { const made = await window.term.workspace.request('/api/companies', 'POST', { name }); const value = await window.term.workspace.state(); setState(value); choose(made.id); setCreating(false); setOrgName('') } catch (e) { fail(e) }
+  }
   return <div className="workspace-overlay" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
     <section className="team-sheet" role="dialog" aria-modal="true" aria-label="TerminAI Sync">
       {error && <p className="team-error" role="alert" onClick={() => setError('')}>{error}</p>}
@@ -58,8 +68,11 @@ export function WorkspaceSheet({ activeTab, tabs = [], onClose, onTodos }: { act
           <aside className="team-side">
             <div className="team-brand"><span className="team-mark">›_</span>Sync</div>
             {(state.identity?.companies.length ?? 0) > 1
-              ? <select aria-label="Workspace" value={company} onChange={e => setCompany(e.target.value)}>{state.identity?.companies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
+              ? <select aria-label="Organisation" value={company} onChange={e => choose(e.target.value)}>{state.identity?.companies.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
               : <div className="team-company">{membership?.name}<small>{membership?.role}</small></div>}
+            {creating ? <form className="team-neworg" onSubmit={e => { e.preventDefault(); void createOrg() }}><input autoFocus placeholder="Organisation name" value={orgName} maxLength={120}
+                onChange={e => setOrgName(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setCreating(false) } }} /><button className="btn primary" type="submit">Create</button></form>
+              : <button className="team-neworg-btn" onClick={() => setCreating(true)}>+ New organisation</button>}
             <nav>
               {/* The tasks and the shared notes are one place, the To-do: this opens it (and closes this panel). */}
               <button onClick={onTodos}><Icon d={P.notes} />To-do &amp; notes</button>

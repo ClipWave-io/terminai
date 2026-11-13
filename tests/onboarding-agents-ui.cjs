@@ -8,7 +8,7 @@ app.on('browser-window-created',(_e,win)=>win.webContents.once('did-finish-load'
   const click=t=>js(`[...document.querySelectorAll('.onb button')].find(b=>b.textContent.trim()===${JSON.stringify(t)})?.click()`);
   await click('Get started');await delay(400);await click('Continue');await delay(800);
   assert.match(await js(`document.querySelector('.onb-card h1')?.textContent||''`),/Your AI agents/);
-  assert.equal(await js(`document.querySelectorAll('.onb-agent').length`),2,'Claude Code and Codex');
+  assert.equal(await js(`document.querySelectorAll('.onb-agent').length`),3,'Claude Code, Claude in Chrome and Codex');
   const status=await js(`window.term.agents.status()`);
   assert.equal(await js(`document.querySelectorAll('.onb-agent input')[0].checked`),true,'Claude Code ticked (or already installed)');
   if(shots)fs.writeFileSync(path.join(shots,'onboarding-agents.png'),(await win.webContents.capturePage()).toPNG());

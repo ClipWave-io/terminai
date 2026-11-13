@@ -299,3 +299,6 @@
 .st-pane { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
 .st-pane .todo-link { font-size: 15px; line-height: 1; padding: 0 3px; }
 .st-pane .todo-link:disabled { opacity: .3; }
+/* Sync › New organisation: a name and Create, under the organisation picker. */
+.team-neworg-btn { margin: 4px 0 10px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; padding: 2px 0; }
+.team-neworg { display: flex; gap: 6px; margin: 4px 0 10px; } .team-neworg input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--accent); background: var(--pane); color: var(--fg); font: inherit; font-size: 12.5px; }

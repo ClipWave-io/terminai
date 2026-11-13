@@ -42,9 +42,11 @@ export function TeamChat({ open, onClose, onUnread }: { open: boolean; onClose: 
   // leave the chat off until it was opened, so no unread count, no notification and no sound all day.
   useEffect(() => {
     let stop = false, timer = 0
-    const look = () => void window.term.workspace.state().then(s => { if (stop) return; const c = s.identity?.companies[0]; setCompany(c ? { id: c.id, role: c.role } : null); if (!c) timer = window.setTimeout(look, 60000) })
+    const look = () => void Promise.all([window.term.workspace.state(), window.term.prefs.get()]).then(([s, p]) => { if (stop) return; const c = s.identity?.companies.find(x => x.id === p.workspaceId) ?? s.identity?.companies[0]; setCompany(c ? { id: c.id, role: c.role } : null); if (!c) timer = window.setTimeout(look, 60000) })
       .catch(() => { if (!stop) timer = window.setTimeout(look, 10000) })
-    look(); return () => { stop = true; window.clearTimeout(timer) }
+    // Another organisation picked in Sync: the chat follows at once.
+    window.addEventListener('workspace:changed', look)
+    look(); return () => { stop = true; window.clearTimeout(timer); window.removeEventListener('workspace:changed', look) }
   }, [open])
   if (!company) return open ? <aside className="tc"><header className="tc-head"><strong>Team</strong><button className="tc-x" aria-label="Close" onClick={onClose}><Ico n="close" /></button></header><p className="tc-empty">Sign in with Sync (people icon) to chat with your team.</p></aside> : null
   return <Team key={company.id} company={company.id} admin={company.role === 'owner' || company.role === 'admin'} open={open} onClose={onClose} onUnread={onUnread} />

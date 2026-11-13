@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises'
 import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol, net, clipboard, nativeImage, ClipboardItem, Notification, systemPreferences, desktopCapturer, session } from 'electron'
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
-import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync, readdirSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -508,10 +508,18 @@ function registerIpc(): void {
   appIpc.handle('agents:status', () => {
     const dirs = [...(process.env.PATH ?? '').split(':'), join(homedir(), '.local/bin'), join(homedir(), '.claude/local'), '/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.npm-global/bin')]
     const has = (bin: string) => dirs.some(d => { try { return !!d && statSync(join(d, bin)).isFile() } catch { return false } })
-    return { claude: has('claude'), codex: has('codex') }
+    // Claude in Chrome: the extension in any Chrome profile (or Claude Code already saw it).
+    const chromeDir = join(homedir(), 'Library/Application Support/Google/Chrome')
+    let chrome = false
+    try { chrome = readdirSync(chromeDir).some(p => existsSync(join(chromeDir, p, 'Extensions', 'fcoeoabgfenejglbffodgkkbkcdhcgfn'))) } catch {}
+    try { chrome ||= JSON.parse(readFileSync(join(homedir(), '.claude.json'), 'utf8')).cachedChromeExtensionInstalled === true } catch {}
+    return { claude: has('claude'), codex: has('codex'), chrome, chromeApp: existsSync('/Applications/Google Chrome.app') }
   })
   appIpc.handle('agents:install', async (_e, which: unknown) => {
+    // The Chrome extension cannot be installed for you: Chrome opens at its page, where one click on "Add to Chrome" does it.
+    if (Array.isArray(which) && which.includes('chrome')) execFile('/usr/bin/open', ['-a', 'Google Chrome', 'https://chromewebstore.google.com/detail/fcoeoabgfenejglbffodgkkbkcdhcgfn'], () => {})
     const want = Array.isArray(which) ? which.filter((w): w is 'claude' | 'codex' => w === 'claude' || w === 'codex') : []
+    if (!want.length) return true
     if (!want.length) return false
     // Claude Code's official installer (no Node needed); Codex through Homebrew when present, else npm.
     // Claude Code lands in ~/.local/bin: its own terminal (and Terminal.app) find it only once that is in ~/.zshrc.
