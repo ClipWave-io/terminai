@@ -67,13 +67,13 @@ const r=http.request({host:u.hostname,port:u.port,method:'CONNECT',path:'api.ant
 r.on('connect',(res,sock)=>{const t=tls.connect({socket:sock,servername:'api.anthropic.com',ca:fs.readFileSync(ca)},()=>t.write('POST /v1/messages?beta=true HTTP/1.1\r\nHost: api.anthropic.com\r\nauthorization: Bearer '+login+'\r\nanthropic-beta: oauth-2025-04-20\r\ncontent-type: application/json\r\ncontent-length: 13\r\nconnection: close\r\n\r\n{"model":"x"}'));
 let d='';t.on('data',c=>d+=c);t.on('end',()=>{console.log(d.split(' ')[1]);process.exit(0)});t.on('error',e=>{console.log('ERR '+e.message);process.exit(1)})});
 r.on('error',e=>{console.log('ERR '+e.message);process.exit(1)});r.end()})`
-const background = session => new Promise((resolve, reject) => {
-  const c = spawn(process.execPath, ['-e', BG_CLIENT, relay, ca, LOGIN], { argv0: 'curl bg-spare', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+const background = (session, argv0 = 'curl bg-spare', origin = '') => new Promise((resolve, reject) => {
+  const c = spawn(process.execPath, ['-e', BG_CLIENT, relay, ca, LOGIN], { argv0, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   let out = '', err = '', go = false
   c.stderr.on('data', d => { err += d })
   c.stdout.on('data', d => {
     out += d
-    if (!go && out.includes('\n')) { go = true; fs.writeFileSync(ROSTER, JSON.stringify({ proto: 1, workers: { w: { replPid: Number(out.split('\n')[0]), sessionId: session } } })); c.stdin.write('go\n') }
+    if (!go && out.includes('\n')) { go = true; fs.writeFileSync(ROSTER, JSON.stringify({ proto: 1, workers: { w: { replPid: Number(out.split('\n')[0]), sessionId: session, ...(origin && { dispatch: { launch: { mode: 'resume', sessionId: origin, fork: true } } }) } } })); c.stdin.write('go\n') }
   })
   c.on('error', reject)
   c.on('exit', () => resolve((out.split('\n')[1] || '').trim() || `no answer: ${err.slice(0, 300)}`))
@@ -146,6 +146,20 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   assert.equal(list.accounts[0].usage.fiveReset, reset * 1000)
   assert.ok(list.accounts.every(a => a.exhaustedUntil === reset * 1000))
   assert.equal(state().usage[A].fiveHour, 0.6, 'usage is kept across restarts')
+  // A plan marked out can come back before its reset (a reset used on claude.ai). Opening the menu asks it again, with
+  // the model it refused: an answer lifts the mark, a plan still out keeps it. The login, never asked, comes back once
+  // statusline.sh's cache, written after its limit, has every bar under 100%.
+  const nr = seen.length
+  await win.webContents.executeJavaScript(`window.term.accounts.refreshUsage()`)
+  assert.deepEqual(seen.slice(nr).map(s => s.by).sort(), ['A', 'B'], 'the plans marked out are asked again')
+  assert.ok(seen.slice(nr).every(s => JSON.parse(s.body).model === 'x' && JSON.parse(s.body).max_tokens === 1), 'with the model they refused, the smallest request')
+  assert.equal(state().exhausted[A], undefined, 'Alpha answered: out no more')
+  assert.equal(state().exhausted[B], reset * 1000, 'Beta is still out')
+  assert.equal(state().exhausted.login, reset * 1000, 'the login cache is older than its limit')
+  fs.writeFileSync(LOGIN_USAGE, JSON.stringify({ limits: [{ kind: 'session', percent: 0, resets_at: '2030-01-01T10:00:00+00:00' }, { kind: 'weekly_all', percent: 61, resets_at: '2030-01-05T10:00:00+00:00' }] }))
+  await win.webContents.executeJavaScript(`window.term.accounts.refreshUsage()`)
+  assert.equal(state().exhausted.login, undefined, 'a reset used on the login lifts it too')
+  assert.deepEqual((await win.webContents.executeJavaScript(`window.term.accounts.list()`)).accounts.map(a => a.exhaustedUntil), [0, 0, reset * 1000], 'and the menu shows the limit on Beta alone')
 
   // As an HTTPS proxy, the way tabs use it (no ANTHROPIC_BASE_URL, so Remote Control stays on). Claude
   // Code's connections to api.anthropic.com are opened with the local CA and signed like the relay's;
@@ -179,6 +193,10 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   await waitFor('menu rows', async () => (await win.webContents.executeJavaScript(`document.querySelectorAll('.account-row').length`)) === 3, 3000)
   assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('.account-row .usage-bar').length`), 6, 'a 5-hour and a weekly bar per account')
   fs.writeFileSync(path.join(os.tmpdir(), 'terminai-accounts-menu.png'), (await win.capturePage(undefined, { stayHidden: true })).toPNG())
+  // Picking a plan marked out by hand tries it on the next message (Beta is still out here).
+  assert.equal(state().exhausted[B], reset * 1000)
+  await win.webContents.executeJavaScript(`[...document.querySelectorAll('.account-pick')].find(b => b.textContent.includes('Beta')).click()`)
+  await waitFor('Beta picked, its mark lifted', () => tabOf(key) === B && state().exhausted[B] === undefined, 3000)
   await win.webContents.executeJavaScript(`[...document.querySelectorAll('.account-pick')].find(b => b.textContent.includes('Alpha')).click()`)
   await waitFor('tab moved to Alpha', () => tabOf(key) === A, 3000)
   await waitFor('pill shows Alpha', async () => /Alpha/.test(await win.webContents.executeJavaScript(`document.querySelector('.account-pill')?.textContent || ''`)), 3000)
@@ -193,6 +211,15 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   let nb = seen.length
   assert.equal(await background(SID), '200')
   assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'a background session is signed with the account of the tab showing its conversation')
+  // Since Claude Code 2.1.323 a session the daemon resumes runs as its versioned binary (~/.local/share/claude/versions/<version>).
+  nb = seen.length
+  assert.equal(await background(SID, path.join(WORK, 'share', 'curl', 'versions', '9.9.9')), '200')
+  assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'so is one the daemon resumed as the versioned binary')
+  // A conversation forked into the daemon gets an id no tab shows: it follows the tab showing the one it was forked from
+  // (the daemon's dispatch.launch, a transcript path), not the tab whose key the shared daemon carries.
+  nb = seen.length
+  assert.equal(await background('00000000-0000-4000-8000-000000000001', path.join(WORK, 'share', 'curl', 'versions', '9.9.9'), path.join(WORK, 'projects', `${SID}.jsonl`)), '200')
+  assert.deepEqual(seen.slice(nb).map(s => s.by), ['A'], 'a fork follows the tab showing the conversation it came from')
   nb = seen.length
   assert.equal(await background('00000000-0000-4000-8000-000000000000'), '200')
   assert.deepEqual(seen.slice(nb).map(s => s.by), ['login'], 'one that no tab shows keeps the key it was started with')
@@ -213,7 +240,7 @@ except urllib.error.HTTPError as e: print(e.code)`, relay.replace('//', '//k9:ta
   await call('knew', '/v1/messages?beta=true')
   assert.deepEqual(seen.slice(nd).map(s => s.by), ['B'], 'a new tab starts on the default')
   assert.equal(fs.readFileSync(path.join(dir, 'accounts', 'default'), 'utf8'), B, 'the status line reads the default too')
-  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, background sessions signed with the account of the tab showing them, a hint when Claude Code turned fullscreen off, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
+  console.log('PASS accounts e2e: login untouched and streamed, tab account signs model requests only, automatic retry on the next account, spent accounts skipped, all spent → 429 as given, manual keeps the tab, default for new tabs, usage from headers and probes, a plan reset before its time comes back (asked again, the login from its cache, or picked by hand), background sessions (also as the versioned binary, and forks) signed with the account of the tab showing them or their origin, a hint when Claude Code turned fullscreen off, claude reaches the relay even when the PATH skips the shim, menu bars and a move without a restart')
   cleanup(); app.quit()
 })().catch(e => { console.error(e); cleanup(); app.exit(1) }) }))
 setTimeout(() => { console.error('e2e timeout'); cleanup(); app.exit(1) }, 120000).unref()
