@@ -306,8 +306,38 @@ def pausable(sessions, paused, held, now, c):
             and now - held.get(s["id"], 0) >= c["resume_hold_s"]]
 
 
+# The Mac's notifications in English (12/11, Ilai): only what is shown is translated; the state file, the log and the
+# events TerminAI's panel reads stay as they are.
+EN = [
+    (r"^Mac critico$", "Mac critical"), (r"^Mac attenzione$", "Mac warning"), (r"^Mac ok$", "Mac OK"),
+    (r"Nessuna sessione da mettere in pausa\. Più pesanti: ", "No chat left to pause. Using most: "),
+    (r"^Sessione in pausa: ", "Chat paused: "), (r"^Sessione ripresa: ", "Chat resumed: "),
+    (r"Il Mac è tornato in condizioni normali\.", "The Mac is back to normal."),
+    (r"Mac in stato critico: fermata per evitare il blocco\. Riparte da sola quando torna normale \(o: macguard resume\)\.",
+     "The Mac is critical: paused so it does not freeze. It resumes by itself when the Mac is back to normal (or open it in TerminAI and press Resume)."),
+    (r"^Chiuso (.+) da ([\d.]+) GB$", r"Closed \1 (\2 GB)"),
+    (r"Ricerca nello storico fuori controllo, chiusa per proteggere il Mac\.", "A history search ran out of control and was closed to protect the Mac."),
+    (r"^MacGuard non vede le schede$", "MacGuard cannot see the tabs"),
+    (r"Non posso mettere in pausa nulla finché non le rivedo: ", "Nothing can be paused until it sees them again: "),
+    (r"\. Più pesanti: ", ". Using most: "), (r"\. Non aprire altre sessioni\.", ". Do not open more chats."),
+    (r"disco libero ([\d.]+) GB: lo swap sta finendo lo spazio", r"free disk \1 GB: swap is running out of space"),
+    (r"disco libero ([\d.]+) GB", r"free disk \1 GB"),
+    (r"pressione memoria critica \(kernel\)", "memory pressure critical (macOS)"),
+    (r"pressione memoria in avviso \(kernel\)", "memory pressure warning (macOS)"),
+    (r"memoria compressa ([\d.]+) GB", r"compressed memory \1 GB"), (r"memoria libera (\d+)%", r"free memory \1%"),
+    (r"CPU: carico ([\d.]+) su (\d+) core", r"CPU load \1 on \2 cores"), (r"GPU al (\d+)%", r"GPU at \1%"),
+]
+
+
+def en(text):
+    for pat, rep in EN:
+        text = re.sub(pat, rep, text)
+    return text
+
+
 def notify(title, text, sound=None):
     """True se osascript ha accettato la notifica (non dice se macOS la mostra davvero)."""
+    title, text = en(title), en(text)
     # ensure_ascii=False: AppleScript non capisce gli escape \u00f9 (21/10: "Più pesanti" -> syntax error -2741).
     script = "display notification %s with title %s" % (json.dumps(text, ensure_ascii=False), json.dumps(title, ensure_ascii=False))
     if sound:
