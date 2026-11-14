@@ -14,6 +14,9 @@ type ChatFile = { id: string; name: string; mime: string; size: number } | { hid
 type Message = { id: string; body: string; at: string; from: string; fromName: string; file: ChatFile | null; pending?: boolean; call?: { video: boolean; seconds: number; missed: boolean; declined: boolean } }
 type TeamFile = { id: string; folder?: string; shared?: boolean; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
 
+type Dm = { channel: string; id: string; name: string }
+type Channels = { team: boolean; channels: string[]; latest?: Record<string, { at: string; from: string; fromName: string; body: string }>; dms?: Dm[]; me?: string }
+type ChatItem = { c: string; label: string; dm?: Dm; unread?: boolean; at?: string }
 const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : d } catch { return d } }, set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} } }
 
 const P: Record<string, string> = {
@@ -24,7 +27,7 @@ const P: Record<string, string> = {
   send: 'M4 12 20 4l-4 16-4-7-8-1Z', close: 'M6 6l12 12M18 6 6 18', lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5Z',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14', reveal: 'M12 4v11M7 10l5 5 5-5M5 20h14', group: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', check: 'M5 12.5 9.5 17 19 7', checks: 'M2 12.5 6.5 17 16 7M10 16l1 1 9.5-10',
-  image: 'M4 5h16v14H4ZM4 16l5-5 4 4 3-3 4 4M15 9h.01', play: 'M8 5v14l11-7Z', note: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+  image: 'M4 5h16v14H4ZM4 16l5-5 4 4 3-3 4 4M15 9h.01', search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14ZM20 20l-4-4', play: 'M8 5v14l11-7Z', note: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
 }
 const Ico = ({ n, s = 16 }: { n: keyof typeof P; s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={P[n]} /></svg>
 const images = new Map<string, Promise<string>>()
@@ -69,12 +72,30 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const toggleSound = () => void window.term.prefs.get().then(p => { const on = !(p.sounds?.chat !== false); setSound(on); if (on) void window.term.sound.test('chat'); return window.term.prefs.set({ sounds: { ...p.sounds, chat: on } }) }).catch(() => {})
   // Channels: the whole team ('') and one per product. Someone limited to some products has only those.
   const [channel, setChannel] = useState<string>(() => cache.get(`tc:${company}:channel`, ''))
-  const [channels, setChannels] = useState<{ team: boolean; channels: string[] }>(() => cache.get(`tc:${company}:channels`, { team: true, channels: [] }))
+  const [channels, setChannels] = useState<Channels>(() => cache.get(`tc:${company}:channels`, { team: true, channels: [] }))
+  const channelRef = useRef(channel); channelRef.current = channel
+  // One-to-one chats opened from People or the search before anyone wrote in them, kept on this Mac.
+  const [openedDms, setOpenedDms] = useState<Dm[]>(() => cache.get(`tc:${company}:dms`, []))
+  const seenLatest = useRef<Record<string, string> | null>(null)
   useEffect(() => {
-    const load = () => void window.term.teamchat.channels(company).then(c => { setChannels(c); cache.set(`tc:${company}:channels`, c); if (!c.team && !c.channels.includes(channel) && c.channels[0]) pick(c.channels[0]) }).catch(() => {})
-    load(); const t = window.setInterval(load, 60000); return () => window.clearInterval(t)
+    const load = () => void window.term.teamchat.channels(company).then(c => {
+      setChannels(c); cache.set(`tc:${company}:channels`, c)
+      if (!c.team && !c.channels.includes(channelRef.current) && !channelRef.current.startsWith('dm:') && c.channels[0]) pick(c.channels[0])
+      // Something new in another chat: a notification, once (the open chat has its own from the long poll).
+      const before = seenLatest.current; seenLatest.current = Object.fromEntries(Object.entries(c.latest ?? {}).map(([k, v]) => [k, v.at]))
+      if (before) for (const [k, v] of Object.entries(c.latest ?? {})) {
+        if (v.from === c.me || before[k] === v.at || k === channelRef.current || v.at <= cache.get(`${keyOf(k)}:read`, '')) continue
+        const where = k.startsWith('dm:') ? '' : ` · ${k || 'Team'}`
+        void window.term.teamchat.notify(`${v.fromName}${where}`, v.body)
+      }
+    }).catch(() => {})
+    load(); const t = window.setInterval(load, 10000)
+    // Sending or reading anywhere refreshes the list at once.
+    window.addEventListener('tc:channels', load)
+    return () => { window.clearInterval(t); window.removeEventListener('tc:channels', load) }
   }, [company]) // eslint-disable-line react-hooks/exhaustive-deps
-  const key = `tc:${company}${channel ? `:${channel}` : ''}`
+  const keyOf = (c: string) => `tc:${company}${c ? `:${c}` : ''}`
+  const key = keyOf(channel)
   const [messages, setMessages] = useState<Message[]>(() => cache.get(`${key}:m`, []))
   const [people, setPeople] = useState<Person[]>(() => cache.get(`${key}:p`, []))
   const [me, setMe] = useState<string>(() => cache.get(`${key}:me`, ''))
@@ -130,13 +151,32 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   // Read: everything up to the newest message once the chat is in view.
   const newest = messages.at(-1)?.at ?? ''
   useEffect(() => { if (open && view === 'chat' && newest && newest > lastRead) { setLastRead(newest); cache.set(`${key}:read`, newest); void window.term.teamchat.signal(company, 'read').catch(() => {}) } }, [open, view, newest]) // eslint-disable-line react-hooks/exhaustive-deps
-  const unread = messages.filter(m => m.from !== me && m.at > lastRead).length
+  const unreadHere = messages.filter(m => m.from !== me && m.at > lastRead).length
+  // Every chat: Team, the products', one-to-one ones. Those with something unread are red and come first.
+  const myId = channels.me || me
+  const dmList = useMemo(() => { const all = new Map<string, Dm>(); for (const d of [...openedDms, ...(channels.dms ?? [])]) all.set(d.channel, d); return [...all.values()] }, [openedDms, channels.dms])
+  const chats = useMemo(() => {
+    const base: ChatItem[] = [...(channels.team ? [{ c: '', label: 'Team' }] : []), ...channels.channels.map(c => ({ c, label: c })), ...dmList.map(d => ({ c: d.channel, label: d.name, dm: d }))]
+    if (channel && !base.some(x => x.c === channel)) base.push({ c: channel, label: channel.startsWith('dm:') ? 'Direct message' : channel })
+    const latest = channels.latest ?? {}
+    const unreadOf = (c: string) => c === channel ? unreadHere > 0 : !!latest[c] && latest[c].from !== myId && latest[c].at > cache.get(`${keyOf(c)}:read`, '')
+    const marked = base.map((x, i) => ({ ...x, unread: unreadOf(x.c), at: latest[x.c]?.at ?? '', i }))
+    return marked.sort((a, b) => a.unread !== b.unread ? (a.unread ? -1 : 1) : a.unread ? b.at.localeCompare(a.at) : a.i - b.i)
+  }, [channels, dmList, channel, unreadHere, myId, lastRead]) // eslint-disable-line react-hooks/exhaustive-deps
+  const unread = unreadHere + chats.filter(x => x.unread && x.c !== channel).length
   useEffect(() => onUnread(unread), [unread, onUnread])
+  const openDm = (p: { id: string; name: string }) => {
+    if (!myId || p.id === myId) return
+    const d: Dm = { channel: `dm:${[myId, p.id].sort().join(':')}`, id: p.id, name: p.name }
+    setOpenedDms(prev => { const next = [d, ...prev.filter(x => x.channel !== d.channel)].slice(0, 50); cache.set(`tc:${company}:dms`, next); return next })
+    pick(d.channel); setView('chat'); setSearching(false)
+  }
+  const [searching, setSearching] = useState(false)
 
   const send = async (body: string, fileId?: string) => {
     const temp: Message = { id: `tmp-${Date.now()}`, body, at: new Date().toISOString(), from: meRef.current, fromName: 'You', file: null, pending: true }
     if (!fileId) setMessages(prev => [...prev, temp])
-    try { await window.term.teamchat.send(company, body, fileId, channel) } catch { setMessages(prev => prev.map(m => m.id === temp.id ? { ...m, body: `${m.body}`, fromName: 'failed' } : m)) }
+    try { await window.term.teamchat.send(company, body, fileId, channel); window.dispatchEvent(new Event('tc:channels')) } catch { setMessages(prev => prev.map(m => m.id === temp.id ? { ...m, body: `${m.body}`, fromName: 'failed' } : m)) }
   }
   const share = async (paths: string[]) => {
     for (const path of paths) { try { const { file } = await window.term.teamchat.upload(company, path, 'all', [], true); await send('', file.id) } catch (e) { alertLine(String((e as Error).message ?? e)) } }
@@ -144,6 +184,8 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const [notice, setNotice] = useState(''); const alertLine = (t: string) => { setNotice(t); setTimeout(() => setNotice(''), 5000) }
 
   const calls = useCalls(company, me, id => peopleRef.current.find(p => p.id === id)?.name ?? 'Someone')
+  // In a one-to-one chat a call rings only the other person.
+  const dmWith = channel.startsWith('dm:') ? channel.slice(3).split(':').find(id => id !== myId) : undefined
   const others = people.filter(p => p.id !== me)
   const callTitle = others.length === 1 ? others[0].name : 'Team'
   if (!open) return <CallView calls={calls} title={callTitle} />
@@ -157,21 +199,48 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
       <div className="tc-who"><strong>{title}</strong><small className={typingNow.length ? 'typing' : ''}>{sub}</small></div>
       <div className="tc-tabs" role="tablist">{(['chat', 'files', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : v === 'files' ? 'Files' : 'People'}</button>)}</div>
       {others.length > 0 && calls.phase === 'idle' && <span className="tc-calls">
-        <button className="tc-x" title={`Voice call ${callTitle}`} aria-label="Voice call" onClick={() => void calls.start(false)}><CallIcon n="phone" s={17} /></button>
-        <button className="tc-x" title={`Video call ${callTitle}`} aria-label="Video call" onClick={() => void calls.start(true)}><CallIcon n="video" s={17} /></button>
+        <button className="tc-x" title={`Voice call ${callTitle}`} aria-label="Voice call" onClick={() => void calls.start(false, dmWith)}><CallIcon n="phone" s={17} /></button>
+        <button className="tc-x" title={`Video call ${callTitle}`} aria-label="Video call" onClick={() => void calls.start(true, dmWith)}><CallIcon n="video" s={17} /></button>
       </span>}
+      <button className={`tc-x${searching ? ' on' : ''}`} title="Search chats and people" aria-label="Search chats and people" aria-pressed={searching} onClick={() => setSearching(v => !v)}><Ico n="search" s={17} /></button>
       <button className={`tc-x tc-bell${sound ? '' : ' off'}`} title={sound ? 'Chat sound on: click to mute' : 'Chat sound off: click to turn it on'} aria-label={sound ? 'Mute chat sound' : 'Turn chat sound on'} aria-pressed={sound} onClick={toggleSound}><Ico n={sound ? 'bell' : 'bellOff'} s={17} /></button>
       <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
-    {view === 'chat' && channels.channels.length > 0 && <div className="tc-channels" role="tablist" aria-label="Chats">
-      {channels.team && <button role="tab" aria-selected={channel === ''} className={channel === '' ? 'on' : ''} onClick={() => pick('')}>Team</button>}
-      {channels.channels.map(c => <button key={c} role="tab" aria-selected={channel === c} className={channel === c ? 'on' : ''} onClick={() => pick(c)}>{c}</button>)}
+    {searching && <Search company={company} me={myId} chats={chats} keyOf={keyOf} onPick={c => { pick(c); setView('chat'); setSearching(false) }} onPerson={openDm} onClose={() => setSearching(false)} />}
+    {!searching && view === 'chat' && chats.length > 1 && <div className="tc-channels" role="tablist" aria-label="Chats">
+      {chats.map(x => <button key={x.c} role="tab" aria-selected={channel === x.c} className={`${channel === x.c ? 'on' : ''}${x.unread && channel !== x.c ? ' unread' : ''}${x.dm ? ' dm' : ''}`} title={x.unread && channel !== x.c ? `${x.label}: new messages` : x.label} onClick={() => pick(x.c)}>
+        {x.dm && <Avatar id={x.dm.id} name={x.dm.name} size={16} />}{x.label}</button>)}
     </div>}
     {notice && <div className="tc-notice">{notice}</div>}
-    {view === 'chat' ? <Chat key={key} draftKey={`${key}:draft`} company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
+    {searching ? null : view === 'chat' ? <Chat key={key} draftKey={`${key}:draft`} company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
       : view === 'files' ? <Files company={company} admin={admin} me={me} onError={alertLine} />
-      : <PeoplePanel company={company} me={me} onError={e => alertLine(String((e as Error).message ?? e))} online={id => people.find(p => p.id === id)?.online} />}
+      : <PeoplePanel company={company} me={me} onError={e => alertLine(String((e as Error).message ?? e))} online={id => people.find(p => p.id === id)?.online} onMessage={openDm} />}
   </aside></>
+}
+
+/** One search for the drawer: chats by name, people (a click opens a one-to-one chat) and the messages kept on this Mac. */
+function Search({ company, me, chats, keyOf, onPick, onPerson, onClose }: { company: string; me: string; chats: ChatItem[]; keyOf: (c: string) => string; onPick: (c: string) => void; onPerson: (p: { id: string; name: string }) => void; onClose: () => void }): JSX.Element {
+  const [q, setQ] = useState('')
+  const [members, setMembers] = useState<{ id: string; name: string; email?: string }[]>(() => cache.get(`tc:${company}:members`, []))
+  useEffect(() => { void window.term.workspace.request(`/api/companies/${company}/members`).then(v => { const m = (v.members ?? []).map((x: { id: string; name: string; email?: string }) => ({ id: x.id, name: x.name, email: x.email })); setMembers(m); cache.set(`tc:${company}:members`, m) }).catch(() => {}) }, [company])
+  const t = q.trim().toLowerCase()
+  const chatHits = chats.filter(x => !t || x.label.toLowerCase().includes(t))
+  const people = members.filter(m => m.id !== me && (!t || m.name.toLowerCase().includes(t) || (m.email ?? '').toLowerCase().includes(t)))
+  const found = t.length < 2 ? [] : chats.flatMap(x => cache.get<Message[]>(`${keyOf(x.c)}:m`, []).filter(m => m.body?.toLowerCase().includes(t)).map(m => ({ chat: x, m }))).sort((a, b) => b.m.at.localeCompare(a.m.at)).slice(0, 20)
+  const mark = (text: string) => { const i = text.toLowerCase().indexOf(t); if (!t || i < 0) return text.slice(0, 120); const from = Math.max(0, i - 40)
+    return <>{from ? '…' : ''}{text.slice(from, i)}<mark>{text.slice(i, i + t.length)}</mark>{text.slice(i + t.length, i + t.length + 80)}</> }
+  return <div className="tc-search">
+    <div className="tc-search-box"><Ico n="search" s={15} /><input autoFocus value={q} placeholder="Search chats, people and messages" onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') onClose() }} />
+      <button className="tc-x" aria-label="Close search" onClick={onClose}><Ico n="close" s={14} /></button></div>
+    <div className="tc-search-list">
+      {chatHits.length > 0 && <><h4>Chats</h4>{chatHits.map(x => <button key={x.c} className={x.unread ? 'unread' : ''} onClick={() => onPick(x.c)}>
+        {x.dm ? <Avatar id={x.dm.id} name={x.dm.name} size={22} /> : <span className="tc-search-hash">#</span>}<span>{x.label}</span>{x.unread && <em>new</em>}</button>)}</>}
+      {people.length > 0 && <><h4>People</h4>{people.map(p => <button key={p.id} onClick={() => onPerson(p)}><Avatar id={p.id} name={p.name} size={22} /><span>{p.name}</span><small>Message</small></button>)}</>}
+      {found.length > 0 && <><h4>Messages</h4>{found.map(({ chat, m }) => <button key={`${chat.c}-${m.id}`} className="tc-search-msg" onClick={() => onPick(chat.c)}>
+        <span><b>{m.fromName}</b> · {chat.label} · {dayLabel(m.at)} {clock(m.at)}</span><span>{mark(m.body)}</span></button>)}</>}
+      {!chatHits.length && !people.length && !found.length && <p className="tc-empty">Nothing found for “{q}”.</p>}
+    </div>
+  </div>
 }
 
 /** Dragging a file or picture from the chat onto a tab: the tab gets the real file (downloaded once), never the picture's

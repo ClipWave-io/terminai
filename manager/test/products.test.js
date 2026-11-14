@@ -56,6 +56,23 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal(chIlai.team, true); assert.ok(chIlai.channels.includes('ManyMotions.org'));
   assert.deepEqual((await request(`${base}/chat`, { token: ilai.token })).body.messages.map(m => m.body), ['team only: salaries'], 'the team chat keeps its own messages');
   assert.equal((await request(`${base}/chat`, { token: fritz.token, method: 'POST', data: { body: 'x', channel: 'ManyMotions.org' } })).status, 403, 'a viewer reads only');
+  // One-to-one chats: Ilai writes to Sofia; only the two of them read it, it is listed for both with its newest message,
+  // and Fritz (another member) cannot read it, nor can a forged channel name.
+  const ids = Object.fromEntries((await request(`${base}/members`, { token: ilai.token })).body.members.map(m => [m.name, m.id]));
+  const dm = `dm:${[ids.Ilai, ids.Sofia].sort().join(':')}`;
+  assert.equal((await request(`${base}/chat`, { token: ilai.token, method: 'POST', data: { body: 'just us', channel: dm } })).status, 200);
+  assert.deepEqual((await request(`${base}/chat?channel=${encodeURIComponent(dm)}`, { token: sofia.token })).body.messages.map(m => m.body), ['just us']);
+  assert.deepEqual((await request(`${base}/chat?channel=${encodeURIComponent(dm)}`, { token: sofia.token })).body.people.map(p => p.name).sort(), ['Ilai', 'Sofia'], 'only the two are in it');
+  assert.equal((await request(`${base}/chat?channel=${encodeURIComponent(dm)}`, { token: fritz.token })).status, 403);
+  assert.equal((await request(`${base}/chat?channel=${encodeURIComponent(`dm:${[ids.Ilai, ids.Sofia].sort().reverse().join(':')}`)}`, { token: ilai.token })).status, 403, 'only the canonical name');
+  const sch = (await request(`${base}/chat/channels`, { token: sofia.token })).body;
+  assert.deepEqual(sch.dms, [{ channel: dm, id: ids.Ilai, name: 'Ilai' }]);
+  assert.equal(sch.latest[dm].body, 'just us'); assert.equal(sch.latest[dm].from, ids.Ilai);
+  assert.equal(sch.latest[''], undefined, 'no team chat news for a product-only member');
+  assert.equal(sch.latest['ManyMotions.org'].body, 'hi');
+  assert.equal((await request(`${base}/chat/channels`, { token: fritz.token })).body.latest[dm], undefined, 'nor in his list');
+  assert.equal((await request(`${base}/chat/channels`, { token: ilai.token })).body.latest[''].body, 'team only: salaries');
+  assert.equal((await request(`${base}/chat`, { token: ilai.token, method: 'POST', data: { body: 'x', channel: `dm:${[ids.Ilai, randomUUID()].sort().join(':')}` } })).status, 404, 'not to someone outside the workspace');
   // Task columns: a member cannot take a column someone else holds; an admin can reassign it.
   assert.equal((await request(`${base}/tasks/people`, { token: ilai.token, method: 'PUT', data: { key: 'ilai' } })).status, 200);
   const grab = await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'ilai' } });

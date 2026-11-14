@@ -56,7 +56,7 @@ const ROLE: Record<string, string> = { owner: 'Owner', admin: 'Admin', member: '
  * People and permissions (admins): each person's role and the products they see. Owners and admins see every
  * product and every shared session; a member limited to products sees only those tasks, notes and files.
  */
-export function Permissions({ base, members, me, owner, onChanged, onError, online }: { base: string; members: Member[]; me: string; owner: boolean; sessionVisibility: string; onChanged: () => void; onError: (e: unknown) => void; online?: (id: string) => boolean | undefined }): JSX.Element {
+export function Permissions({ base, members, me, owner, onChanged, onError, online, onMessage }: { base: string; members: Member[]; me: string; owner: boolean; sessionVisibility: string; onChanged: () => void; onError: (e: unknown) => void; online?: (id: string) => boolean | undefined; onMessage?: (m: { id: string; name: string }) => void }): JSX.Element {
   const [open, setOpen] = useState<string | null>(null)
   const options = useProducts(members.flatMap(m => m.products ?? []))
   const patch = (id: string, body: object) => void window.term.workspace.request(`${base}/members/${id}`, 'PATCH', body).then(onChanged).catch(onError)
@@ -68,7 +68,7 @@ export function Permissions({ base, members, me, owner, onChanged, onError, onli
       return <li key={m.id} className={open === m.id ? 'open' : ''}>
         <div className="pp-row">
           <Avatar id={m.id} name={m.name} online={online?.(m.id)} />
-          <div className="pp-who" title={m.email}><strong>{m.name}{self && <em> · you</em>}</strong><small>{m.app_seen ? `Active ${seenAgo(m.app_seen)}` : 'Not signed in to TerminAI yet'}{m.app_version ? ` · ${m.app_version}` : ''}</small><small className="pp-email">{m.email}</small></div>
+          <div className="pp-who" title={m.email}><strong>{m.name}{self && <em> · you</em>}{!self && onMessage && <MessageButton onClick={() => onMessage(m)} />}</strong><small>{m.app_seen ? `Active ${seenAgo(m.app_seen)}` : 'Not signed in to TerminAI yet'}{m.app_version ? ` · ${m.app_version}` : ''}</small><small className="pp-email">{m.email}</small></div>
           {fixed ? <span className="pp-role">{ROLE[m.role]}</span>
             : <select className="pp-select" value={m.role} onChange={e => patch(m.id, { role: e.target.value })}>
               {(owner ? ['admin', 'member', 'viewer'] : ['member', 'viewer']).map(r => <option key={r} value={r}>{ROLE[r]}</option>)}</select>}
@@ -87,13 +87,17 @@ export function Permissions({ base, members, me, owner, onChanged, onError, onli
 }
 
 /** The People tab of the team drawer: permissions for admins, who is in the team for everyone. */
-export function PeoplePanel({ company, me, onError, online }: { company: string; me: string; onError: (e: unknown) => void; online: (id: string) => boolean | undefined }): JSX.Element {
+/** A small "Message" button beside a name: opens a one-to-one chat with that person. */
+const MessageButton = ({ onClick }: { onClick: () => void }) => <button className="pp-dm" title="Message privately" aria-label="Message privately" onClick={onClick}>
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4Z" /></svg>Message</button>
+
+export function PeoplePanel({ company, me, onError, online, onMessage }: { company: string; me: string; onError: (e: unknown) => void; online: (id: string) => boolean | undefined; onMessage?: (m: { id: string; name: string }) => void }): JSX.Element {
   const base = `/api/companies/${company}`
   const [members, setMembers] = useState<Member[]>([]), [role, setRole] = useState(''), [vis, setVis] = useState('admins'), [loaded, setLoaded] = useState(false)
   const load = () => void window.term.workspace.request(`${base}/members`).then(v => { setMembers(v.members ?? []); setLoaded(true) }).catch(onError)
   useEffect(() => { load(); void window.term.workspace.state().then(s => { const c = s.identity?.companies.find(x => x.id === company) as { role: string; sessionVisibility?: string } | undefined; setRole(c?.role ?? ''); setVis(c?.sessionVisibility ?? 'admins') }) }, [company]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!loaded) return <p className="tc-empty">Loading…</p>
-  if (role === 'owner' || role === 'admin') return <div className="tc-people"><Permissions key={vis} base={base} members={members} me={me} owner={role === 'owner'} sessionVisibility={vis} onChanged={load} onError={onError} online={online} /></div>
+  if (role === 'owner' || role === 'admin') return <div className="tc-people"><Permissions key={vis} base={base} members={members} me={me} owner={role === 'owner'} sessionVisibility={vis} onChanged={load} onError={onError} online={online} onMessage={onMessage} /></div>
   return <div className="tc-people"><ul className="pp-list">{members.map(m => <li key={m.id}><div className="pp-row"><Avatar id={m.id} name={m.name} online={online(m.id)} />
-    <div className="pp-who"><strong>{m.name}{m.id === me && <em> · you</em>}</strong><small>{ROLE[m.role]}</small></div></div></li>)}</ul></div>
+    <div className="pp-who"><strong>{m.name}{m.id === me && <em> · you</em>}{m.id !== me && onMessage && <MessageButton onClick={() => onMessage(m)} />}</strong><small>{ROLE[m.role]}</small></div></div></li>)}</ul></div>
 }

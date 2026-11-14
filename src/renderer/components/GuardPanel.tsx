@@ -45,7 +45,19 @@ export function GuardPanel({ tabs, onOpenTab, activeTab }: { tabs: { id: string;
     s.mem_level < l.gate_memlevel && `free memory below ${l.gate_memlevel}%`,
     s.compressor_gb > l.gate_compressor_gb && `compressed memory above ${l.gate_compressor_gb} GB`,
   ].filter((x): x is string => !!x)
+  const until = d.off?.until ? new Date(d.off.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+  const pause = <section className="mem guard-panel">
+    <div className="mem-head"><strong>Pause MacGuard</strong>{d.off && <span className="mem-level stopped">{until ? `Paused until ${until}` : 'Paused'}</span>}</div>
+    {d.off ? <><p className="hint">MacGuard is not watching the Mac{until ? ` until ${until}; then it starts again by itself` : ' until you turn it on'}. Nothing gets paused meanwhile, so close heavy chats yourself if the Mac slows down.</p>
+      <div className="guard-pause"><button className="btn primary" disabled={!!busy} onClick={() => act('on', () => window.term.macguard.unpause())}>{busy === 'on' ? 'Turning on…' : 'Turn on now'}</button></div></>
+      : <><p className="hint">Stops it from pausing chats for a while. Any chat it paused is resumed first.</p>
+      <div className="guard-pause">{([[30, '30 min'], [60, '1 hour'], [180, '3 hours'], [null, 'Until I turn it on']] as [number | null, string][]).map(([m, label]) =>
+        <button key={label} className="btn" disabled={!!busy} onClick={() => act(`p${m}`, () => window.term.macguard.pause(m))}>{busy === `p${m}` ? 'Pausing…' : label}</button>)}</div></>}
+    {error && d.off && <p className="hint guard-error">Could not do it: {error}</p>}
+  </section>
+  if (d.off) return pause
   return <>
+    {pause}
     <section className="mem guard-panel">
       <div className="mem-head"><strong>Status</strong>
         <span className={`mem-level ${d.running ? CLASS[d.level] : 'stopped'}`}>{d.running ? LEVELS[d.level] : 'Not running'}</span></div>

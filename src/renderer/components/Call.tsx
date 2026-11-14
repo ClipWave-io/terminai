@@ -181,12 +181,12 @@ export function useCalls(company: string, me: string, names: (id: string) => str
     return () => { stop = true }
   }, [company]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const start = async (video: boolean) => {
+  const start = async (video: boolean, to?: string) => {
     if (r.current.callId) return
     try {
       r.current.callId = newId(); r.current.caller = true; setPhase('outgoing'); setEnded('')
       await getLocal(video)
-      await send('ring', null, { video })
+      await send('ring', to ?? null, { video })
       r.current.ringTimer = setTimeout(() => { if (r.current.phase === 'outgoing') { void send('hangup', null); cleanup('No answer') } }, 45000)
     } catch (e) { void send('hangup', null); cleanup(String((e as Error).message ?? e)) }
   }

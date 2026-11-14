@@ -84,6 +84,8 @@
 .toolbar-guard { position: relative; }
 .guard-level { position: absolute; left: 5px; bottom: 5px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--bg, var(--pane)); pointer-events: none; }
 .guard-level.l0, .guard-dot.l0 { background: #3fb950; } .guard-level.l1, .guard-dot.l1 { background: #e8a900; } .guard-level.l2, .guard-dot.l2 { background: var(--danger); } .guard-level.ls { background: var(--dim); }
+.guard-level.lp { background: transparent; border-color: var(--dim); box-shadow: inset 0 0 0 1px var(--dim); }
+.guard-pause { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .mem-level.stopped { background: color-mix(in srgb, var(--dim) 20%, transparent); color: var(--dim); }
 .guard-rows { display: grid; gap: 6px; margin-top: 4px; }
 .guard-row { display: grid; grid-template-columns: 8px minmax(130px, 170px) minmax(90px, 140px) 1fr; gap: 10px; align-items: center; font-size: 12.5px; }

@@ -1,6 +1,6 @@
 type Notice = { id: string; kind: 'done' | 'todo' | 'request' | 'chat' | 'agent' | 'memory' | 'update'; title: string; body: string; at: string; read: boolean; target?: { tab?: string; open?: 'todos' | 'activity' | 'chat' | 'memory' | 'updates' } }
 type BotInfo = { id: string; name: string; keyId?: string; host: string; agent: string; isDefault: boolean; status: { ok: boolean; at: string; error?: string } | null }
-type GuardState = { running: boolean; level: number; paused: { id: string; name: string; at: string }[] }
+type GuardState = { running: boolean; level: number; paused: { id: string; name: string; at: string }[]; off?: { until: number | null } }
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { ProjectListing, ProjectPreview } from '../shared/project-files'
 import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/workspace'
@@ -38,6 +38,8 @@ const api = {
     resume: (ids: string[]): Promise<GuardState | null> => ipcRenderer.invoke('macguard:resume', ids),
     details: (): Promise<(GuardState & { at: string; sample: Record<string, number>; limits: Record<string, number>; events: { at: string; text: string }[]; sessions: number }) | null> => ipcRenderer.invoke('macguard:details'),
     restart: (): Promise<void> => ipcRenderer.invoke('macguard:restart'),
+    pause: (minutes: number | null): Promise<GuardState | null> => ipcRenderer.invoke('macguard:pause', minutes),
+    unpause: (): Promise<GuardState | null> => ipcRenderer.invoke('macguard:unpause'),
     onState: (cb: (s: GuardState | null) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, s: GuardState | null) => cb(s); ipcRenderer.on('macguard:state', h); return () => { ipcRenderer.removeListener('macguard:state', h) } } },
   worklog: { get: (day: string): Promise<{ day: string; me?: string; names?: Record<string, string>; people: Record<string, import('../shared/types').WorkDay>; offline: boolean }> => ipcRenderer.invoke('worklog:get', day) },
   workspace: {
@@ -167,7 +169,7 @@ const api = {
     /** Sharing the screen needs macOS Screen Recording permission: called when it is missing (Settings was opened). */
     onScreenPermission: (cb: () => void) => { const h = () => cb(); ipcRenderer.on('screen:permission', h); return () => { ipcRenderer.removeListener('screen:permission', h) } },
     chat: (company: string, after?: string, typing?: string, pending?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing, pending, channel),
-    channels: (company: string): Promise<{ team: boolean; channels: string[] }> => ipcRenderer.invoke('team:channels', company),
+    channels: (company: string): Promise<{ team: boolean; channels: string[]; latest?: Record<string, { at: string; from: string; fromName: string; body: string }>; dms?: { channel: string; id: string; name: string }[]; me?: string }> => ipcRenderer.invoke('team:channels', company),
     send: (company: string, body: string, fileId?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId, channel),
     signal: (company: string, kind: 'typing' | 'read'): Promise<void> => ipcRenderer.invoke('team:signal', company, kind),
     call: (company: string, after?: string): Promise<any> => ipcRenderer.invoke('team:call', company, after),

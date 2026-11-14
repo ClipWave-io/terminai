@@ -22,7 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
-import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard } from './macguard'
+import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard, pauseGuard, unpauseGuard } from './macguard'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
@@ -712,6 +712,8 @@ function registerIpc(): void {
   appIpc.handle('macguard:state', () => guardState())
   appIpc.handle('macguard:details', async () => { const d = await guardDetails(); return d && { ...d, sessions: ptys.liveIds().filter(id => ptys.agentOf(id).alive).length } })
   appIpc.handle('macguard:restart', () => restartGuard())
+  appIpc.handle('macguard:pause', async (_e, minutes: unknown) => { await pauseGuard(typeof minutes === 'number' && minutes > 0 ? Math.min(minutes, 7 * 24 * 60) : null); const s = await guardState(); win?.webContents.send('macguard:state', s); return s })
+  appIpc.handle('macguard:unpause', async () => { await unpauseGuard(); const s = await guardState(); win?.webContents.send('macguard:state', s); return s })
   appIpc.handle('macguard:resume', async (_e, ids: unknown) => { await resumeGuard(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []); return guardState() })
   watchGuard(s => { guardPaused = new Set((s?.paused ?? []).map(p => p.id)); if (win && !win.isDestroyed()) win.webContents.send('macguard:state', s) }, p => {
     const t = store.load().tabs.find(x => x.ptyId === p.id), name = t?.customTitle || t?.name || t?.title || p.name || 'Session'

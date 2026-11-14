@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { readFile, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -14,7 +14,31 @@ const INSTALL = join(homedir(), 'Library', 'Application Support', 'MacGuard')
 // Where its state lives; tests point it at a scratch folder. The script itself is always the installed one.
 const HOME = process.env.TERMINAI_MACGUARD_HOME || INSTALL
 
-export type GuardState = { running: boolean; level: number; paused: { id: string; name: string; at: string }[] }
+export type GuardState = { running: boolean; level: number; paused: { id: string; name: string; at: string }[]; off?: { until: number | null } }
+
+/* Paused by the user: TerminAI resumes the chats it holds, stops the LaunchAgent and starts it again when the time is up
+ * (or on Turn on). Kept in a file of its own beside MacGuard's state, so a restart of TerminAI remembers it. */
+const OFF = join(HOME, 'terminai-off.json')
+const AGENT = () => `gui/${process.getuid?.() ?? 501}/com.terminai.macguard`
+const PLIST = join(homedir(), 'Library', 'LaunchAgents', 'com.terminai.macguard.plist')
+const launchctl = (args: string[]): Promise<string> => new Promise(resolve => execFile('/bin/launchctl', args, { timeout: 15_000 }, (err, _o, stderr) => resolve(err ? String(stderr).trim() || String(err.message) : '')))
+async function offState(): Promise<{ until: number | null } | undefined> {
+  try { const o = JSON.parse(await readFile(OFF, 'utf8')); return { until: typeof o.until === 'number' ? o.until : null } } catch { return undefined }
+}
+/** Pauses MacGuard for `minutes` (null: until turned on again). Its paused chats are resumed first: nobody would. */
+export async function pauseGuard(minutes: number | null): Promise<void> {
+  const st = await guardState()
+  if (st?.running && st.paused.length) await resumeGuard([]).catch(() => {})
+  await writeFile(OFF, JSON.stringify({ until: minutes ? Date.now() + minutes * 60_000 : null, at: Date.now() }))
+  await launchctl(['bootout', AGENT()])
+}
+/** Starts MacGuard again after a pause. */
+export async function unpauseGuard(): Promise<void> {
+  await unlink(OFF).catch(() => {})
+  const err = await launchctl(['bootstrap', `gui/${process.getuid?.() ?? 501}`, PLIST])
+  // Already loaded (bootstrap answers "service already loaded" / errno 5 / 37): a kickstart makes sure it runs.
+  if (err) await launchctl(['kickstart', AGENT()])
+}
 
 const pausedOf = (st: any): GuardState['paused'] => Array.isArray(st.paused) ? st.paused.map((p: any) => ({ id: String(p?.id ?? ''), name: String(p?.name ?? ''), at: String(p?.at ?? '') })).filter((p: { id: string }) => p.id) : []
 
@@ -22,8 +46,9 @@ export async function guardState(): Promise<GuardState | null> {
   let st: any
   try { st = JSON.parse(await readFile(join(HOME, 'state.json'), 'utf8')) } catch { return null }
   // The same freshness rule as `macguard status`: older than three samples and 10 s, the guardian is not running.
-  const running = Date.now() / 1000 - Number(st.epoch ?? 0) <= 3 * Number(st.interval_s ?? 5) + 10
-  return { running, level: Number(st.level ?? 0), paused: pausedOf(st) }
+  const off = await offState()
+  const running = !off && Date.now() / 1000 - Number(st.epoch ?? 0) <= 3 * Number(st.interval_s ?? 5) + 10
+  return { running, level: Number(st.level ?? 0), paused: off ? [] : pausedOf(st), ...(off ? { off } : {}) }
 }
 
 /** Resumes these tabs (none: every paused one). Waits for the guardian to do it, at most about 15 s, and fails when its
@@ -39,7 +64,9 @@ export async function resumeGuard(ids: string[]): Promise<void> {
 /** Every 3 s: `onChange` with the new state when it changed, `onPaused` for each tab the guardian has just paused. */
 export function watchGuard(onChange: (s: GuardState | null) => void, onPaused: (p: { id: string; name: string; at: string }) => void): void {
   let last = '', known: Set<string> | null = null
-  setInterval(() => void guardState().then(s => {
+  setInterval(() => void guardState().then(async s => {
+    // A timed pause is over: MacGuard starts again.
+    if (s?.off?.until && Date.now() >= s.off.until) { await unpauseGuard(); s = await guardState() }
     const key = JSON.stringify(s)
     if (key === last) return
     last = key; onChange(s)
@@ -82,8 +109,9 @@ export async function guardDetails(): Promise<GuardDetails | null> {
     try { lines = (await readFile(join(HOME, 'log', `eventi-${d}.log`), 'utf8')).split('\n') } catch {}
     for (const l of lines) { const m = l.match(/^(\d\d:\d\d:\d\d) (.*)$/); const text = m && englishEvent(m[2]); if (m && text) events.push({ at: `${d.slice(5).split('-').reverse().join('/')} ${m[1].slice(0, 5)}`, text }) }
   }
-  const running = Date.now() / 1000 - Number(st.epoch ?? 0) <= 3 * Number(st.interval_s ?? 5) + 10
-  return { running, level: Number(st.level ?? 0), paused: pausedOf(st), at: String(st.ora ?? '').slice(11, 19), sample: st.campione ?? {}, limits, events: events.slice(-25).reverse() }
+  const off = await offState()
+  const running = !off && Date.now() / 1000 - Number(st.epoch ?? 0) <= 3 * Number(st.interval_s ?? 5) + 10
+  return { running, level: Number(st.level ?? 0), paused: off ? [] : pausedOf(st), ...(off ? { off } : {}), at: String(st.ora ?? '').slice(11, 19), sample: st.campione ?? {}, limits, events: events.slice(-25).reverse() }
 }
 
 /** Restarts the guardian's LaunchAgent (it reads its paused list back from state.json). */

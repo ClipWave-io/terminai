@@ -636,7 +636,14 @@ export function createApp(pool, config) {
         // Chat channels: '' the whole team, or a product's. Someone limited to some products sees only those products' chats.
         const limited = !adminish && Array.isArray(member.products);
         const channels = limited ? member.products : null;
-        const channelOf = v => { const c = typeof v === 'string' ? v.trim().slice(0, 100) : ''; requireThat(!limited || (c && channels.includes(c)), 403, 'You are not in that chat.'); return c; };
+        // One-to-one chats: 'dm:<id>:<id>', the two ids in order. Only those two read and write it (admins too: it is private),
+        // whatever products they are limited to.
+        const dmOf = c => { const m = /^dm:([0-9a-f-]{36}):([0-9a-f-]{36})$/.exec(c); return m && m[1] < m[2] ? [m[1], m[2]] : null; };
+        const channelOf = v => {
+          const c = typeof v === 'string' ? v.trim().slice(0, 100) : '';
+          if (c.startsWith('dm:')) { const d = dmOf(c); requireThat(d && d.includes(user.id), 403, 'You are not in that chat.'); return c; }
+          requireThat(!limited || (c && channels.includes(c)), 403, 'You are not in that chat.'); return c;
+        };
         if (kind === 'chat' && sub === 'channels' && req.method === 'GET') {
           const { rows } = await pool.query("SELECT channel, max(created_at) AS last FROM manager_chat WHERE company_id=$1 AND channel<>'' GROUP BY channel", [companyId]);
           // Every product has its chat: the products of the To-do and the notes, and any given to someone, to an open
@@ -647,8 +654,19 @@ export function createApp(pool, config) {
             UNION SELECT DISTINCT unnest(products) AS p FROM manager_memberships WHERE company_id=$1 AND products IS NOT NULL
             UNION SELECT DISTINCT unnest(products) FROM manager_invites WHERE company_id=$1 AND products IS NOT NULL AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>now()
             UNION SELECT DISTINCT unnest(products) FROM manager_invite_links WHERE company_id=$1 AND products IS NOT NULL AND revoked_at IS NULL AND expires_at>now()`, [companyId]);
-          const all = [...new Set([...rows.map(r => r.channel), ...ps.map(r => r.p)])].filter(c => !limited || channels.includes(c)).sort();
-          return json(res, 200, { team: !limited, channels: all, last: Object.fromEntries(rows.map(r => [r.channel, r.last])) });
+          const all = [...new Set([...rows.map(r => r.channel), ...ps.map(r => r.p)])].filter(c => !c.startsWith('dm:') && (!limited || channels.includes(c))).sort();
+          // The newest message of every chat this person is in, so the app marks the ones with something unread (and names
+          // who wrote it) without opening them.
+          const { rows: news } = await pool.query(`SELECT DISTINCT ON (c.channel) c.channel,c.created_at,c.from_user,u.name,left(c.body,140) AS body,c.call IS NOT NULL AS call,c.file_id IS NOT NULL AS file
+              FROM manager_chat c JOIN manager_users u ON u.id=c.from_user WHERE c.company_id=$1 AND (c.channel NOT LIKE 'dm:%' OR c.channel LIKE $2 OR c.channel LIKE $3) ORDER BY c.channel, c.created_at DESC`,
+            [companyId, `dm:${user.id}:%`, `dm:%:${user.id}`]);
+          const mine = c => c.startsWith('dm:') ? !!dmOf(c) : c === '' ? !limited : all.includes(c);
+          const latest = Object.fromEntries(news.filter(r => mine(r.channel)).map(r => [r.channel, { at: r.created_at, from: r.from_user, fromName: r.name, body: r.call ? 'Call' : r.body || (r.file ? 'Sent a file' : '') }]));
+          // One-to-one chats with someone still in this workspace, named after the other person.
+          const dmIds = news.map(r => dmOf(r.channel)).filter(Boolean).map(d => d[0] === user.id ? d[1] : d[0]);
+          const { rows: dmPeople } = dmIds.length ? await pool.query('SELECT u.id,u.name FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1 AND u.id=ANY($2::uuid[])', [companyId, dmIds]) : { rows: [] };
+          const dms = dmPeople.map(p => ({ channel: `dm:${[user.id, p.id].sort().join(':')}`, id: p.id, name: p.name }));
+          return json(res, 200, { team: !limited, channels: all, last: Object.fromEntries(rows.filter(r => !r.channel.startsWith('dm:')).map(r => [r.channel, r.last])), latest, dms, me: user.id });
         }
         if (kind === 'chat' && !sub && req.method === 'GET') {
           // Long poll: answers at once when there is something newer than `after`, else waits up to `wait` seconds.
@@ -665,13 +683,14 @@ export function createApp(pool, config) {
           // Delivered ticks: the sender's poll also answers once every other member's app has fetched since its newest unticked message.
           const pending = url.searchParams.get('pending'); requireThat(!pending || Number.isFinite(Date.parse(pending)), 400, 'Invalid cursor.');
           // Who is in this chat: admins, members of every product, and for a product's chat its members.
-          const inChat = `(m.role IN ('owner','admin') OR m.products IS NULL${channel ? ' OR $CH = ANY(m.products)' : ''})`;
-          const delivered = async () => !!pending && !(await pool.query(`SELECT 1 FROM manager_memberships m LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND m.user_id<>$2 AND (p.seen_at IS NULL OR p.seen_at<$3) AND ${inChat.replace('$CH', '$4')} LIMIT 1`, channel ? [companyId, user.id, pending, channel] : [companyId, user.id, pending])).rowCount;
+          const dm = dmOf(channel), byCh = !!channel && !dm;
+          const inChat = dm ? `m.user_id IN ('${dm[0]}','${dm[1]}')` : `(m.role IN ('owner','admin') OR m.products IS NULL${channel ? ' OR $CH = ANY(m.products)' : ''})`;
+          const delivered = async () => !!pending && !(await pool.query(`SELECT 1 FROM manager_memberships m LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND m.user_id<>$2 AND (p.seen_at IS NULL OR p.seen_at<$3) AND ${inChat.replace('$CH', '$4')} LIMIT 1`, byCh ? [companyId, user.id, pending, channel] : [companyId, user.id, pending])).rowCount;
           const until = Date.now() + wait * 1000;
           while (!rows.length && !closed && Date.now() < until && (await typingKey()) === typing0 && !(await delivered())) { await new Promise(r => setTimeout(r, 600)); rows = await fetchNew(); }
           if (closed) return;
           const { rows: people } = await pool.query(`SELECT u.id,u.name,p.seen_at,p.read_at,(p.typing_until>now()) AS typing FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id
-            LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND ${inChat.replace('$CH', '$2')}`, channel ? [companyId, channel] : [companyId]);
+            LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND ${inChat.replace('$CH', '$2')}`, byCh ? [companyId, channel] : [companyId]);
           return json(res, 200, { messages: rows.map(r => ({ id: r.id, body: r.body, ...(r.call ? { call: r.call } : {}), at: r.created_at, from: r.from_user, fromName: r.from_name,
               file: r.fid ? (canSee({ access: r.access, products: r.products, created_by: r.created_by }) ? { id: r.fid, name: r.fname, mime: r.mime, size: r.size } : { hidden: true }) : null })),
             people: people.map(p => ({ id: p.id, name: p.name, seenAt: p.seen_at, readAt: p.read_at, typing: !!p.typing && p.id !== user.id, online: !!p.seen_at && Date.now() - new Date(p.seen_at).getTime() < 60000 })), me: user.id });
@@ -682,6 +701,8 @@ export function createApp(pool, config) {
           if (sub === 'read') { await seen(); await pool.query('UPDATE manager_presence SET read_at=now(),seen_at=now() WHERE company_id=$1 AND user_id=$2', [companyId, user.id]); return json(res, 200, { ok: true }); }
           requireThat(!sub && member.role !== 'viewer', 403, 'Viewers cannot write in the chat.');
           const channel = channelOf(input.channel);
+          const dm = dmOf(channel);
+          if (dm) { const { rowCount } = await pool.query('SELECT 1 FROM manager_memberships WHERE company_id=$1 AND user_id=ANY($2::uuid[])', [companyId, dm]); requireThat(rowCount === 2, 404, 'That person is not in this workspace.'); }
           const bodyText = typeof input.body === 'string' ? input.body.slice(0, 8000) : '', fileId = input.fileId ? uuid(input.fileId) : null;
           requireThat(bodyText.trim() || fileId, 400, 'Write something.');
           if (fileId) { const { rowCount } = await pool.query('SELECT 1 FROM manager_team_files WHERE id=$1 AND company_id=$2', [fileId, companyId]); requireThat(rowCount, 404, 'File not found.'); }
