@@ -169,7 +169,7 @@ const api = {
     /** Sharing the screen needs macOS Screen Recording permission: called when it is missing (Settings was opened). */
     onScreenPermission: (cb: () => void) => { const h = () => cb(); ipcRenderer.on('screen:permission', h); return () => { ipcRenderer.removeListener('screen:permission', h) } },
     chat: (company: string, after?: string, typing?: string, pending?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:chat', company, after, typing, pending, channel),
-    channels: (company: string): Promise<{ team: boolean; channels: string[]; latest?: Record<string, { at: string; from: string; fromName: string; body: string }>; dms?: { channel: string; id: string; name: string }[]; me?: string }> => ipcRenderer.invoke('team:channels', company),
+    channels: (company: string): Promise<{ team: boolean; channels: string[]; latest?: Record<string, { at: string; from: string; fromName: string; body: string }>; dms?: { channel: string; id: string; name: string }[]; groups?: { channel: string; name: string; members: string[] }[]; me?: string }> => ipcRenderer.invoke('team:channels', company),
     send: (company: string, body: string, fileId?: string, channel?: string): Promise<any> => ipcRenderer.invoke('team:send', company, body, fileId, channel),
     signal: (company: string, kind: 'typing' | 'read'): Promise<void> => ipcRenderer.invoke('team:signal', company, kind),
     call: (company: string, after?: string): Promise<any> => ipcRenderer.invoke('team:call', company, after),

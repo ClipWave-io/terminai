@@ -207,6 +207,11 @@ export async function migrate(pool) {
         created_at timestamptz NOT NULL DEFAULT now(), answered_at timestamptz, answered_by uuid, declined boolean NOT NULL DEFAULT false,
         ended_at timestamptz, PRIMARY KEY (company_id, call_id)
       );
+      -- Group chats anyone can start, with a name and the people in it: channel 'g:<id>' in manager_chat.
+      CREATE TABLE IF NOT EXISTS manager_chat_groups (
+        id uuid PRIMARY KEY, company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, name text NOT NULL,
+        members uuid[] NOT NULL, created_by uuid REFERENCES manager_users ON DELETE SET NULL, created_at timestamptz NOT NULL DEFAULT now()
+      );
       CREATE TABLE IF NOT EXISTS manager_presence (
         company_id uuid NOT NULL REFERENCES manager_companies ON DELETE CASCADE, user_id uuid NOT NULL REFERENCES manager_users ON DELETE CASCADE,
         seen_at timestamptz NOT NULL DEFAULT now(), typing_until timestamptz, read_at timestamptz, PRIMARY KEY (company_id,user_id)

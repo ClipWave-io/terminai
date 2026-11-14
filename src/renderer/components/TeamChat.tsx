@@ -15,8 +15,9 @@ type Message = { id: string; body: string; at: string; from: string; fromName: s
 type TeamFile = { id: string; folder?: string; shared?: boolean; name: string; mime: string; size: number; access: 'all' | 'admins' | 'products'; products: string[] | null; by: string; byName?: string; createdAt: string; fromChat: boolean }
 
 type Dm = { channel: string; id: string; name: string }
-type Channels = { team: boolean; channels: string[]; latest?: Record<string, { at: string; from: string; fromName: string; body: string }>; dms?: Dm[]; me?: string }
-type ChatItem = { c: string; label: string; dm?: Dm; unread?: boolean; at?: string }
+type Group = { channel: string; name: string; members: string[] }
+type Channels = { team: boolean; channels: string[]; latest?: Record<string, { at: string; from: string; fromName: string; body: string }>; dms?: Dm[]; groups?: Group[]; me?: string }
+type ChatItem = { c: string; label: string; dm?: Dm; group?: Group; unread?: boolean; at?: string }
 const cache = { get: <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : d } catch { return d } }, set: (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} } }
 
 const P: Record<string, string> = {
@@ -99,7 +100,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const [messages, setMessages] = useState<Message[]>(() => cache.get(`${key}:m`, []))
   const [people, setPeople] = useState<Person[]>(() => cache.get(`${key}:p`, []))
   const [me, setMe] = useState<string>(() => cache.get(`${key}:me`, ''))
-  const [view, setView] = useState<'chat' | 'files' | 'people'>('chat')
+  const [view, setView] = useState<'chat' | 'files' | 'people' | 'live'>('chat')
   const [lastRead, setLastRead] = useState<string>(() => cache.get(`${key}:read`, ''))
   const lastReadRef = useRef(lastRead); lastReadRef.current = lastRead
   const [offline, setOffline] = useState(false)
@@ -156,8 +157,8 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
   const myId = channels.me || me
   const dmList = useMemo(() => { const all = new Map<string, Dm>(); for (const d of [...openedDms, ...(channels.dms ?? [])]) all.set(d.channel, d); return [...all.values()] }, [openedDms, channels.dms])
   const chats = useMemo(() => {
-    const base: ChatItem[] = [...(channels.team ? [{ c: '', label: 'Team' }] : []), ...channels.channels.map(c => ({ c, label: c })), ...dmList.map(d => ({ c: d.channel, label: d.name, dm: d }))]
-    if (channel && !base.some(x => x.c === channel)) base.push({ c: channel, label: channel.startsWith('dm:') ? 'Direct message' : channel })
+    const base: ChatItem[] = [...(channels.team ? [{ c: '', label: 'Team' }] : []), ...channels.channels.map(c => ({ c, label: c })), ...(channels.groups ?? []).map(g => ({ c: g.channel, label: g.name, group: g })), ...dmList.map(d => ({ c: d.channel, label: d.name, dm: d }))]
+    if (channel && !base.some(x => x.c === channel)) base.push({ c: channel, label: channel.startsWith('dm:') ? 'Direct message' : channel.startsWith('g:') ? 'Group' : channel })
     const latest = channels.latest ?? {}
     const unreadOf = (c: string) => c === channel ? unreadHere > 0 : !!latest[c] && latest[c].from !== myId && latest[c].at > cache.get(`${keyOf(c)}:read`, '')
     const marked = base.map((x, i) => ({ ...x, unread: unreadOf(x.c), at: latest[x.c]?.at ?? '', i }))
@@ -172,6 +173,14 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
     pick(d.channel); setView('chat'); setSearching(false)
   }
   const [searching, setSearching] = useState(false)
+  // A new group chat (or people added to the open one): its name and who is in it.
+  const [groupForm, setGroupForm] = useState<null | { id?: string }>(null)
+  const saveGroup = async (name: string, members: string[]) => {
+    const r = await window.term.workspace.request(`/api/companies/${company}/chat/groups`, 'POST', groupForm?.id ? { id: groupForm.id, name, add: members } : { name, members })
+    setGroupForm(null); setSearching(false); window.dispatchEvent(new Event('tc:channels'))
+    if (r?.channel) { pick(r.channel); setView('chat') }
+  }
+  const openGroup = channels.groups?.find(g => g.channel === channel)
 
   const send = async (body: string, fileId?: string) => {
     const temp: Message = { id: `tmp-${Date.now()}`, body, at: new Date().toISOString(), from: meRef.current, fromName: 'You', file: null, pending: true }
@@ -197,7 +206,7 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
     <header className="tc-head">
       <span className="tc-faces" aria-hidden="true">{(others.length ? others : people).slice(0, 4).map(p => <Avatar key={p.id} id={p.id} name={p.name} size={30} online={p.online} />)}</span>
       <div className="tc-who"><strong>{title}</strong><small className={typingNow.length ? 'typing' : ''}>{sub}</small></div>
-      <div className="tc-tabs" role="tablist">{(['chat', 'files', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : v === 'files' ? 'Files' : 'People'}</button>)}</div>
+      <div className="tc-tabs" role="tablist">{(['chat', 'live', 'files', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'chat' ? 'Chat' : v === 'live' ? 'Live' : v === 'files' ? 'Files' : 'People'}</button>)}</div>
       {others.length > 0 && calls.phase === 'idle' && <span className="tc-calls">
         <button className="tc-x" title={`Voice call ${callTitle}`} aria-label="Voice call" onClick={() => void calls.start(false, dmWith)}><CallIcon n="phone" s={17} /></button>
         <button className="tc-x" title={`Video call ${callTitle}`} aria-label="Video call" onClick={() => void calls.start(true, dmWith)}><CallIcon n="video" s={17} /></button>
@@ -206,20 +215,73 @@ function Team({ company, admin, open, onClose, onUnread }: { company: string; ad
       <button className={`tc-x tc-bell${sound ? '' : ' off'}`} title={sound ? 'Chat sound on: click to mute' : 'Chat sound off: click to turn it on'} aria-label={sound ? 'Mute chat sound' : 'Turn chat sound on'} aria-pressed={sound} onClick={toggleSound}><Ico n={sound ? 'bell' : 'bellOff'} s={17} /></button>
       <button className="tc-x" title="Close" aria-label="Close" onClick={onClose}><Ico n="close" /></button>
     </header>
-    {searching && <Search company={company} me={myId} chats={chats} keyOf={keyOf} onPick={c => { pick(c); setView('chat'); setSearching(false) }} onPerson={openDm} onClose={() => setSearching(false)} />}
-    {!searching && view === 'chat' && chats.length > 1 && <div className="tc-channels" role="tablist" aria-label="Chats">
+    {groupForm && <GroupForm company={company} me={myId} group={groupForm.id ? openGroup : undefined} onSave={(n, m) => void saveGroup(n, m).catch(e => alertLine(String((e as Error).message ?? e)))} onClose={() => setGroupForm(null)} />}
+    {!groupForm && searching && <Search company={company} me={myId} chats={chats} keyOf={keyOf} onPick={c => { pick(c); setView('chat'); setSearching(false) }} onPerson={openDm} onNewGroup={() => setGroupForm({})} onClose={() => setSearching(false)} />}
+    {!searching && !groupForm && view === 'chat' && <div className="tc-channels" role="tablist" aria-label="Chats">
       {chats.map(x => <button key={x.c} role="tab" aria-selected={channel === x.c} className={`${channel === x.c ? 'on' : ''}${x.unread && channel !== x.c ? ' unread' : ''}${x.dm ? ' dm' : ''}`} title={x.unread && channel !== x.c ? `${x.label}: new messages` : x.label} onClick={() => pick(x.c)}>
-        {x.dm && <Avatar id={x.dm.id} name={x.dm.name} size={16} />}{x.label}</button>)}
+        {x.dm && <Avatar id={x.dm.id} name={x.dm.name} size={16} />}{x.group && <Ico n="group" s={13} />}{x.label}</button>)}
+      <button className="tc-newgroup" title="New group chat" aria-label="New group chat" onClick={() => setGroupForm({})}>+</button>
+      {openGroup && <button className="tc-newgroup" title={`Rename ${openGroup.name} or add people`} aria-label="Edit group" onClick={() => setGroupForm({ id: openGroup.channel.slice(2) })}>⋯</button>}
     </div>}
     {notice && <div className="tc-notice">{notice}</div>}
-    {searching ? null : view === 'chat' ? <Chat key={key} draftKey={`${key}:draft`} company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
+    {searching || groupForm ? null : view === 'chat' ? <Chat key={key} draftKey={`${key}:draft`} company={company} messages={messages} me={me} others={others} onSend={send} onShare={share} />
+      : view === 'live' ? <LiveSessions company={company} me={myId} />
       : view === 'files' ? <Files company={company} admin={admin} me={me} onError={alertLine} />
       : <PeoplePanel company={company} me={me} onError={e => alertLine(String((e as Error).message ?? e))} online={id => people.find(p => p.id === id)?.online} onMessage={openDm} />}
   </aside></>
 }
 
+/** Live: every TerminAI conversation running right now across the team (what each person shares), by person, with its
+ *  state; a click shows its last turns. */
+type Live = { id: string; title: string; ownerId?: string; owner_id?: string; ownerName?: string; status?: string | null; live?: boolean; tab?: boolean; updatedAt?: string }
+const STATE: Record<string, string> = { working: 'Working', question: 'Needs an answer', waiting: 'Waiting', idle: 'Idle', paused: 'Paused', done: 'Done' }
+function LiveSessions({ company, me }: { company: string; me: string }): JSX.Element {
+  const [rows, setRows] = useState<Live[] | null>(() => cache.get(`tc:${company}:live`, null))
+  const [open, setOpen] = useState(''), [turns, setTurns] = useState<{ id: string; kind: string; content: string }[]>([])
+  useEffect(() => {
+    const load = () => void window.term.workspace.request(`/api/companies/${company}/conversations`).then(v => { const list = (Array.isArray(v) ? v : v.conversations ?? v.items ?? []) as Live[]; const live = list.filter(c => c.live); setRows(live); cache.set(`tc:${company}:live`, live) }).catch(() => {})
+    load(); const t = window.setInterval(load, 8000); return () => window.clearInterval(t)
+  }, [company])
+  useEffect(() => {
+    if (!open) return; let stop = false
+    const load = () => void window.term.workspace.request(`/api/companies/${company}/conversations/${open}/messages`).then(v => { if (!stop) setTurns(((Array.isArray(v) ? v : v.messages ?? v.items ?? []) as { id: string; kind: string; content: string }[]).slice(-6)) }).catch(() => {})
+    load(); const t = window.setInterval(load, 5000); return () => { stop = true; window.clearInterval(t) }
+  }, [company, open])
+  if (!rows) return <p className="tc-empty">Loading…</p>
+  if (!rows.length) return <p className="tc-empty">No conversation is running right now.</p>
+  const owner = (c: Live) => c.ownerId ?? c.owner_id ?? ''
+  const people = [...new Set(rows.map(owner))].sort((a, b) => a === me ? -1 : b === me ? 1 : 0)
+  return <div className="tc-live">{people.map(p => { const mine = rows.filter(c => owner(c) === p); return <section key={p}>
+    <h4>{p === me ? 'You' : mine[0].ownerName ?? 'Someone'} · {mine.length} running</h4>
+    {mine.map(c => <div key={c.id} className={`tc-live-row${open === c.id ? ' open' : ''}`}>
+      <button onClick={() => { setTurns([]); setOpen(open === c.id ? '' : c.id) }}>
+        <span className={`tc-live-dot ${c.status ?? 'idle'}`} aria-hidden="true" /><span className="tc-live-title">{c.title.replace(/^[✳◐◑◒◓⠂⠐·]\s*/, '')}</span><small>{STATE[c.status ?? ''] ?? 'Running'}</small></button>
+      {open === c.id && <div className="tc-live-turns">{turns.length ? turns.map(t => <p key={t.id} className={t.kind}><b>{t.kind === 'user' ? 'Asked' : t.kind === 'assistant' ? 'Answer' : t.kind}</b> {t.content.slice(0, 400)}</p>) : <p className="tc-empty">No turns shared yet.</p>}</div>}
+    </div>)}</section> })}</div>
+}
+
+/** A new group chat: a name and the people in it. For an open group: rename it and add more people. */
+function GroupForm({ company, me, group, onSave, onClose }: { company: string; me: string; group?: Group; onSave: (name: string, members: string[]) => void; onClose: () => void }): JSX.Element {
+  const [name, setName] = useState(group?.name ?? ''), [picked, setPicked] = useState<string[]>([])
+  const [members, setMembers] = useState<{ id: string; name: string }[]>(() => cache.get(`tc:${company}:members`, []))
+  useEffect(() => { void window.term.workspace.request(`/api/companies/${company}/members`).then(v => setMembers((v.members ?? []).map((x: { id: string; name: string }) => ({ id: x.id, name: x.name })))).catch(() => {}) }, [company])
+  const others = members.filter(m => m.id !== me && !group?.members.includes(m.id))
+  return <div className="tc-search tc-group-form">
+    <div className="tc-search-box"><Ico n="group" s={15} /><input autoFocus value={name} placeholder="Name of the group chat" maxLength={80} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') onClose(); if (e.key === 'Enter' && name.trim()) onSave(name.trim(), picked) }} />
+      <button className="tc-x" aria-label="Cancel" onClick={onClose}><Ico n="close" s={14} /></button></div>
+    <div className="tc-search-list">
+      {group && <p className="tc-empty">In it: {group.members.map(id => members.find(m => m.id === id)?.name ?? 'someone').join(', ')}</p>}
+      <h4>{group ? 'Add people' : 'People in it'}</h4>
+      {others.map(p => <button key={p.id} className={picked.includes(p.id) ? 'on' : ''} aria-pressed={picked.includes(p.id)} onClick={() => setPicked(v => v.includes(p.id) ? v.filter(x => x !== p.id) : [...v, p.id])}>
+        <Avatar id={p.id} name={p.name} size={22} /><span>{p.name}</span><small>{picked.includes(p.id) ? '✓ added' : 'Add'}</small></button>)}
+      {!others.length && <p className="tc-empty">Everyone is already in it.</p>}
+      <div className="tc-group-actions"><button className="btn primary" disabled={!name.trim()} onClick={() => onSave(name.trim(), picked)}>{group ? 'Save' : 'Start group chat'}</button></div>
+    </div>
+  </div>
+}
+
 /** One search for the drawer: chats by name, people (a click opens a one-to-one chat) and the messages kept on this Mac. */
-function Search({ company, me, chats, keyOf, onPick, onPerson, onClose }: { company: string; me: string; chats: ChatItem[]; keyOf: (c: string) => string; onPick: (c: string) => void; onPerson: (p: { id: string; name: string }) => void; onClose: () => void }): JSX.Element {
+function Search({ company, me, chats, keyOf, onPick, onPerson, onNewGroup, onClose }: { company: string; me: string; chats: ChatItem[]; keyOf: (c: string) => string; onPick: (c: string) => void; onPerson: (p: { id: string; name: string }) => void; onNewGroup: () => void; onClose: () => void }): JSX.Element {
   const [q, setQ] = useState('')
   const [members, setMembers] = useState<{ id: string; name: string; email?: string }[]>(() => cache.get(`tc:${company}:members`, []))
   useEffect(() => { void window.term.workspace.request(`/api/companies/${company}/members`).then(v => { const m = (v.members ?? []).map((x: { id: string; name: string; email?: string }) => ({ id: x.id, name: x.name, email: x.email })); setMembers(m); cache.set(`tc:${company}:members`, m) }).catch(() => {}) }, [company])
@@ -233,8 +295,9 @@ function Search({ company, me, chats, keyOf, onPick, onPerson, onClose }: { comp
     <div className="tc-search-box"><Ico n="search" s={15} /><input autoFocus value={q} placeholder="Search chats, people and messages" onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') onClose() }} />
       <button className="tc-x" aria-label="Close search" onClick={onClose}><Ico n="close" s={14} /></button></div>
     <div className="tc-search-list">
+      {!t && <button onClick={onNewGroup}><span className="tc-search-hash">+</span><span>New group chat</span></button>}
       {chatHits.length > 0 && <><h4>Chats</h4>{chatHits.map(x => <button key={x.c} className={x.unread ? 'unread' : ''} onClick={() => onPick(x.c)}>
-        {x.dm ? <Avatar id={x.dm.id} name={x.dm.name} size={22} /> : <span className="tc-search-hash">#</span>}<span>{x.label}</span>{x.unread && <em>new</em>}</button>)}</>}
+        {x.dm ? <Avatar id={x.dm.id} name={x.dm.name} size={22} /> : <span className="tc-search-hash">{x.group ? <Ico n="group" s={13} /> : '#'}</span>}<span>{x.label}</span>{x.unread && <em>new</em>}</button>)}</>}
       {people.length > 0 && <><h4>People</h4>{people.map(p => <button key={p.id} onClick={() => onPerson(p)}><Avatar id={p.id} name={p.name} size={22} /><span>{p.name}</span><small>Message</small></button>)}</>}
       {found.length > 0 && <><h4>Messages</h4>{found.map(({ chat, m }) => <button key={`${chat.c}-${m.id}`} className="tc-search-msg" onClick={() => onPick(chat.c)}>
         <span><b>{m.fromName}</b> · {chat.label} · {dayLabel(m.at)} {clock(m.at)}</span><span>{mark(m.body)}</span></button>)}</>}

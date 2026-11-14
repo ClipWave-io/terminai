@@ -73,6 +73,19 @@ test('invites limited to a product, and product chats', { skip: !databaseUrl }, 
   assert.equal((await request(`${base}/chat/channels`, { token: fritz.token })).body.latest[dm], undefined, 'nor in his list');
   assert.equal((await request(`${base}/chat/channels`, { token: ilai.token })).body.latest[''].body, 'team only: salaries');
   assert.equal((await request(`${base}/chat`, { token: ilai.token, method: 'POST', data: { body: 'x', channel: `dm:${[ids.Ilai, randomUUID()].sort().join(':')}` } })).status, 404, 'not to someone outside the workspace');
+  // Group chats: Sofia starts "Outreach" with Ilai; Fritz is not in it until added, then he reads it.
+  const grp = await request(`${base}/chat/groups`, { token: sofia.token, method: 'POST', data: { name: 'Outreach', members: [ids.Ilai, randomUUID()] } });
+  assert.equal(grp.status, 200); assert.deepEqual([...grp.body.members].sort(), [ids.Ilai, ids.Sofia].sort(), 'strangers are dropped');
+  assert.equal((await request(`${base}/chat`, { token: ilai.token, method: 'POST', data: { body: 'group hello', channel: grp.body.channel } })).status, 200);
+  assert.equal((await request(`${base}/chat?channel=${grp.body.channel}`, { token: fritz.token })).status, 403);
+  assert.equal((await request(`${base}/chat/channels`, { token: fritz.token })).body.latest[grp.body.channel], undefined);
+  const gid = grp.body.channel.slice(2);
+  assert.equal((await request(`${base}/chat/groups`, { token: fritz.token, method: 'POST', data: { id: gid, add: [ids.Fritz] } })).status, 403, 'only members add people');
+  assert.equal((await request(`${base}/chat/groups`, { token: ilai.token, method: 'POST', data: { id: gid, add: [ids.Fritz], name: 'Outreach team' } })).status, 200);
+  assert.deepEqual((await request(`${base}/chat?channel=${grp.body.channel}`, { token: fritz.token })).body.messages.map(m => m.body), ['group hello']);
+  const fch = (await request(`${base}/chat/channels`, { token: fritz.token })).body;
+  assert.equal(fch.groups[0].name, 'Outreach team'); assert.equal(fch.latest[grp.body.channel].body, 'group hello');
+  assert.equal((await request(`${base}/chat/groups`, { token: sofia.token, method: 'POST', data: { name: '' } })).status, 400);
   // Task columns: a member cannot take a column someone else holds; an admin can reassign it.
   assert.equal((await request(`${base}/tasks/people`, { token: ilai.token, method: 'PUT', data: { key: 'ilai' } })).status, 200);
   const grab = await request(`${base}/tasks/people`, { token: sofia.token, method: 'PUT', data: { key: 'ilai' } });

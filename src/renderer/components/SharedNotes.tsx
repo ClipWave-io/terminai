@@ -21,7 +21,7 @@ const kindOf = (f: WorkspaceNoteFile) => f.mime.startsWith('image/') ? 'IMG' : f
   : (f.name.split('.').pop() ?? '').slice(0, 4).toUpperCase() || 'FILE'
 
 /** product: the product the To-do header picked ('' all); onProducts: the products the notes use, for that header's menu. */
-export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () => void; product?: string; onProducts?: (products: string[]) => void }) {
+export function SharedNotes({ onSync, product = '', onProducts, known = [] }: { onSync: () => void; product?: string; onProducts?: (products: string[]) => void; known?: string[] }) {
   // Hooks first, before any early return (one placed after them blanked the whole window when Notes opened).
   const assigned = useAssignedProducts()
   const [state, setState] = useState<WorkspaceState | null>(null)
@@ -36,6 +36,8 @@ export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () =
   const [uploading, setUploading] = useState(0)
   // Above every early return, like all hooks here (one placed below them blanked the window).
   const products = [...new Set([...assigned, ...notes.map(n => n.product || '').filter(Boolean)])].sort()
+  // A note's own product menu: every product the To-do knows too, the same list as the header's.
+  const choices = [...new Set([...products, ...known])].sort((a, b) => a.localeCompare(b))
   useEffect(() => { onProducts?.(products) }, [products.join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
   const [over, setOver] = useState(false)
   const [asking, setAsking] = useState(false)
@@ -150,7 +152,7 @@ export function SharedNotes({ onSync, product = '', onProducts }: { onSync: () =
           {note && (newProduct === null
             ? <select className="snotes-product" aria-label="Product of this note" value={note.product ?? ''} key={note.id}
                 onChange={e => { const v = e.target.value; if (v === '\u0000new') { setNewProduct(''); return } if (v !== (note.product ?? '')) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) }}>
-                <option value="">No product</option>{[...new Set([...products, ...(note.product ? [note.product] : [])])].map(p => <option key={p} value={p}>{p}</option>)}
+                <option value="">No product</option>{[...new Set([...choices, ...(note.product ? [note.product] : [])])].map(p => <option key={p} value={p}>{p}</option>)}
                 <option value={'\u0000new'}>New product…</option></select>
             : <input className="snotes-product" autoFocus placeholder="New product name, then Return" value={newProduct} onChange={e => setNewProduct(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Escape') setNewProduct(null); if (e.key === 'Enter') { const v = newProduct.trim(); setNewProduct(null); if (v) void window.term.workspace.request(`${base}/${note.id}`, 'PATCH', { product: v }).then(load).catch(fail) } }}

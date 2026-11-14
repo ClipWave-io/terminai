@@ -639,11 +639,37 @@ export function createApp(pool, config) {
         // One-to-one chats: 'dm:<id>:<id>', the two ids in order. Only those two read and write it (admins too: it is private),
         // whatever products they are limited to.
         const dmOf = c => { const m = /^dm:([0-9a-f-]{36}):([0-9a-f-]{36})$/.exec(c); return m && m[1] < m[2] ? [m[1], m[2]] : null; };
+        // Group chats: 'g:<id>', only for the people in it (admins too need to be added).
+        const groupOf = async c => { const m = /^g:([0-9a-f-]{36})$/.exec(c); if (!m) return null; const { rows: [g] } = await pool.query('SELECT * FROM manager_chat_groups WHERE id=$1 AND company_id=$2', [m[1], companyId]); return g || null; };
+        const inGroup = async c => { if (!c.startsWith('g:')) return null; const g = await groupOf(c); requireThat(g && g.members.includes(user.id), 403, 'You are not in that chat.'); return g; };
         const channelOf = v => {
           const c = typeof v === 'string' ? v.trim().slice(0, 100) : '';
+          if (c.startsWith('g:')) return c;
           if (c.startsWith('dm:')) { const d = dmOf(c); requireThat(d && d.includes(user.id), 403, 'You are not in that chat.'); return c; }
           requireThat(!limited || (c && channels.includes(c)), 403, 'You are not in that chat.'); return c;
         };
+        if (kind === 'chat' && sub === 'groups' && req.method === 'POST') {
+          // Start a group ({name, members}) or change one ({id, name?, add?, leave?}); anyone in it can rename it or add people.
+          requireThat(member.role !== 'viewer', 403, 'Viewers cannot start chats.');
+          const input = await body(req);
+          const name = typeof input.name === 'string' ? input.name.trim().slice(0, 80) : undefined;
+          const ids = list => Array.isArray(list) ? [...new Set(list.filter(x => typeof x === 'string').map(x => uuid(x)))] : [];
+          const known = async list => { if (!list.length) return []; const { rows } = await pool.query('SELECT user_id FROM manager_memberships WHERE company_id=$1 AND user_id=ANY($2::uuid[])', [companyId, list]); return rows.map(r => r.user_id); };
+          if (!input.id) {
+            requireThat(name, 400, 'Give the chat a name.');
+            const members = [...new Set([user.id, ...(await known(ids(input.members)))])];
+            const id = randomUUID();
+            await pool.query('INSERT INTO manager_chat_groups(id,company_id,name,members,created_by) VALUES($1,$2,$3,$4,$5)', [id, companyId, name, members, user.id]);
+            return json(res, 200, { channel: `g:${id}`, name, members });
+          }
+          const g = await inGroup(`g:${uuid(input.id)}`);
+          let members = g.members;
+          if (input.leave) members = members.filter(x => x !== user.id);
+          else members = [...new Set([...members, ...(await known(ids(input.add)))])];
+          if (!members.length) { await pool.query('DELETE FROM manager_chat_groups WHERE id=$1', [g.id]); return json(res, 200, { ok: true, gone: true }); }
+          await pool.query('UPDATE manager_chat_groups SET name=coalesce($2,name), members=$3 WHERE id=$1', [g.id, name || null, members]);
+          return json(res, 200, { channel: `g:${g.id}`, name: name || g.name, members });
+        }
         if (kind === 'chat' && sub === 'channels' && req.method === 'GET') {
           const { rows } = await pool.query("SELECT channel, max(created_at) AS last FROM manager_chat WHERE company_id=$1 AND channel<>'' GROUP BY channel", [companyId]);
           // Every product has its chat: the products of the To-do and the notes, and any given to someone, to an open
@@ -654,23 +680,26 @@ export function createApp(pool, config) {
             UNION SELECT DISTINCT unnest(products) AS p FROM manager_memberships WHERE company_id=$1 AND products IS NOT NULL
             UNION SELECT DISTINCT unnest(products) FROM manager_invites WHERE company_id=$1 AND products IS NOT NULL AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>now()
             UNION SELECT DISTINCT unnest(products) FROM manager_invite_links WHERE company_id=$1 AND products IS NOT NULL AND revoked_at IS NULL AND expires_at>now()`, [companyId]);
-          const all = [...new Set([...rows.map(r => r.channel), ...ps.map(r => r.p)])].filter(c => !c.startsWith('dm:') && (!limited || channels.includes(c))).sort();
+          const all = [...new Set([...rows.map(r => r.channel), ...ps.map(r => r.p)])].filter(c => !c.startsWith('dm:') && !c.startsWith('g:') && (!limited || channels.includes(c))).sort();
           // The newest message of every chat this person is in, so the app marks the ones with something unread (and names
           // who wrote it) without opening them.
           const { rows: news } = await pool.query(`SELECT DISTINCT ON (c.channel) c.channel,c.created_at,c.from_user,u.name,left(c.body,140) AS body,c.call IS NOT NULL AS call,c.file_id IS NOT NULL AS file
-              FROM manager_chat c JOIN manager_users u ON u.id=c.from_user WHERE c.company_id=$1 AND (c.channel NOT LIKE 'dm:%' OR c.channel LIKE $2 OR c.channel LIKE $3) ORDER BY c.channel, c.created_at DESC`,
-            [companyId, `dm:${user.id}:%`, `dm:%:${user.id}`]);
-          const mine = c => c.startsWith('dm:') ? !!dmOf(c) : c === '' ? !limited : all.includes(c);
+              FROM manager_chat c JOIN manager_users u ON u.id=c.from_user WHERE c.company_id=$1 AND (c.channel NOT LIKE 'dm:%' OR c.channel LIKE $2 OR c.channel LIKE $3) AND (c.channel NOT LIKE 'g:%' OR substr(c.channel,3) IN (SELECT id::text FROM manager_chat_groups WHERE company_id=$1 AND $4 = ANY(members))) ORDER BY c.channel, c.created_at DESC`,
+            [companyId, `dm:${user.id}:%`, `dm:%:${user.id}`, user.id]);
+          const { rows: grs } = await pool.query('SELECT id,name,members FROM manager_chat_groups WHERE company_id=$1 AND $2 = ANY(members) ORDER BY created_at', [companyId, user.id]);
+          const groups = grs.map(g => ({ channel: `g:${g.id}`, name: g.name, members: g.members }));
+          const mine = c => c.startsWith('g:') ? groups.some(g => g.channel === c) : c.startsWith('dm:') ? !!dmOf(c) : c === '' ? !limited : all.includes(c);
           const latest = Object.fromEntries(news.filter(r => mine(r.channel)).map(r => [r.channel, { at: r.created_at, from: r.from_user, fromName: r.name, body: r.call ? 'Call' : r.body || (r.file ? 'Sent a file' : '') }]));
           // One-to-one chats with someone still in this workspace, named after the other person.
           const dmIds = news.map(r => dmOf(r.channel)).filter(Boolean).map(d => d[0] === user.id ? d[1] : d[0]);
           const { rows: dmPeople } = dmIds.length ? await pool.query('SELECT u.id,u.name FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1 AND u.id=ANY($2::uuid[])', [companyId, dmIds]) : { rows: [] };
           const dms = dmPeople.map(p => ({ channel: `dm:${[user.id, p.id].sort().join(':')}`, id: p.id, name: p.name }));
-          return json(res, 200, { team: !limited, channels: all, last: Object.fromEntries(rows.filter(r => !r.channel.startsWith('dm:')).map(r => [r.channel, r.last])), latest, dms, me: user.id });
+          return json(res, 200, { team: !limited, channels: all, last: Object.fromEntries(rows.filter(r => !r.channel.startsWith('dm:') && !r.channel.startsWith('g:')).map(r => [r.channel, r.last])), latest, dms, groups, me: user.id });
         }
         if (kind === 'chat' && !sub && req.method === 'GET') {
           // Long poll: answers at once when there is something newer than `after`, else waits up to `wait` seconds.
           const channel = channelOf(url.searchParams.get('channel'));
+          const group = await inGroup(channel);
           const after = url.searchParams.get('after'), wait = Math.min(25, Math.max(0, Number(url.searchParams.get('wait')) || 0));
           requireThat(!after || Number.isFinite(Date.parse(after)), 400, 'Invalid cursor.');
           await seen();
@@ -683,8 +712,8 @@ export function createApp(pool, config) {
           // Delivered ticks: the sender's poll also answers once every other member's app has fetched since its newest unticked message.
           const pending = url.searchParams.get('pending'); requireThat(!pending || Number.isFinite(Date.parse(pending)), 400, 'Invalid cursor.');
           // Who is in this chat: admins, members of every product, and for a product's chat its members.
-          const dm = dmOf(channel), byCh = !!channel && !dm;
-          const inChat = dm ? `m.user_id IN ('${dm[0]}','${dm[1]}')` : `(m.role IN ('owner','admin') OR m.products IS NULL${channel ? ' OR $CH = ANY(m.products)' : ''})`;
+          const dm = dmOf(channel), byCh = !!channel && !dm && !group;
+          const inChat = group ? `m.user_id IN (${group.members.map(id => `'${id}'`).join(',')})` : dm ? `m.user_id IN ('${dm[0]}','${dm[1]}')` : `(m.role IN ('owner','admin') OR m.products IS NULL${channel ? ' OR $CH = ANY(m.products)' : ''})`;
           const delivered = async () => !!pending && !(await pool.query(`SELECT 1 FROM manager_memberships m LEFT JOIN manager_presence p ON p.company_id=m.company_id AND p.user_id=m.user_id WHERE m.company_id=$1 AND m.user_id<>$2 AND (p.seen_at IS NULL OR p.seen_at<$3) AND ${inChat.replace('$CH', '$4')} LIMIT 1`, byCh ? [companyId, user.id, pending, channel] : [companyId, user.id, pending])).rowCount;
           const until = Date.now() + wait * 1000;
           while (!rows.length && !closed && Date.now() < until && (await typingKey()) === typing0 && !(await delivered())) { await new Promise(r => setTimeout(r, 600)); rows = await fetchNew(); }
@@ -701,6 +730,7 @@ export function createApp(pool, config) {
           if (sub === 'read') { await seen(); await pool.query('UPDATE manager_presence SET read_at=now(),seen_at=now() WHERE company_id=$1 AND user_id=$2', [companyId, user.id]); return json(res, 200, { ok: true }); }
           requireThat(!sub && member.role !== 'viewer', 403, 'Viewers cannot write in the chat.');
           const channel = channelOf(input.channel);
+          await inGroup(channel);
           const dm = dmOf(channel);
           if (dm) { const { rowCount } = await pool.query('SELECT 1 FROM manager_memberships WHERE company_id=$1 AND user_id=ANY($2::uuid[])', [companyId, dm]); requireThat(rowCount === 2, 404, 'That person is not in this workspace.'); }
           const bodyText = typeof input.body === 'string' ? input.body.slice(0, 8000) : '', fileId = input.fileId ? uuid(input.fileId) : null;

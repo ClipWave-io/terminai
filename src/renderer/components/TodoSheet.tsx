@@ -615,7 +615,7 @@ export function TodoSheet({ user, team = true, onUser, onClose, onSync, tabs, on
         <p>Who are you on this Mac?</p>
         <div className="todo-who" role="group" aria-label="You are">{(['livio', 'ilai'] as const).map(name => <button key={name} className="btn" onClick={() => onUser(name)}>{NAME[name]}</button>)}</div>
         <p className="todo-muted">Saved on this Mac. It signs every change you make. Shared tasks sync with the other one through the build-tasks repo; private ones stay here.</p>
-      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} product={notesProduct} onProducts={setNotesProducts} /></article> : view === 'log' ? <article className="todo-note" aria-label="Work log"><WorkLog user={user} team={shareOn} /></article> : <article className="todo-note" aria-label="BUILD">
+      </div> : view === 'notes' ? <article className="todo-note" aria-label="Shared notes"><SharedNotes onSync={onSync} product={notesProduct} onProducts={setNotesProducts} known={products} /></article> : view === 'log' ? <article className="todo-note" aria-label="Work log"><WorkLog user={user} team={shareOn} /></article> : <article className="todo-note" aria-label="BUILD">
         {error && <p className="todo-error" role="alert">{error}</p>}
         {shareOn && sync?.error && <p className="todo-error" role="alert">{data?.server ? `Shared page: ${sync.error}` : /Failed to connect|Could not resolve|timed out|unable to access/.test(sync.error)
           ? 'Can’t reach GitHub right now, so Matteo’s Mac gets your changes later. Your phone and the website still sync.' : `Shared sync: ${sync.error}`}</p>}
