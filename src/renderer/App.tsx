@@ -40,10 +40,21 @@ import {
 } from '../shared/types'
 import type { JSX } from 'react'
 
-function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal' | 'todo' | 'chat'}) {
+function PaneIcon({kind}: {kind: 'browser' | 'files' | 'team' | 'terminal' | 'todo' | 'chat' | 'settings'}) {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind==='chat' ? <><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z"/></> : kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : kind==='todo' ? <><path d="M11 6h9M11 12h9M11 18h9"/><path d="m3.5 6 1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
+    {kind==='settings' ? <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></> : kind==='chat' ? <><path d="M20 11.5a7.5 7.5 0 0 1-11.1 6.6L4 19.5l1.4-4.6A7.5 7.5 0 1 1 20 11.5Z"/></> : kind==='browser' ? <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></> : kind==='files' ? <><path d="M4 3h10l5 5v13H4zM14 3v6h5M8 13h7M8 17h7"/></> : kind==='team' ? <><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 6"/></> : kind==='todo' ? <><path d="M11 6h9M11 12h9M11 18h9"/><path d="m3.5 6 1.5 1.5L8 4.5M3.5 12l1.5 1.5L8 10.5M3.5 18l1.5 1.5L8 16.5"/></> : <><path d="m5 6 6 6-6 6M13 18h6"/></>}
   </svg>
+}
+
+/** The sidebar button: a window with the sidebar strip on its side, and a chevron pointing where the sidebar will go
+ *  (out towards the edge to hide it, in to show it). */
+function SidebarIcon({ side, hidden }: { side: 'left' | 'right'; hidden: boolean }) {
+  const left = side === 'left', strip = left ? 'M9 4v16' : 'M15 4v16'
+  // Hiding a left sidebar moves it left; showing it brings it back right. Mirrored on the right.
+  const pointsLeft = left ? !hidden : hidden
+  const cx = left ? 15 : 9, chevron = pointsLeft ? `M${cx + 1.5} 9l-3 3 3 3` : `M${cx - 1.5} 9l3 3-3 3`
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" /><path d={strip} /><path d={chevron} /></svg>
 }
 
 const MAX_CLIPS = 12
@@ -192,7 +203,7 @@ export function App(): JSX.Element {
         onKeyDown={event => { if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); stepPane(pane, event.key === 'ArrowLeft' ? -1 : 1) } }}><PaneIcon kind={pane} /></button>
     }
     if (id === 'team') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Sync" title="Sync notes and conversations" onClick={() => setShowTeam(true)}><PaneIcon kind="team" /></button>
-    if (id === 'settings') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}>⚙</button>
+    if (id === 'settings') return <button key={id} className="btn icon no-drag" {...drag} aria-label="Settings" title="Settings  ⌘," aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}><PaneIcon kind="settings" /></button>
     if (id === 'notices') return <NoticeBell key={id} drag={drag} onOpen={openNotice} />
     // MacGuard (this Mac's memory guardian): its level as a coloured dot and how many chats it paused; opens its panel.
     if (id === 'macguard') return guard ? <button key={id} className="btn icon no-drag toolbar-guard" {...drag} aria-label={`MacGuard: ${guard.off ? 'paused' : guard.running ? ['OK', 'Warning', 'Critical'][guard.level] : 'not running'}${guard.paused.length ? `, ${guard.paused.length} paused` : ''}`} title={`MacGuard · ${guard.off ? `paused${guard.off.until ? ` until ${new Date(guard.off.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}` : guard.running ? ['OK', 'Warning', 'Critical'][guard.level] : 'not running'}${guard.paused.length ? ` · ${guard.paused.length} chat${guard.paused.length > 1 ? 's' : ''} paused` : ''}`} onClick={() => { setSettingsSection('macguard'); setShowSettings(true) }}>
@@ -205,7 +216,7 @@ export function App(): JSX.Element {
     if (id === 'todo') return <button key={id} className="btn icon no-drag todo-button" {...drag} aria-label={todosUnseen ? `To-do, ${todosUnseen} changed by the other person` : 'To-do'} title={todosUnseen ? `To-do · ${todosUnseen} changed` : 'To-do'} aria-pressed={showTodos} onClick={() => setShowTodos(value => !value)}><PaneIcon kind="todo" />{todosUnseen > 0 && <span className="todo-button-dot" aria-hidden="true" />}</button>
     if (id === 'maximize') return <button key={id} className="btn icon no-drag" {...drag} title="Maximise or restore window" aria-label="Maximise or restore window" onClick={() => void window.term.window.toggleMaximize()}>↗</button>
     if (id === 'sessions') return <button key={id} className="btn icon no-drag" {...drag} aria-label="All sessions" title="All sessions  ⌘G" onClick={() => setShowGrid(g => !g)}>⊞</button>
-    if (id === 'sidebar') return <button key={id} className="btn icon no-drag" {...drag} aria-label={prefs.railHidden ? 'Show sidebar' : 'Hide sidebar'} title={`${prefs.railHidden ? 'Show' : 'Hide'} sidebar  ⌘S`} onClick={() => patchPrefs({ railHidden: !prefs.railHidden })}>{prefs.railHidden ? '⇤' : '⇥'}</button>
+    if (id === 'sidebar') return <button key={id} className="btn icon no-drag" {...drag} aria-label={prefs.railHidden ? 'Show sidebar' : 'Hide sidebar'} title={`${prefs.railHidden ? 'Show' : 'Hide'} sidebar  ⌘S`} onClick={() => patchPrefs({ railHidden: !prefs.railHidden })}><SidebarIcon side={prefs.railSide === 'right' ? 'right' : 'left'} hidden={prefs.railHidden} /></button>
     return null
   }
   const toggleFiles = () => {
