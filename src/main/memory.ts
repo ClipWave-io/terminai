@@ -8,7 +8,7 @@ import * as ptys from './pty'
  * use, and how pressed the Mac is. Settings shows it; when macOS reports memory pressure, a notice names the tabs to close
  * before something gets killed.
  */
-export type MemoryReport = { at: string; totalMb: number; pressure: 'normal' | 'warning' | 'critical'; appMb: number; tabsMb: number; tabs: { id: string; mb: number; idle: boolean; asleep: boolean }[]
+export type MemoryReport = { at: string; totalMb: number; pressure: 'normal' | 'warning' | 'critical'; appMb: number; tabsMb: number; tabs: { id: string; mb: number; idle: boolean; asleep: boolean; running: boolean }[]
   /** the whole Mac: in use (apps, macOS itself, compressed), free, swap on disk, and the biggest other apps */
   usedMb: number; macosMb: number; compressedMb: number; swapMb: number; apps: { name: string; mb: number }[] }
 const run = (cmd: string, args: string[]) => new Promise<string>(resolve => execFile(cmd, args, { timeout: 5000, maxBuffer: 8 << 20 }, (_e, out) => resolve(String(out || ''))))
@@ -22,7 +22,7 @@ export async function memoryReport(): Promise<MemoryReport> {
   }
   const tree = (pid: number): number => { let kb = rss.get(pid) ?? 0; for (const c of kids.get(pid) ?? []) kb += tree(c); return kb }
   const tabs = ptys.liveIds().map(id => { const a = ptys.agentOf(id), st = ptys.statusOf(id)
-    return { id, mb: Math.round(tree(ptys.pidOf(id) || 0) / 1024), idle: a.alive && st !== 'working' && st !== 'question', asleep: false } }).sort((a, b) => b.mb - a.mb)
+    return { id, mb: Math.round(tree(ptys.pidOf(id) || 0) / 1024), idle: a.alive && st !== 'working' && st !== 'question', asleep: false, running: a.alive } }).sort((a, b) => b.mb - a.mb)
   const appMb = Math.round(app.getAppMetrics().reduce((n, p) => n + (p.memory?.workingSetSize ?? 0), 0) / 1024)
   const n = Number(level.trim())
   // The Mac as macOS counts it (vm_stat pages): in use = app memory + wired (macOS itself) + compressed; the rest is free or cache.

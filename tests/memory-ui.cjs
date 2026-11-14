@@ -11,8 +11,9 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
     const shot = n => win.webContents.capturePage(undefined, { stayHidden: true }).then(i => fs.writeFileSync(path.join(os.tmpdir(), `terminai-settings-${n}.png`), i.toPNG()))
     await shot('general')
     for (const n of ['Connections', 'Notifications']) { await js(`[...document.querySelectorAll('.team-side nav button')].find(b => b.textContent === '${n}').click()`); await delay(700); await shot(n.toLowerCase()) }
-    await js(`[...document.querySelectorAll('.team-side nav button')].find(b => b.textContent === 'Memory').click()`); await delay(2500)
-    const text = await js(`document.querySelector('.mem')?.innerText || ''`)
+    await js(`[...document.querySelectorAll('.team-side nav button')].find(b => b.textContent === 'Memory and MacGuard').click()`); await delay(2500)
+    fs.writeFileSync(path.join(os.tmpdir(), 'terminai-memory.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
+    const text = await js(`document.querySelector('.team-main')?.innerText || ''`)
     assert.match(text, /Memory[\s\S]*TerminAI sessions[\s\S]*Other apps[\s\S]*Free/)
     fs.writeFileSync(path.join(os.tmpdir(), 'terminai-memory.png'), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
     console.log('PASS memory panel: ' + text.split('\n').slice(0, 3).join(' | ')); app.exit(0)

@@ -156,7 +156,8 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       .catch(() => setElevenError('preview failed'))
   }
 
-  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'general')
+  // MacGuard lives on the Memory page now; old links to it land there.
+  const [section, setSection] = useState<SettingsSection>(initialSection === ('macguard' as SettingsSection) ? 'memory' : initialSection ?? 'general')
   const patchVoice = (p: Partial<Prefs['voice']>): void =>
     onChange({ voice: { ...prefs.voice, ...p } })
 
@@ -213,12 +214,8 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Preview" hint="Hear the current engine and voice."><button className="btn" onClick={preview}>Play sample</button></Row>
       <Row label="Volume"><input type="range" min={0} max={1} step={0.05} value={prefs.voice.volume} onChange={e => patchVoice({ volume: Number(e.target.value) })} /></Row>
     </div>),
-    memory: () => page('Memory', 'What your sessions and the rest of the Mac use.', <>
-      <div className="st-card">
-
-      </div>
-      <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><MemoryDetailPanel /><StoragePanel /></>),
-    macguard: () => page('MacGuard', 'This Mac\'s memory guardian: what it measures, the chats it paused, and what it did.', <GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} />),
+    memory: () => page('Memory and MacGuard', 'What your chats and the rest of the Mac use, pausing chats, MacGuard and the disk.', <>
+      <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} /><MemoryDetailPanel /><StoragePanel /></>),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />
       <div className="st-card"><div className="st-card-head"><strong>Sounds</strong><span>Pick which notifications make a sound. TerminAI plays them itself, so they ring even when macOS notifications are silent.</span></div>
@@ -257,7 +254,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
   )
 }
 
-type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'macguard' | 'notifications' | 'connections' | 'shortcuts'
+type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'notifications' | 'connections' | 'shortcuts'
 // One row of a card: what it is on the left, its control on the right. Defined out here, not inside SettingsSheet: a
 // component made anew on every render is a new type to React, so each re-render (the app polls its tabs every 800 ms)
 // rebuilt the row and closed an open dropdown or dropped the focus from a field.
@@ -269,8 +266,7 @@ const SECTIONS: [SettingsSection, string, string][] = [
   ['general', 'General', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z'],
   ['appearance', 'Appearance', 'M12 3a9 9 0 1 0 9 9c0-.8-.7-1.5-1.5-1.5H17a2.5 2.5 0 0 1 0-5h.5A1.5 1.5 0 0 0 19 4 9 9 0 0 0 12 3ZM7.5 11.5h.01M10 7.5h.01M15 7.5h.01'],
   ['voice', 'Voice', 'M4 9h4l5-4v14l-5-4H4ZM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12'],
-  ['memory', 'Memory', 'M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'],
-  ['macguard', 'MacGuard', 'M12 3l7 3v6c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6Z'],
+  ['memory', 'Memory and MacGuard', 'M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'],
   ['notifications', 'Notifications', 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15ZM10 20a2 2 0 0 0 4 0'],
   ['connections', 'Connections', 'M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1'],
   ['shortcuts', 'Shortcuts', 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10'],
@@ -295,9 +291,15 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
   const [all, setAll] = useState(false)
   const load = () => void window.term.window.memory().then(setR)
   useEffect(() => { load(); const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [])
+  // Paused by you (right-click › Pause, or here): nothing runs in it until resumed.
+  const [paused, setPaused] = useState<Record<string, string>>({})
+  useEffect(() => { void window.term.pty.paused().then(setPaused); return window.term.pty.onPaused(setPaused) }, [])
+  const pause = (id: string, on: boolean) => void window.term.pty.pause(id, on).then(setPaused)
   if (!r) return <></>
   const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
-  const max = Math.max(1, ...r.tabs.map(t => t.mb))
+  // Tabs with nothing running (Claude or Codex not started yet): about 1 MB each, nothing to pause; listed apart.
+  const live = r.tabs.filter(t => t.running !== false), idle = r.tabs.filter(t => t.running === false)
+  const max = Math.max(1, ...live.map(t => t.mb))
   const other = Math.max(0, r.usedMb - r.tabsMb - r.appMb - r.macosMb - r.compressedMb), free = Math.max(0, r.totalMb - r.usedMb)
   const parts: [string, number, string][] = [['TerminAI sessions', r.tabsMb, 'var(--accent)'], ['TerminAI app', r.appMb, 'color-mix(in srgb, var(--accent) 55%, var(--pane))'],
     ['Other apps', other, 'hsl(265 40% 62%)'], ['macOS', r.macosMb, 'var(--dim)'], ['Compressed', r.compressedMb, 'var(--warn)'], ['Free', free, 'transparent']]
@@ -312,12 +314,14 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
     <p className="hint">{r.pressure === 'normal' ? `${gb(r.usedMb)} of ${gb(r.totalMb)} in use.` : `${gb(r.usedMb)} of ${gb(r.totalMb)} in use: ${why}. `}
       {r.pressure !== 'normal' && <>Biggest other apps: {r.apps.slice(0, 3).map(a => `${a.name} ${gb(a.mb)}`).join(', ')}. </>}
       Idle sessions hold memory too, and the numbers below leave out the part macOS compressed.</p>
-    <div className="mem-list">{(all ? r.tabs : r.tabs.slice(0, 8)).map(t => { const tab = tabs.find(x => x.id === t.id); return <div key={t.id} className="mem-row">
-      <span className="mem-name" title={tab?.label}>{tab?.label ?? 'Session'}</span>
+    <p className="hint">Pause stops a chat from using the processor and lets macOS move its memory out of the way; only Close gives the memory back for good.</p>
+    <div className="mem-list">{(all ? live : live.slice(0, 8)).map(t => { const tab = tabs.find(x => x.id === t.id), on = !!paused[t.id]; return <div key={t.id} className={`mem-row${on ? ' paused' : ''}`}>
+      <span className="mem-name" title={tab?.label}>{tab?.label ?? 'Session'}{on && <em className="mem-tag"> · paused at {paused[t.id]}</em>}</span>
       <span className="mem-track"><i style={{ width: `${Math.max(2, (t.mb / max) * 100)}%` }} /></span><em>{gb(t.mb)}</em>
-      <span className="mem-acts">{tab && <><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
+      <span className="mem-acts">{tab && <><button className="todo-link" onClick={() => pause(tab.id, !on)}>{on ? 'Resume' : 'Pause'}</button><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
     </div> })}</div>
-    {r.tabs.length > 8 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${r.tabs.length}`}</button>}
+    {live.length > 8 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${live.length}`}</button>}
+    {idle.length > 0 && <p className="hint">{idle.length} more tab{idle.length === 1 ? '' : 's'} with nothing running (Claude or Codex not started), about {gb(idle.reduce((n, t) => n + t.mb, 0))} together: nothing to pause.</p>}
   </section>
 }
 
@@ -328,15 +332,15 @@ function MemoryDetailPanel(): JSX.Element {
   const [d, setD] = useState<D | null>(null), [busy, setBusy] = useState(false), [open, setOpen] = useState<string | null>(null)
   const [info, setInfo] = useState<P | null>(null), [msg, setMsg] = useState('')
   const load = () => { setBusy(true); void window.term.window.memoryDetail().then(setD).finally(() => setBusy(false)) }
+  // Measured as soon as the page opens, and again every 15 s while it stays open: no button to press first.
+  useEffect(() => { load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t) }, [])
   const gb = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
   const look = (pid: number) => { setMsg(''); void window.term.window.processInfo(pid).then(setInfo) }
   const stop = (pid: number, force: boolean) => void window.term.window.stopProcess(pid, force).then(m => { setMsg(m); setInfo(null); window.setTimeout(load, 800) })
-  if (!d) return <section className="mem"><div className="mem-head"><strong>What uses memory</strong>
-    <button className="btn" disabled={busy} onClick={load}>{busy ? 'Measuring…' : 'Show breakdown'}</button></div>
-    <p className="hint">Every app and macOS itself, with what each really holds, and a way to look inside or stop a process.</p></section>
+  if (!d) return <section className="mem"><div className="mem-head"><strong>What uses memory</strong><span className="hint">Measuring…</span></div></section>
   const total = d.groups.reduce((n, g) => n + g.mb, 0), max = Math.max(1, ...d.groups.map(g => g.mb))
   return <section className="mem" id="memory-detail">
-    <div className="mem-head"><strong>What uses memory</strong><button className="btn" disabled={busy} onClick={load}>{busy ? 'Measuring…' : 'Refresh'}</button></div>
+    <div className="mem-head"><strong>What uses memory</strong>{busy && <span className="hint">Updating…</span>}</div>
     <p className="hint">Apps together want {gb(total)}; the part beyond the Mac's memory is compressed or written to disk. macOS's own share includes {gb(d.wiredMb)} it keeps fixed (kernel and graphics).</p>
     {msg && <p className="hint mem-msg">{msg}</p>}
     <div className="mem-list">{d.groups.slice(0, 14).map(g => <div key={g.name} className="mem-row">
@@ -362,12 +366,15 @@ function MemoryDetailPanel(): JSX.Element {
 
 /** Storage: used and free on the disk, and which folders hold it; measuring the folders takes up to a minute. */
 function StoragePanel(): JSX.Element {
-  const [s, setS] = useState<Awaited<ReturnType<typeof window.term.window.storage>> | null>(null), [busy, setBusy] = useState(false)
-  const load = () => { setBusy(true); void window.term.window.storage().then(setS).finally(() => setBusy(false)) }
+  // The last measurement shows at once (kept on this Mac); a fresh one runs in the background each time the page opens.
+  type St = Awaited<ReturnType<typeof window.term.window.storage>> & { measured?: number }
+  const [s, setS] = useState<St | null>(() => { try { return JSON.parse(localStorage.getItem('storage:last') || 'null') } catch { return null } }), [busy, setBusy] = useState(false)
+  const load = () => { setBusy(true); void window.term.window.storage().then(v => { const x = { ...v, measured: Date.now() }; setS(x); try { localStorage.setItem('storage:last', JSON.stringify(x)) } catch {} }).finally(() => setBusy(false)) }
+  useEffect(load, [])
   const g = (n: number) => n >= 1 ? `${n.toFixed(1)} GB` : `${Math.round(n * 1024)} MB`
   const max = Math.max(0.01, ...(s?.folders ?? []).map(f => f.gb))
   return <section className="mem" id="storage">
-    <div className="mem-head"><strong>Storage</strong><button className="btn" disabled={busy} onClick={load}>{busy ? 'Measuring folders… (up to a minute)' : s ? 'Measure again' : 'Measure storage'}</button></div>
+    <div className="mem-head"><strong>Storage</strong><span className="hint">{busy ? (s ? 'Updating…' : 'Measuring the folders, up to a minute…') : s?.measured ? `Measured ${new Date(s.measured).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span></div>
     {!s ? <p className="hint">The disk's used and free space, and which folders hold the most.</p> : <>
       <div className="mem-bar" role="img" aria-label={`Disk: ${g(s.usedGb)} of ${g(s.totalGb)} used`}>
         <i style={{ flexGrow: s.usedGb, background: 'var(--accent)' }} /><i style={{ flexGrow: s.freeGb, background: 'transparent' }} /></div>
