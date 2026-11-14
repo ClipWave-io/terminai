@@ -22,6 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge } from './teambridge'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
+import { watchHousekeeping } from './housekeeping'
 import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard, pauseGuard, unpauseGuard } from './macguard'
 import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryDetail'
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
@@ -708,6 +709,8 @@ function registerIpc(): void {
     note.show()
   })
   watchFullscreenOff()
+  // TerminAI's own caches stay small: see housekeeping.ts.
+  watchHousekeeping()
   // MacGuard paused a chat to keep the Mac from freezing: the tab says so, with Resume, and the bell has it (a click opens the tab).
   appIpc.handle('macguard:state', () => guardState())
   appIpc.handle('macguard:details', async () => { const d = await guardDetails(); return d && { ...d, sessions: ptys.liveIds().filter(id => ptys.agentOf(id).alive).length } })
