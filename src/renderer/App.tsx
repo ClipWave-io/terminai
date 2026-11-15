@@ -139,9 +139,9 @@ export function App(): JSX.Element {
   // A file opened full size: the files pane alone, until Esc or the button again.
   const [filesOnly, setFilesOnly] = useState(false)
   useEffect(() => { if (!filesOnly) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilesOnly(false) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [filesOnly])
-  const terminalVisible = !filesOnly && showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
+  const terminalVisible = !(filesOnly && showFiles) && showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
   const filesVisible = showFiles && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'files')
-  const browserVisible = !filesOnly && showBrowser && prefs.browserBeta && (!compactWorkspace || compactPane === 'browser')
+  const browserVisible = !(filesOnly && showFiles) && showBrowser && prefs.browserBeta && (!compactWorkspace || compactPane === 'browser')
   const toggleTerminal = () => {
     setShowTerminal(!terminalVisible); setBrowserOnly(false)
     setCompactPane(terminalVisible ? showBrowser ? 'browser' : showFiles ? 'files' : 'terminal' : 'terminal')
@@ -221,7 +221,7 @@ export function App(): JSX.Element {
   }
   const toggleFiles = () => {
     if (filesVisible && filesDirty && !window.confirm('Discard unsaved file changes?')) return
-    setShowFiles(!filesVisible); setBrowserOnly(false)
+    setShowFiles(!filesVisible); setBrowserOnly(false); if (filesVisible) setFilesOnly(false)
     setCompactPane(filesVisible ? showTerminal ? 'terminal' : showBrowser ? 'browser' : 'files' : 'files')
   }
 
@@ -900,7 +900,7 @@ export function App(): JSX.Element {
             speakingId={speakingId}
             incoming={incoming}
             width={railWidth}
-            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setCompactPane('terminal')}}
+            onSelect={id=>{setActiveId(id);setShowTerminal(true);setBrowserOnly(false);setFilesOnly(false);setCompactPane('terminal')}}
             onFilterClose={()=>{setFilterOpen(false);setFilter('');document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus()}}
             onClose={closeTab}
             onNew={() => void newTab(tabs.find((t) => t.id === activeId)?.cwd, undefined, true)}
@@ -951,7 +951,7 @@ export function App(): JSX.Element {
         </div>
 
         <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
-        {showFiles && <div {...paneDrop('files')} className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'files' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace || filesOnly ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('files', 'Files')}{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane full={filesOnly} onFull={() => setFilesOnly(v => !v)} openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
+        {showFiles && <div {...paneDrop('files')} className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'files' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace || filesOnly ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('files', 'Files')}{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane full={filesOnly} onFull={() => setFilesOnly(v => !v)} openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setFilesOnly(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
         <div {...paneDrop('terminal')} className={`pane ${!terminalVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'terminal' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('terminal') }}>
           {paneGrip('terminal', 'the terminal')}
           {tabs.length === 0 && (
@@ -1098,7 +1098,7 @@ export function App(): JSX.Element {
           activeId={activeId}
           onSelect={(id) => {
             setActiveId(id)
-            setShowTerminal(true); setBrowserOnly(false); setCompactPane('terminal')
+            setShowTerminal(true); setBrowserOnly(false); setFilesOnly(false); setCompactPane('terminal')
             setShowGrid(false)
           }}
           onClose={closeTab}
