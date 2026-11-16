@@ -96,3 +96,13 @@
 .guard-error { color: var(--danger); }
 /* Unread chat messages: a red badge, like every Mac app. */
 .corner-count, .toolbar-count { background: #e5484d; color: #fff; }
+/* The voice conversation button beside Shared. */
+.voice-talk { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; }
+.voice-btn { color: var(--dim); }
+.voice-btn[aria-pressed="true"] { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.voice-btn.listening .voice-icon, .voice-btn.hearing .voice-icon { color: #d64545; }
+.voice-btn.speaking .voice-icon, .voice-btn.working .voice-icon, .voice-btn.transcribing .voice-icon { color: var(--accent); }
+.voice-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 calc(var(--lv, 0) * 5px) color-mix(in srgb, #d64545 30%, transparent); transition: box-shadow 80ms linear; }
+.voice-btn.working .voice-icon svg, .voice-btn.starting .voice-icon svg, .voice-btn.transcribing .voice-icon svg { animation: voice-pulse 1.2s ease-in-out infinite; }
+@keyframes voice-pulse { 50% { opacity: .35; } }
+.voice-note { position: absolute; bottom: calc(100% + 6px); right: 0; width: max-content; max-width: 320px; font-size: 11.5px; line-height: 1.35; padding: 6px 9px; color: var(--fg); background: var(--pane); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px var(--shadow); }

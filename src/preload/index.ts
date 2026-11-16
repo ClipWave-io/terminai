@@ -240,6 +240,24 @@ const api = {
     set: (patch: Partial<Prefs>): Promise<Prefs> => ipcRenderer.invoke('prefs:set', patch),
   },
 
+  voiceChat: {
+    begin: (): Promise<{ stt: boolean; tts: boolean }> => ipcRenderer.invoke('voicechat:begin'),
+    stop: (): Promise<void> => ipcRenderer.invoke('voicechat:stop'),
+    transcribe: (samples: Float32Array): Promise<string> => ipcRenderer.invoke('voicechat:transcribe', { samples }),
+    speak: (text: string): Promise<string> => ipcRenderer.invoke('voicechat:speak', { text }),
+    send: (tabId: string, text: string): Promise<void> => ipcRenderer.invoke('voicechat:send', { tabId, text }),
+    cancel: (tabId: string): Promise<void> => ipcRenderer.invoke('voicechat:cancel', { tabId }),
+    onSaid: (cb: (e: { tabId: string; text: string; off: boolean }) => void): (() => void) => {
+      const h = (_: unknown, e: { tabId: string; text: string; off: boolean }) => cb(e)
+      ipcRenderer.on('voicechat:said', h)
+      return () => ipcRenderer.removeListener('voicechat:said', h)
+    },
+    onEnd: (cb: (e: { tabId: string; spoken: string }) => void): (() => void) => {
+      const h = (_: unknown, e: { tabId: string; spoken: string }) => cb(e)
+      ipcRenderer.on('voicechat:end', h)
+      return () => ipcRenderer.removeListener('voicechat:end', h)
+    },
+  },
   voice: {
     speak: (text: string): Promise<VoiceClip> => ipcRenderer.invoke('voice:speak', { text }),
     voices: (): Promise<string[]> => ipcRenderer.invoke('voice:voices'),

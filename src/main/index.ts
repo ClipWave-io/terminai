@@ -19,7 +19,8 @@ import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-g
 import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
-import { createBridge } from './teambridge'
+import { createBridge, transcriptOf } from './teambridge'
+import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
 import { watchHousekeeping } from './housekeeping'
@@ -1099,6 +1100,19 @@ function registerIpc(): void {
   })
 
   // ---- voice -------------------------------------------------------------
+  // Talking to a tab (the mic button next to Shared): see voicechat.ts.
+  voiceChat.setTranscriptLookup(transcriptOf)
+  app.once('before-quit', () => voiceChat.stopWorker())
+  appIpc.handle('voicechat:begin', async () => {
+    const mic = process.platform !== 'darwin' || !!process.env.TERMINAI_TEST_BUILD || await systemPreferences.askForMediaAccess('microphone')
+    if (!mic) throw new Error('mic')
+    return voiceChat.begin()
+  })
+  appIpc.handle('voicechat:stop', () => voiceChat.stopWorker())
+  appIpc.handle('voicechat:transcribe', (_e, { samples }: { samples: Float32Array }) => voiceChat.transcribe(new Float32Array(samples)))
+  appIpc.handle('voicechat:speak', (_e, { text }: { text: string }) => voiceChat.speak(String(text).slice(0, 4000)))
+  appIpc.handle('voicechat:send', (e, { tabId, text }: { tabId: string; text: string }) => { voiceChat.send(e.sender, tabId, String(text).slice(0, 20000)) })
+  appIpc.handle('voicechat:cancel', (_e, { tabId }: { tabId: string }) => voiceChat.cancel(tabId))
   appIpc.handle('voice:speak', async (_e, { text }: { text: string }) => {
     const prefs = store.load().voice
     const { path, engine } = await voice.synthesize(text, prefs)

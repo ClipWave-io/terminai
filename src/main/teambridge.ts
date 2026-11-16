@@ -25,7 +25,7 @@ const HOME = homedir()
 const place = (cwd: string) => cwd.startsWith(HOME) ? '~' + cwd.slice(HOME.length) : cwd
 
 const found = new Map<string, string>()   // Claude session id -> its transcript
-function transcriptOf(tabId: string): string {
+export function transcriptOf(tabId: string): string {
   const agent = ptys.agentOf(tabId)
   if (!agent.sessionId) return ''
   if (agent.kind === 'claude') {
