@@ -1,6 +1,6 @@
 {
   "name": "clipwave-term",
-  "version": "0.3.81",
+  "version": "0.3.82",
   "description": "A terminal that is easier on the eyes, and talks back.",
   "main": "out/main/index.js",
   "author": "Maracuya Labs UG",
