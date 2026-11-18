@@ -1287,12 +1287,25 @@ textarea.card-notes.editing {
 .mem-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--dim); } .mem-legend b { color: var(--fg); font-weight: 600; margin-left: 2px; }
 .mem-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 .mem-sleep { justify-self: start; flex: none; }
-.mem-list { display: grid; grid-template-columns: minmax(0, 1fr) 140px 64px 150px; column-gap: 12px; row-gap: 6px; align-items: center; margin-top: 4px; }
-.mem-list .mem-row { display: contents; font-size: 12.5px; }
-.mem-track { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+.mem-list { display: grid; gap: 2px; margin-top: 6px; }
+.mem-list .mem-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) minmax(60px, 120px) 58px auto; column-gap: 12px; align-items: center; min-height: 34px; padding: 4px 6px 4px 10px; border-radius: 8px; font-size: 12.5px; transition: background .12s; }
+.mem-list .mem-row:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.mem-dot { width: 7px; height: 7px; border-radius: 50%; background: color-mix(in srgb, var(--dim) 55%, transparent); }
+.mem-row.working .mem-dot { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.mem-row.paused .mem-dot { background: var(--warn); }
+.mem-list .mem-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-list .mem-tag { margin-left: 8px; padding: 1px 6px; border-radius: 6px; font-size: 10.5px; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.mem-track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--border) 55%, transparent); overflow: hidden; }
 .mem-track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
-.mem-list em { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
-.mem-list .mem-acts { display: grid; grid-template-columns: 40px 44px; gap: 8px; justify-items: start; }
+.mem-row.paused .mem-track i { background: color-mix(in srgb, var(--dim) 60%, transparent); } .mem-row.paused .mem-name { color: var(--dim); }
+.mem-list .mem-mb { font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.mem-list .mem-acts { display: flex; gap: 4px; white-space: nowrap; opacity: .55; transition: opacity .12s; }
+.mem-list .mem-row:hover .mem-acts, .mem-list .mem-acts:focus-within { opacity: 1; }
+.mem-act { font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; }
+.mem-act:first-child { min-width: 68px; }
+.mem-act:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.mem-act.danger:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+@media (max-width: 620px) { .mem-list .mem-row { grid-template-columns: 8px minmax(0, 1fr) 58px auto; } .mem-list .mem-track { display: none; } }
 /* Settings › Connections › Grok Bot */
 .gk { margin: 4px 0 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--pane) 60%, transparent); display: grid; gap: 8px; }
 .gk-head { display: flex; justify-content: space-between; align-items: center; }

@@ -315,11 +315,21 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
       {r.pressure !== 'normal' && <>Biggest other apps: {r.apps.slice(0, 3).map(a => `${a.name} ${gb(a.mb)}`).join(', ')}. </>}
       Idle sessions hold memory too, and the numbers below leave out the part macOS compressed.</p>
     <p className="hint">Pause stops a chat from using the processor and lets macOS move its memory out of the way; only Close gives the memory back for good.</p>
-    <div className="mem-list">{(all ? live : live.slice(0, 8)).map(t => { const tab = tabs.find(x => x.id === t.id), on = !!paused[t.id]; return <div key={t.id} className={`mem-row${on ? ' paused' : ''}`}>
-      <span className="mem-name" title={tab?.label}>{tab?.label ?? 'Session'}{on && <em className="mem-tag"> · paused at {paused[t.id]}</em>}</span>
-      <span className="mem-track"><i style={{ width: `${Math.max(2, (t.mb / max) * 100)}%` }} /></span><em>{gb(t.mb)}</em>
-      <span className="mem-acts">{tab && <><button className="todo-link" onClick={() => pause(tab.id, !on)}>{on ? 'Resume' : 'Pause'}</button><button className="todo-link" onClick={() => onOpenTab(tab.id)}>Open</button><button className="todo-link" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
-    </div> })}</div>
+    <div className="mem-list">{(all ? live : live.slice(0, 8)).map(t => {
+      const tab = tabs.find(x => x.id === t.id), on = !!paused[t.id], raw = tab?.label ?? 'Session'
+      // Claude Code puts its state in front of the title (✳ waiting, a spinner while it works): shown as a dot instead.
+      const lead = raw.match(/^[\s✳✻✶✢✽·◐◓◑◒⠀-⣿]+/)?.[0] ?? '', name = raw.slice(lead.length) || raw
+      const state = on ? 'paused' : /[◐◓◑◒⠀-⣿✶✻✽✢·]/.test(lead) ? 'working' : 'idle'
+      return <div key={t.id} className={`mem-row ${state}`}>
+        <span className="mem-dot" title={state === 'working' ? 'Working' : state === 'paused' ? `Paused at ${paused[t.id]}` : 'Waiting'} />
+        <span className="mem-name" title={raw}>{name}{on && <em className="mem-tag">paused {paused[t.id]}</em>}</span>
+        <span className="mem-track"><i style={{ width: `${Math.max(3, (t.mb / max) * 100)}%` }} /></span>
+        <em className="mem-mb">{gb(t.mb)}</em>
+        <span className="mem-acts">{tab && <>
+          <button className="mem-act" onClick={() => pause(tab.id, !on)}>{on ? 'Resume' : 'Pause'}</button>
+          <button className="mem-act" onClick={() => onOpenTab(tab.id)}>Open</button>
+          <button className="mem-act danger" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
+      </div> })}</div>
     {live.length > 8 && <button className="todo-link" onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${live.length}`}</button>}
     {idle.length > 0 && <p className="hint">{idle.length} more tab{idle.length === 1 ? '' : 's'} with nothing running (Claude or Codex not started), about {gb(idle.reduce((n, t) => n + t.mb, 0))} together: nothing to pause.</p>}
   </section>
