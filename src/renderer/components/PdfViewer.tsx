@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
+import { getDocument, PDFWorker, type PDFDocumentProxy } from 'pdfjs-dist'
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker&inline'
 
-GlobalWorkerOptions.workerPort = new PdfWorker()
+// A worker of its own for each PDF. One shared port was torn down by the first viewer that closed, and the next PDF
+// opened then ("PDFWorker.create - the worker is being destroyed") crashed the window.
 
 const Svg = ({ d }: { d: string }) => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
 const I = { prev: 'M15 6l-6 6 6 6', next: 'M9 6l6 6-6 6', minus: 'M6 12h12', plus: 'M12 6v12M6 12h12', width: 'M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3', page: 'M7 3h10v18H7ZM10 8h4', rotate: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6', finder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5', copy: 'M9 9h11v11H9ZM5 15H4V4h11v1', full: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5' }
@@ -23,9 +24,13 @@ export default function PdfViewer({ content, onReveal, onOpen, onCopyPath, onFul
   useEffect(() => {
     let cancelled = false
     setDocument(null); setPage(1); setError('')
-    const task = getDocument({ data: Uint8Array.from(atob(content), ch => ch.charCodeAt(0)), useSystemFonts: true })
+    const thread = new PdfWorker(), worker = new PDFWorker({ port: thread as never })  // pdf.js types say null, its docs a Worker
+    let task: ReturnType<typeof getDocument>
+    // A PDF that cannot be opened says so here; it never takes the window down.
+    try { task = getDocument({ data: Uint8Array.from(atob(content), ch => ch.charCodeAt(0)), useSystemFonts: true, worker }) }
+    catch { setError('Could not open this PDF.'); worker.destroy(); thread.terminate(); return }
     task.promise.then(pdf => { if (!cancelled) setDocument(pdf) }).catch(err => { if (!cancelled) setError(err?.name === 'PasswordException' ? 'This PDF is password-protected. Open an unlocked copy to view it here.' : 'Could not open this PDF.') })
-    return () => { cancelled = true; void task.destroy() }
+    return () => { cancelled = true; void task.destroy().catch(() => {}).finally(() => { worker.destroy(); thread.terminate() }) }
   }, [content])
   useEffect(() => {
     if (!document || !canvas.current || width < 1) return

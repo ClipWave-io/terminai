@@ -184,6 +184,9 @@ function registerAudioProtocol(): void {
   })
 }
 
+// Test builds (TERMINAI_TEST_BUILD) run unseen unless TERMINAI_TEST_SHOW is set.
+const HIDDEN_TESTS = !!process.env.TERMINAI_TEST_BUILD && !process.env.TERMINAI_TEST_SHOW
+
 function createWindow(): void {
   const prefs = store.load()
   const theme = getTheme(prefs.theme)
@@ -222,7 +225,14 @@ function createWindow(): void {
   win.on('enter-full-screen', () => win?.webContents.send('window:fullscreen', true))
   win.on('leave-full-screen', () => win?.webContents.send('window:fullscreen', false))
   // A test build must not take focus from the real app the user is typing in.
-  win.once('ready-to-show', () => process.env.TERMINAI_TEST_BUILD ? win?.showInactive() : win?.show())
+  // Test builds stay out of the way: never on screen, never the focus, whatever asks for it (a file shown, a link,
+  // a notice clicked). TERMINAI_TEST_SHOW=1 to watch one.
+  if (HIDDEN_TESTS) {
+    win.webContents.setBackgroundThrottling(false)
+    win.setPosition(-20000, -20000)
+    for (const k of ['show', 'showInactive', 'focus', 'moveTop', 'maximize', 'setFullScreen'] as const) (win as any)[k] = () => {}
+  }
+  win.once('ready-to-show', () => process.env.TERMINAI_TEST_BUILD ? (process.env.TERMINAI_TEST_SHOW ? win?.showInactive() : undefined) : win?.show())
 
   // Links in terminal output open in the real browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -347,6 +357,7 @@ function tabDone(tabId: string, text: string): void {
 
 let crashedLastRun = false
 const aliveMarker = () => join(app.getPath('userData'), 'running.marker')
+if (HIDDEN_TESTS) { (app as any).focus = () => {}; if (process.platform === 'darwin') { app.setActivationPolicy('accessory'); app.dock?.hide() } }
 app.whenReady().then(() => {
   // Screen sharing in calls: macOS's own picker where it has one, else the main screen.
   // Sharing the screen in a call. Without Screen Recording permission macOS lets an app capture only its own windows, so
