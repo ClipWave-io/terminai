@@ -27,6 +27,8 @@ const api = {
     processInfo: (pid: number): Promise<import('../main/memoryDetail').ProcInfo> => ipcRenderer.invoke('memory:process', pid),
     stopProcess: (pid: number, force: boolean): Promise<string> => ipcRenderer.invoke('memory:stop', pid, force),
     storage: (): Promise<import('../main/memoryDetail').StorageReport> => ipcRenderer.invoke('memory:storage'),
+    cloud: (): Promise<import('../main/compute').CloudStatus | null> => ipcRenderer.invoke('cloud:status'),
+    openCloudDashboard: (): Promise<void> => ipcRenderer.invoke('cloud:dashboard'),
     onOpenSettings: (cb: (section?: string) => void): (() => void) => { const h = (_e: IpcRendererEvent, section?: string) => cb(section); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
     checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
   team: {

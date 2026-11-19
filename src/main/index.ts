@@ -22,6 +22,7 @@ import { workDay, handoff, today } from './worklog'
 import { createBridge, transcriptOf } from './teambridge'
 import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
+import { cloudStatus } from './compute'
 import { watchFullscreenOff } from './fullscreen-hint'
 import { watchHousekeeping } from './housekeeping'
 import { guardState, guardDetails, resumeGuard, restartGuard, watchGuard, pauseGuard, unpauseGuard } from './macguard'
@@ -698,6 +699,8 @@ function registerIpc(): void {
   appIpc.handle('memory:process', (_e, pid: unknown) => processInfo(Number(pid)))
   appIpc.handle('memory:stop', (_e, pid: unknown, force: unknown) => Number.isInteger(pid) && Number(pid) > 1 ? stopProcess(Number(pid), force === true) : 'Not a process.')
   appIpc.handle('memory:storage', () => storageReport())
+  appIpc.handle('cloud:status', () => cloudStatus())
+  appIpc.handle('cloud:dashboard', async () => { const s = await cloudStatus(); if (s?.dashboard) await shell.openPath(s.dashboard) })
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
   // macOS keeps Downloads, Documents and Desktop behind a permission; this opens the page where TerminAI is allowed in.
   appIpc.handle('app:privacy-files', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'))

@@ -215,7 +215,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Volume"><input type="range" min={0} max={1} step={0.05} value={prefs.voice.volume} onChange={e => patchVoice({ volume: Number(e.target.value) })} /></Row>
     </div>),
     memory: () => page('Memory and MacGuard', 'What your chats and the rest of the Mac use, pausing chats, MacGuard and the disk.', <>
-      <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} /><MemoryDetailPanel /><StoragePanel /></>),
+      <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><CloudPanel /><GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} /><MemoryDetailPanel /><StoragePanel /></>),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>
       <PermissionsSetup compact />
       <div className="st-card"><div className="st-card-head"><strong>Sounds</strong><span>Pick which notifications make a sound. TerminAI plays them itself, so they ring even when macOS notifications are silent.</span></div>
@@ -282,6 +282,45 @@ function AppVersion(): JSX.Element {
     <label>TerminAI {version}<span className="hint">{status || 'New versions download by themselves; they install when you click Restart now.'}</span></label>
     <button className="btn settings-update" disabled={status === 'Checking…'} onClick={() => { setStatus('Checking…'); void window.term.window.checkForUpdates().then(setStatus).catch(e => setStatus(`Could not check: ${e?.message ?? e}`)) }}>{status === 'Checking…' ? 'Checking…' : 'Check for updates'}</button>
   </div>
+}
+
+/** Cloud: the machines this Mac shares work with (compute pool: the Mac, rented Hetzner and RunPod boxes), what runs
+ *  where, what it costs and what the scheduler decided (cloud.ts reads ~/Clipwave/compute/status.json). Hidden without a pool. */
+function CloudPanel(): JSX.Element {
+  const [s, setS] = useState<Awaited<ReturnType<typeof window.term.window.cloud>> | undefined>(undefined)
+  const load = () => void window.term.window.cloud().then(setS)
+  useEffect(() => { load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t) }, [])
+  if (!s) return <></>
+  const gb = (mb?: number) => mb == null ? '–' : mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`
+  const eur = (n: number) => `€${n < 0.1 ? n.toFixed(3) : n.toFixed(2)}`
+  const hourly = s.machines.reduce((n, m) => n + (m.price_h ?? 0), 0)
+  const when = (t?: string) => t ? t.slice(11, 16) : ''
+  const running = s.jobs.filter(j => j.state === 'running' || j.state === 'queued')
+  const recent = s.jobs.filter(j => j.state !== 'running' && j.state !== 'queued').slice(-5).reverse()
+  return <section className="mem cloud" id="cloud">
+    <div className="mem-head"><strong>Cloud</strong>
+      <span className={`mem-level ${s.stale ? 'warning' : 'normal'}`} title={`Updated ${when(s.at)}`}>{s.stale ? `Not updated since ${when(s.at)}` : s.mode === 'away' ? 'Away: work goes to the cloud' : 'Mac first, cloud when needed'}</span></div>
+    <p className="hint">Rented machines now {eur(hourly)}/hour · new boxes today {eur(s.spent_today_eur)} of {eur(s.budget_eur_day)}. Heavy jobs run on the Mac when it has room and move to a rented box when it doesn't; temporary boxes are deleted when idle.</p>
+    <div className="mem-list">{s.machines.map(m => {
+      const pct = m.total_mb ? Math.round(100 * (m.used_mb ?? 0) / m.total_mb) : 0
+      const state = !m.ok ? 'paused' : (m.running.length || m.scheduled.length) ? 'working' : 'idle'
+      return <div key={m.name} className={`mem-row ${state}`} title={[m.role, ...m.running.map(r => `running: ${r}`), ...m.scheduled.slice(0, 6).map(r => `scheduled: ${r}`)].filter(Boolean).join('\n')}>
+        <span className="mem-dot" />
+        <span className="mem-name">{m.name}{m.type && <em className="mem-tag">{m.type}</em>}{m.temporary && <em className="mem-tag">temporary</em>}{!m.ok && <em className="mem-tag">unreachable</em>}</span>
+        <span className="mem-track"><i style={{ width: `${Math.max(3, pct)}%` }} /></span>
+        <em className="mem-mb">{gb(m.used_mb)} / {gb(m.total_mb)}</em>
+        <span className="mem-acts"><em className="cloud-cost">{m.price_h ? `${eur(m.price_h)}/h` : 'free'}</em></span>
+      </div>})}</div>
+    {running.length > 0 && <><p className="cloud-sub">Running now</p><div className="mem-list">{running.map(j =>
+      <div key={j.id} className="mem-row working"><span className="mem-dot" /><span className="mem-name" title={j.log}>{j.name}{j.owner && <em className="mem-tag">{j.owner}</em>}</span>
+        <span className="mem-track" /><em className="mem-mb">{j.state === 'queued' ? 'waiting' : `on ${j.machine}`}</em><span className="mem-acts"><em className="cloud-cost">since {when(j.started || j.created)}</em></span></div>)}</div></>}
+    {recent.length > 0 && <><p className="cloud-sub">Finished</p><div className="mem-list">{recent.map(j =>
+      <div key={j.id} className={`mem-row ${j.state === 'done' ? 'idle' : 'paused'}`}><span className="mem-dot" /><span className="mem-name" title={j.log}>{j.name}</span>
+        <span className="mem-track" /><em className="mem-mb">{j.state} on {j.machine}</em><span className="mem-acts"><em className="cloud-cost">{when(j.ended)}</em></span></div>)}</div></>}
+    {s.events.length > 0 && <details className="cloud-log"><summary>What the scheduler decided</summary><ul>{s.events.slice(0, 10).map((e, i) =>
+      <li key={i}><span>{e.t.slice(5, 16).replace('T', ' ')}</span> {e.msg}</li>)}</ul></details>}
+    <button className="mem-act" onClick={() => void window.term.window.openCloudDashboard()}>Open full dashboard</button>
+  </section>
 }
 
 /** Memory: the Mac's pressure, TerminAI's own use, and each session's, biggest first (memory.ts). An idle Claude Code or
