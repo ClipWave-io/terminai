@@ -288,3 +288,25 @@ Private tabs and their addresses are excluded from workspace restoration; closin
 that session’s last tab clears its cookies and cache. Normal profiles still retain
 their tabs and cookies. Private browsing does not hide traffic from websites or
 network providers.
+
+## TerminAI Browser: Chrome extensions (0.3.84)
+
+The Electron browser pane cannot run Chrome Web Store extensions (no native messaging, no `chrome.debugger`), so
+Claude in Chrome, 1Password and the rest need a real Chromium. **TerminAI Browser** is ours: an open-source Chromium
+snapshot matching the current Stable release, renamed to `com.clipwave.term.browser`, signed with our Developer ID and
+notarized (`scripts/build-browser.sh`). It is published as a pre-release asset (`browser-v<version>`, never marked
+Latest, so the TerminAI updater ignores it) and pinned with its SHA-256 in `src/main/chromium.ts`.
+
+- The puzzle button in the browser sidebar, or `terminai browser open <url>` from a tab, downloads it on first use
+  (checksum verified, ~160 MB) into userData, starts it with its own profile and docks it on the right half of the window.
+- Its DevTools port listens on 127.0.0.1:9347. Claude Code drives it through the `terminai-browser` MCP (Playwright,
+  written into `~/.claude.json` once), which fills passwords by NAME from `~/.config/terminai-browser/secrets.env` (0600)
+  so the model never sees them.
+- Claude in Chrome: install the extension from the Web Store inside TerminAI Browser; TerminAI writes the Claude Code and
+  Claude app native hosts into the profile, so it connects like it does in Chrome.
+- Known gaps: no H.264/AAC (Google licenses those to Chrome only), so MP4s on Instagram, X and our own site do not
+  play; YouTube (VP9/AV1) does. Apple's iCloud Passwords extension only talks to Chrome and Edge. Passkeys from iCloud
+  Keychain need Apple's `com.apple.developer.web-browser.public-key-credential`: requested for the App ID; once granted, put the
+  Developer ID provisioning profile at `build/browser.provisionprofile` and rebuild.
+- New Chromium: `scripts/build-browser.sh`, `gh release create browser-v<version> --prerelease --latest=false <zip>`,
+  then update `BROWSER` in `src/main/chromium.ts`. Test: `npm run build && TERMINAI_TEST_BUILD=1 npx electron tests/terminai-browser-ui.cjs`.

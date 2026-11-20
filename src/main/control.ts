@@ -18,8 +18,9 @@ type Deps={askGrok?:(a:any)=>Promise<unknown>;wake?:(id:string)=>Promise<boolean
     request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
   log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>Promise<{context:string}|{}>}
   team:(args:any)=>Promise<unknown>
+  browser?:(args:any)=>Promise<unknown>
   update?:(restart:boolean)=>Promise<unknown>}
-const COMMANDS=['list','open','send','read','close','focus','show','task','log','team','ask-grok','update']
+const COMMANDS=['list','open','send','read','close','focus','show','task','log','team','ask-grok','update','browser']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -116,6 +117,8 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
     // The To-do from a tab: a task added to a page, a private list described, or a task started, done or reopened
     // (starting links the row to the tab, by the key that outlives a restart).
     case 'team':return d.team(a)
+    // TerminAI Browser (src/main/chromium.ts): start it, open a link in it, or report its state.
+    case 'browser':{if(!d.browser)throw Error('Not ready yet');if(a.url!==undefined&&(typeof a.url!=='string'||!/^https?:\/\//i.test(a.url)||a.url.length>4000))throw Error('url must be an http(s) link');return d.browser({action:a.action==='status'?'status':'open',url:a.url})}
     case 'update':if(!d.update)throw Error('Not ready yet');return d.update(a.restart===true)
     case 'ask-grok':if(!d.askGrok)throw Error('Not ready yet');return d.askGrok(a)
     case 'log':return a.action==='hook'?d.log.hook(a.session):d.log.day(a.day)

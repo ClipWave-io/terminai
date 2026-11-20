@@ -8,7 +8,7 @@ const I = {
   plus: 'M12 5v14M5 12h14', close: 'M6 6l12 12M18 6L6 18', external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', hide: 'M15 18l-6-6 6-6M20 4v16', side: 'M4 5h16v14H4zM9 5v14',
   group: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', chevron: 'M9 6l6 6-6 6',
-  incognito: 'M3 10h18M7 10l2-6h6l2 6M9 17h6', person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+  incognito: 'M3 10h18M7 10l2-6h6l2 6M9 17h6', puzzle: 'M10 3a2 2 0 0 1 4 0v2h4a1 1 0 0 1 1 1v4h-2a2 2 0 0 0 0 4h2v4a1 1 0 0 1-1 1h-4v-2a2 2 0 0 0-4 0v2H6a1 1 0 0 1-1-1v-4h2a2 2 0 0 0 0-4H5V6a1 1 0 0 1 1-1h4z', person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
 }
 const Icon = ({ d, size = 15 }: { d: string; size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 
@@ -20,6 +20,9 @@ export function BrowserPane({ visible, layoutKey, onClose, browserOnly, onToggle
   const [collapsed, setCollapsed] = useState<string[]>([])
   const [sidebar, setSidebar] = useState(true)
   const [error, setError] = useState('')
+  // TerminAI Browser: our Chromium beside the window, where Chrome extensions run (src/main/chromium.ts).
+  const [full, setFull] = useState<{ state: string; progress?: number; message?: string } | null>(null)
+  useEffect(() => window.term.browser.onFullStatus(setFull), [])
   const [edit, setEdit] = useState<{ type: 'profile' | 'group'; id?: string; value: string } | null>(null)
   const run = (p: Promise<unknown>) => { setError(''); void p.catch(e => setError(String(e?.message ?? e))) }
   useEffect(() => {
@@ -50,7 +53,7 @@ export function BrowserPane({ visible, layoutKey, onClose, browserOnly, onToggle
       <span className="arc-fav">{(site || tab.title || '·')[0].toUpperCase()}</span>
       <span className="arc-title">{tab.title || site || 'New tab'}</span>
       <button title="Move to a group" aria-label={`Group ${tab.title}`} onClick={e => { e.stopPropagation(); setEdit({ type: 'group', id: tab.id, value: tab.group }) }}><Icon d={I.group} size={13} /></button>
-      <button title="Close tab" aria-label={`Close ${tab.title}`} onClick={e => { e.stopPropagation(); action('close', { id: tab.id }) }}><Icon d={I.close} size={13} /></button>
+  const message = error || state.error || (full?.state === 'downloading' ? `Downloading TerminAI Browser… ${full?.progress ?? 0}%` : full?.state === 'error' ? `TerminAI Browser: ${full?.message || 'could not start'}` : '')
     </div>
   }
   const message = error || state.error
@@ -83,6 +86,7 @@ export function BrowserPane({ visible, layoutKey, onClose, browserOnly, onToggle
             <option value="__new">New profile…</option>
           </select></label>
         <button className="arc-icon" title="New private tab" aria-label="New private tab" onClick={() => action('private')}><Icon d={I.incognito} /></button>
+        <button className="arc-icon" title="Open in TerminAI Browser: Chrome extensions, Claude in Chrome, password managers" aria-label="Open in TerminAI Browser" disabled={full?.state === 'downloading'} onClick={() => run(window.term.browser.openFull(state.url || undefined))}><Icon d={I.puzzle} /></button>
         <button className="arc-icon" title="Open in Chrome" aria-label="Open in Chrome" disabled={!state.url} onClick={() => run(window.term.browser.command('external'))}><Icon d={I.external} /></button>
         <button className="arc-icon" title={browserOnly ? 'Restore other panes' : 'Browser only'} aria-label="Toggle browser only" aria-pressed={browserOnly} onClick={onToggleOnly}><Icon d={I.expand} /></button>
         <button className="arc-icon" title="Hide browser" aria-label="Close browser" onClick={onClose}><Icon d={I.close} /></button>

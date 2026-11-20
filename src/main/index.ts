@@ -15,6 +15,7 @@ import { notice, noticesWindow, noticesList, noticesRead, noticesClear, noticesS
 import { botAsk, botList, botSave, botRemove, botTest } from './connections'
 import { createBrowserPane } from './browser'
 import { startBrowserBridge, registerBrowserMcp } from './browser-bridge'
+import { createChromium } from './chromium'
 import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-guide'
 import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
@@ -79,6 +80,8 @@ async function openLink(link: string) {
 app.on('open-url', (event, link) => { event.preventDefault(); void openLink(link) })
 let win: BrowserWindow | null = null
 let browser: ReturnType<typeof createBrowserPane> | null = null
+// TerminAI Browser (our Chromium, for extensions): created once, it outlives window reloads.
+let chromium: ReturnType<typeof createChromium> | null = null
 /** Tracked so a voice clip can be attributed to the tab that likely produced it. */
 // The menus and About panel say TerminAI; the data folder keeps the old package name, so nothing moves.
 // Started from a TerminAI tab (a restart, `open -a`), the app would inherit that tab's settings: its proxy is the
@@ -404,6 +407,8 @@ app.whenReady().then(() => {
   writeFileSync(aliveMarker(), String(process.pid))
   registerAudioProtocol()
   registerMediaProtocol()
+  chromium = createChromium(() => win)
+  if (!process.env.TERMINAI_TEST_BUILD) void chromium.registerMcp()
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
@@ -420,6 +425,15 @@ app.whenReady().then(() => {
       return { ok: r.ok, bot: r.bot, note: r.note }
     }, wake: id => resumeLater(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
+    browser: async (a) => {
+      if (!chromium) throw new Error('Not ready yet')
+      const url = typeof a?.url === 'string' && a.url ? a.url : undefined, now = await chromium.current()
+      if (a?.action === 'status' || now.state === 'downloading') return now
+      if (now.state === 'installed' || now.state === 'running') return chromium.open(url)
+      // A first start downloads the browser (about 160 MB): answer at once, it opens when the download is done.
+      void chromium.open(url).catch(() => {})
+      return { ...chromium.status(), message: 'Downloading TerminAI Browser; it opens by itself when ready. terminai browser status shows the progress.' }
+    },
     log: {
       day: async (day) => {
         const d = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : today(), user = store.load().tasksUser
@@ -745,6 +759,8 @@ function registerIpc(): void {
   appIpc.handle('browser:navigate', (_event, url: unknown) => browser?.navigate(url))
   appIpc.handle('browser:command', (_event, command: string) => browser?.command(command))
   appIpc.handle('browser:layout', (_event, bounds) => browser?.layout(bounds))
+  appIpc.handle('chromium:status', () => chromium?.current())
+  appIpc.handle('chromium:open', (_event, url: unknown) => chromium?.open(typeof url === 'string' && url ? url : undefined))
   // ---- terminal ----------------------------------------------------------
   appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }) => {
     const created = ptys.createSession(opts ?? {})

@@ -14,3 +14,5 @@ build/icon.png
 release-test/
 .agent-guide.cjs
 .t-codex/
+build-browser-work
+release-browser
