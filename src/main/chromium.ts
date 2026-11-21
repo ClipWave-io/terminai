@@ -19,8 +19,8 @@ import { pipeline } from 'node:stream/promises'
  */
 export const BROWSER = {
   version: '159.0.8154.0',
-  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0/TerminAI-Browser-159.0.8154.0-arm64.zip',
-  sha256: 'e0abb1f9ba1167909edd8fed893b8465e75e8cdd67f92f97460fdf5189a1710a',
+  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-glue/TerminAI-Browser-159.0.8154.0-arm64.zip',
+  sha256: '30947667c39d96af9dbd0084cab6b16a05b72349c78d89006d712c4d0b722cfb',
   bundleId: 'com.clipwave.term.browser',
   port: 9347,
 }
@@ -98,6 +98,17 @@ export function createChromium(window: () => BrowserWindow | null) {
   }
 
   /**
+   * Claude in Chrome comes preinstalled: Chromium installs a Web Store extension listed in its "External Extensions"
+   * folder from the store on its next start (Chromium may ask once to turn it on). Removing it there is respected:
+   * Chromium does not bring back an external extension the person uninstalled.
+   */
+  async function preinstall() {
+    const dir = join(profile, 'External Extensions'); await mkdir(dir, { recursive: true })
+    const file = join(dir, `${CLAUDE_EXTENSIONS[0]}.json`)
+    if (!existsSync(file)) await writeFile(file, JSON.stringify({ external_update_url: 'https://clients2.google.com/service/update2/crx' }))
+  }
+
+  /**
    * Inside TerminAI: the browser process loads native/browser-glue.m (shipped in the browser app), which keeps its window
    * on the pane whose place TerminAI writes to glue.json. A browser built before the glue gets docked beside instead.
    */
@@ -142,7 +153,7 @@ export function createChromium(window: () => BrowserWindow | null) {
       if (url) await fetch(`${endpoint}/json/new?${encodeURI(url)}`, { method: 'PUT' }).catch(() => {})
       if (glueRunning()) { follow(); setInPane(true) } else execFile('/usr/bin/open', ['-b', BROWSER.bundleId])
     } else {
-      await nativeHosts()
+      await nativeHosts(); await preinstall().catch(() => {})
       // With the glue the window goes straight into the pane: hidden until the pane says where it is.
       const glue = existsSync(glueLib)
       launching = true
