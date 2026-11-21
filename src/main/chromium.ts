@@ -139,15 +139,15 @@ export function createChromium(window: () => BrowserWindow | null) {
 
   /**
    * Claude Code drives the browser through Playwright MCP over the DevTools port, with passwords from a 0600 secrets
-   * file filled in by name (the model never sees the values). A small launcher starts the browser when a session asks.
+   * file filled in by name (the model never sees the values). The launcher only starts Playwright MCP, which connects on
+   * its first browser call: starting a Claude session must never open a browser window (`terminai browser open` does).
    */
   async function registerMcp() {
     const launcher = join(root, 'mcp.sh'), secrets = join(homedir(), '.config/terminai-browser/secrets.env')
     await mkdir(root, { recursive: true }); await mkdir(join(homedir(), '.config/terminai-browser'), { recursive: true })
     if (!existsSync(secrets)) await writeFile(secrets, '# NAME=value, one per line. Claude types the NAME; the browser fills the value.\n', { mode: 0o600 })
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`
-    await writeFile(launcher, `#!/bin/sh\n# Written by TerminAI: starts TerminAI Browser if needed, then Playwright MCP on its DevTools port.\n`
-      + `terminai browser start >/dev/null 2>&1 || "$HOME/Library/Application Support/clipwave-term/bin/terminai" browser start >/dev/null 2>&1\n`
+    await writeFile(launcher, `#!/bin/sh\n# Written by TerminAI: Playwright MCP on TerminAI Browser's DevTools port (open the browser first).\n`
       + `exec npx -y @playwright/mcp@0.0.85 --cdp-endpoint ${endpoint} --secrets ${q(secrets)} --output-dir ${q(join(root, 'output'))}\n`)
     await chmod(launcher, 0o755)
     const file = join(homedir(), '.claude.json')
