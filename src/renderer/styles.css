@@ -1467,3 +1467,10 @@ textarea.card-notes.editing {
 .files-toolbar strong { flex: none; margin-right: auto; padding-right: 6px; }
 .files-toolbar .btn { flex: none; width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; display: inline-grid; place-items: center; }
 .files-toolbar .btn.files-choose { flex: 0 1 auto; width: auto; min-width: 0; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; line-height: 26px; }
+
+/* Stop / Resume on a session row (Livio's request): Stop frees a conversation's memory, Resume brings it back. */
+.tab-stop { position: absolute; top: 50%; transform: translateY(-50%); right: 52px; opacity: 0; width: 18px; height: 18px; border: 0; border-radius: 6px; background: transparent; color: var(--dim); cursor: default; display: grid; place-items: center; transition: opacity 100ms ease; }
+.tab:hover .tab-stop { opacity: 1; }
+.tab-stop:hover { background: color-mix(in srgb, var(--dim) 22%, transparent); color: var(--fg); }
+.tab-stop.is-stopped:hover { background: color-mix(in srgb, var(--ok) 24%, transparent); }
+.tab:hover:has(.tab-stop) .tab-body { padding-right: 68px; }

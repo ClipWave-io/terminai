@@ -204,6 +204,8 @@ export function TabRail({
       onContextMenu={(e) => { e.preventDefault(); void window.term.pty.menu(tab.id, !!tab.hidden, !!tab.cloud).then(action => {
         if (action?.startsWith('cloud-') && tab.cloud) { void window.term.pty.cloudAction(tab.id, action.slice(6) as 'open', tab.cloud.id); return }
         if (action === 'pause' || action === 'resume') void window.term.pty.pause(tab.id, action === 'pause')
+        else if (action === 'stop') void window.term.pty.stop(tab.id)
+        else if (action === 'wake') void window.term.pty.resume(tab.id)
         else if (action === 'rename') startEdit(tab)
         else if (action === 'hide') onHide(tab.id, !tab.hidden)
         else if (action === 'close') onClose(tab.id)
@@ -212,13 +214,25 @@ export function TabRail({
     >
       <span
         className={!tab.exited && (paused[tab.id] || pausedByYou[tab.id]) ? 'tab-dot paused' : dotClass(tab, tab.id === speakingId)}
-        title={!tab.exited && pausedByYou[tab.id] ? `Paused by you at ${pausedByYou[tab.id]}: right-click › Resume` : !tab.exited && paused[tab.id] ? `Paused by MacGuard at ${paused[tab.id].slice(0, 5)}: open it to resume` : tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. It starts when you open it.' : DOT_TITLE[tab.status]}
+        title={!tab.exited && pausedByYou[tab.id] ? `Paused by you at ${pausedByYou[tab.id]}: right-click › Resume` : !tab.exited && paused[tab.id] ? `Paused by MacGuard at ${paused[tab.id].slice(0, 5)}: open it to resume` : tab.id === speakingId ? 'Speaking its summary' : asleep(tab) ? 'Asleep: not running, using no memory. ▶ (on hover) resumes it; one not stopped by you also starts when you open it.' : DOT_TITLE[tab.status]}
       >{!tab.exited && tab.id !== speakingId && !paused[tab.id] && !pausedByYou[tab.id] && tab.status === 'question' ? '?' : ''}</span>
       <span className="tab-body">
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tab.cloud && <span className="tab-cloud" title={`Cloud session${tab.cloud.title ? `: ${tab.cloud.title}` : ''} · runs on Anthropic's machines. Right-click to open, message or bring it here.`}>☁</span>}<span className="tab-name">{tabLabel(tab)}</span>{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
         {times ? <div className="tab-sub"><span className="tab-cwd">{shortCwd(tab.cwd)}</span><span className="tab-ago" title={`Last active ${new Date(tab.activityAt ?? tab.createdAt).toLocaleString()}`}>{activeAgo(tab.activityAt ?? tab.createdAt)}</span></div>
           : <div className="tab-cwd">{shortCwd(tab.cwd)}</div>}
       </span>
+      {tab.agent && !tab.exited && !tab.cloud && (tab.agentAlive || asleep(tab)) && (
+        <button
+          className={tab.agentAlive ? 'tab-stop' : 'tab-stop is-stopped'}
+          aria-label={tab.agentAlive ? 'Stop session' : 'Resume session'}
+          onMouseDown={(e) => { e.stopPropagation(); void (tab.agentAlive ? window.term.pty.stop(tab.id) : window.term.pty.resume(tab.id)) }}
+          title={tab.agentAlive ? 'Stop: frees this conversation’s memory. Resume brings it back where it was.' : 'Resume this conversation'}
+        >
+          {tab.agentAlive
+            ? <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.6" fill="currentColor" /></svg>
+            : <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M5 3.2v9.6L13 8 5 3.2Z" fill="currentColor" /></svg>}
+        </button>
+      )}
       <button
         className="tab-hide"
         aria-label={tab.hidden ? 'Unhide session' : 'Hide session'}

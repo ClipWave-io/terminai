@@ -412,7 +412,8 @@ export interface Prefs {
   /** the shared To-do page (columns per partner, synced through the build-tasks repo): Ilai's and Matteo's Macs; everyone else has private lists */
   teamTasks: boolean
   /** messages from others' agents and bots: ask before typing them in, or allow all */
-  agentMessages: 'ask' | 'allow'
+  /** ask each time, let them in, or always answer them in a side conversation (a fork of the tab's conversation) */
+  agentMessages: 'ask' | 'allow' | 'side'
   /** folder -> what the partner may see of conversations there (sharing.ts) */
   folderSharing: Record<string, FolderMode>
   /** per tab (its workspace key): true shared, false private, whatever the default */

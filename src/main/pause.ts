@@ -28,3 +28,14 @@ export async function resumeTab(id: string): Promise<boolean> {
 export const pausedTabs = (): Record<string, string> => Object.fromEntries(paused)
 /** A tab closed while paused: its processes get to run so they can end. */
 export function forgetTab(id: string): void { if (paused.has(id)) void resumeTab(id) }
+/**
+ * Stop a chat to free its memory (the Stop button on a tab): everything running in the tab ends, the tab and its shell
+ * stay. A paused one is let run first so it can end. Whatever has not ended after 5 s is killed.
+ */
+export async function endTab(id: string): Promise<boolean> {
+  const shell = ptys.pidOf(id); if (!shell) return false
+  const pids = await descendants(shell); if (!pids.length) return false
+  paused.delete(id); signal(pids, 'SIGCONT'); signal(pids, 'SIGTERM')
+  setTimeout(() => { for (const p of pids) { try { process.kill(p, 0); process.kill(p, 'SIGKILL') } catch {} } }, 5000)
+  return true
+}

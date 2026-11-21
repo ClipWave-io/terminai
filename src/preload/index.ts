@@ -30,8 +30,8 @@ const api = {
     onOpenSettings: (cb: (section?: string) => void): (() => void) => { const h = (_e: IpcRendererEvent, section?: string) => cb(section); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
     checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
   team: {
-    agentMessages: (v?: 'ask' | 'allow'): Promise<'ask' | 'allow'> => ipcRenderer.invoke('team:agentMessages', v),
-    onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string; own?: boolean; rule?: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), tabMode: (key: string, mode: 'shared' | 'private' | 'off' | null): Promise<void> => ipcRenderer.invoke('team:tabMode', key, mode), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
+    agentMessages: (v?: 'ask' | 'allow' | 'side'): Promise<'ask' | 'allow' | 'side'> => ipcRenderer.invoke('team:agentMessages', v),
+    onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow' | 'side'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string; own?: boolean; rule?: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), tabMode: (key: string, mode: 'shared' | 'private' | 'off' | null): Promise<void> => ipcRenderer.invoke('team:tabMode', key, mode), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
     folder: (folder: string | null, mode: 'shared' | 'private' | 'off' | null): Promise<Record<string, string>> => ipcRenderer.invoke('team:folder', folder, mode) },
   macguard: {
     state: (): Promise<GuardState | null> => ipcRenderer.invoke('macguard:state'),
@@ -95,6 +95,9 @@ const api = {
     /** Pause a chat by hand (true) or resume it (false); returns every tab paused this way: id -> HH:MM. */
     pause: (id: string, on: boolean): Promise<Record<string, string>> => ipcRenderer.invoke('tab:pause', id, on),
     paused: (): Promise<Record<string, string>> => ipcRenderer.invoke('tab:paused'),
+    /** Stop a chat to free its memory: Claude Code or Codex exits, the tab stays asleep until resume(). */
+    stop: (id: string): Promise<boolean> => ipcRenderer.invoke('tab:stop', id),
+    resume: (id: string): Promise<boolean> => ipcRenderer.invoke('tab:resume', id),
     onPaused: (cb: (p: Record<string, string>) => void) => { const h = (_e: unknown, p: Record<string, string>) => cb(p); ipcRenderer.on('tab:paused', h); return () => { ipcRenderer.removeListener('tab:paused', h) } },
     /** The right-click menu of a chat in the sidebar: resolves with the action picked (pause, resume, rename, hide, close) or null. */
     menu: (id: string, hidden: boolean, cloud = false): Promise<string | null> => ipcRenderer.invoke('tab:menu', id, hidden, cloud),

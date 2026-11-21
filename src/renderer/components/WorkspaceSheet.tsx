@@ -362,7 +362,7 @@ export function AccountGate({ onDone, onSkip }: { onDone: () => void; onSkip: ()
 /** What the partner may see, by folder and by tab (sharing.ts). Work on this Mac is the same whatever is set here. */
 const MODES: [string, string, string][] = [['shared', 'Shared', 'your partner and their agents can read and message it'], ['private', 'Only me', 'only you can read and message it, on your iPhone and the web'], ['off', 'Off the record', 'nothing leaves this Mac']]
 function SessionSharing(): JSX.Element {
-  const [state, setState] = useState<{ agentMessages: 'ask' | 'allow'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
+  const [state, setState] = useState<{ agentMessages: 'ask' | 'allow' | 'side'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string }[]; folders: Record<string, string> } | null>(null)
   const [query, setQuery] = useState(''), [all, setAll] = useState(false)
   const load = () => void window.term.team.tabs().then(setState)
   useEffect(() => { load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t) }, [])
@@ -379,8 +379,8 @@ function SessionSharing(): JSX.Element {
     <div className="sh-card">
       <div className="sh-row"><div><strong>New sessions</strong><small>For folders and repos without a rule.</small></div>
         <Seg value={state.byDefault ? 'shared' : 'off'} options={[['shared', 'Shared'], ['off', 'Off the record']]} onPick={v => set(null, v === 'shared')} /></div>
-      <div className="sh-row"><div><strong>Messages from others’ agents and bots</strong><small>Ask me shows each one before it is typed in. Replies to your own messages always come in.</small></div>
-        <Seg value={state.agentMessages} options={[['ask', 'Ask me'], ['allow', 'Allow all']]} onPick={v => void window.term.team.agentMessages(v as 'ask').then(load)} /></div>
+      <div className="sh-row"><div><strong>Messages from others’ agents and bots</strong><small>Ask me shows each one before it is typed in. Side conversation answers each in a new tab with a copy of the conversation, so the one you are directing is never interrupted. Replies to your own messages always come in.</small></div>
+        <Seg value={state.agentMessages} options={[['ask', 'Ask me'], ['side', 'Side conversation'], ['allow', 'Allow all']]} onPick={v => void window.term.team.agentMessages(v as 'ask').then(load)} /></div>
     </div>
     <div className="sh-card">
       <div className="sh-head"><strong>Folders and repos</strong>

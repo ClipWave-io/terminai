@@ -91,7 +91,9 @@ function fakeUuid(seed: string): string {
 const RISKY = /\b(rm\s+-|delete|remove|drop\s+table|truncate|wipe|reset\s+--hard|force[- ]?push|push\s+--force|git\s+push|deploy|publish|release|merge|send\s+(an?\s+)?(email|mail|message|invoice)|transfer|pay(ment)?|purchase|buy|refund|subscribe|password|api[_ -]?key|secret|token|credential|sudo|chmod|chown|curl[^\n|]*\|\s*(ba|z)?sh|ssh\s|production|\bprod\b|revoke|cancel)/i
 export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; paused?: (id: string) => boolean; notify: (title: string, body: string, tabId: string) => void
   /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. `null`: nobody can be asked now (no window), the message waits. */
-  approve?: (from: string, tab: string, text: string, tabId: string, force?: boolean) => Promise<boolean | null>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean }) {
+  approve?: (from: string, tab: string, text: string, tabId: string, force?: boolean) => Promise<boolean | 'side' | null>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean
+  /** "In a side conversation": the tab's conversation forked into a new tab, ready for the message; its id, or null. */
+  side?: (tabId: string, from: string) => Promise<string | null> }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
   const received = new Map<string, { from: string | null; fromName: string; bot?: boolean }>() // agent message id -> who sent it
@@ -151,6 +153,7 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
    */
   const asked = new Map<string, boolean>()   // message id -> allowed (true) / declined (false)
   const sentHere = new Set<string>()         // ids of the messages this Mac sent: only an answer to one of these is let in as a reply
+  const sideOf = new Map<string, string>()   // message id -> the side-conversation tab it goes to instead
   const typed = new Set<string>()            // ids already typed into their tab: never typed twice when marking them delivered failed
   async function deliver(team: Team): Promise<boolean> {
     const { messages } = await team.call(`/api/companies/${team.id}/agent/inbox?wait=25`)
@@ -159,7 +162,8 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       // The sender's name and tab title come from the server and go into the header the agent trusts: one plain line each.
       const label = (v: unknown) => String(v ?? '').replace(/[\[\]\x00-\x1f\x7f-\x9f]/g, ' ').trim().slice(0, 80)
       m.fromName = label(m.fromName); if (m.fromTitle) m.fromTitle = label(m.fromTitle)
-      const tab = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
+      const own = ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === m.tab)
+      const side = sideOf.get(m.id), tab = side && ptys.liveIds().includes(side) ? side : own
       // From the workspace only to a shared tab; from yourself (the iPhone app) to any of yours.
       // Off the record since it was sent: it is refused, not kept waiting for the day the tab is shared again.
       if (tab && modeOf(m.tab) === 'off') {
@@ -175,6 +179,11 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       if (askIt && opts.approve && !asked.has(m.id)) {
         const ok = await opts.approve(m.fromName, opts.tabName(tab), m.content, tab, botRule === 'every' || botRule === 'risky')
         if (ok === null) { pending = true; continue }
+        if (ok === 'side') {
+          const fork = await opts.side?.(tab, m.fromName).catch(() => null)
+          if (fork) sideOf.set(m.id, fork)
+          asked.set(m.id, true); pending = true; continue
+        }
         asked.set(m.id, ok)
       }
       if (asked.get(m.id) === false) {

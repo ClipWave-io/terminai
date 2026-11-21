@@ -30,7 +30,7 @@ import { memoryDetail, processInfo, stopProcess, storageReport } from './memoryD
 import { tabMode, defaultMode, repoOf, conversationMode } from './sharing'
 import { createAccounts, chromeProfiles } from './accounts'
 import * as ptys from './pty'
-import { pauseTab, resumeTab, pausedTabs, forgetTab } from './pause'
+import { pauseTab, resumeTab, pausedTabs, forgetTab, endTab } from './pause'
 import { watchCloud } from './cloud'
 import * as store from './store'
 import * as voice from './voice'
@@ -283,7 +283,37 @@ function startAgent(id: string, line: string, resume?: { carryOn: boolean }): vo
 function resumeLater(id: string): boolean {
   const job = laterResume.get(id)
   if (!job) return false
-  laterResume.delete(id); startAgent(id, job.line, { carryOn: job.carryOn }); return true
+  laterResume.delete(id); stoppedByYou.delete(id); startAgent(id, job.line, { carryOn: job.carryOn }); return true
+}
+/**
+ * Stop a conversation to free the Mac's memory (the Stop button on a tab, Livio's request): Claude Code or Codex exits,
+ * the tab stays with its shell, asleep, and Resume (or opening the tab) brings the same conversation back with
+ * `claude --resume <id>` / `codex resume <id>`. Pausing keeps the memory; this gives it back.
+ */
+const stoppedByYou = new Set<string>() // stopped with Stop: opening the tab does not bring it back, Resume does
+async function stopTab(id: string): Promise<boolean> {
+  const agent = ptys.agentOf(id); if (!agent.kind || !agent.alive) return false
+  const sessionId = agent.sessionId || (agent.kind === 'claude' ? ptys.claudeSessionOf(id) : '')
+  const line = await ptys.resumeCommandFor({ kind: agent.kind, sessionId, args: agent.args, cwd: ptys.cwdOf(id) })
+  if (!line || !(await endTab(id))) return false
+  laterResume.set(id, { line, carryOn: false }); stoppedByYou.add(id)
+  for (let i = 0; i < 30 && ptys.agentOf(id).alive; i++) await new Promise(r => setTimeout(r, 250))
+  ptys.execWhenReady(id, `clear; printf '\\n  \\033[2mStopped to free memory. Press Resume on the tab in the sidebar to bring this conversation back.\\033[0m\\n\\n'`)
+  return true
+}
+/** A side conversation: the same conversation forked into a new tab, so it knows everything the original does and the original stays untouched. */
+async function forkTab(id: string, name: string): Promise<string | null> {
+  const agent = ptys.agentOf(id); if (!agent.kind) return null
+  const sessionId = agent.sessionId || (agent.kind === 'claude' ? ptys.claudeSessionOf(id) : '')
+  let line = await ptys.resumeCommandFor({ kind: agent.kind, sessionId, args: agent.args, cwd: ptys.cwdOf(id), fresh: true })
+  if (agent.kind === 'claude') line += /--resume\b/.test(line) ? ' --fork-session' : ''
+  else line = line.replace(/ resume (\S+)$/, ' fork $1')
+  const opened = await openCommandTab(ptys.cwdOf(id), name.slice(0, 100), line, true).catch(() => null) as { id?: string } | null
+  const tab = opened?.id; if (!tab) return null
+  // Ready for the message once the agent waits for input (as `terminai send` waits).
+  for (let i = 0; i < 120 && !(ptys.agentOf(tab).alive && ptys.statusOf(tab) === 'waiting'); i++) await new Promise(r => setTimeout(r, 500))
+  await new Promise(r => setTimeout(r, 1500))
+  return tab
 }
 /** Claude Code has run here before with the folder trusted, or it is the person's own home folder. */
 function folderTrusted(cwd: string): boolean {
@@ -707,7 +737,7 @@ function registerIpc(): void {
   appIpc.handle('project:openExternal', async (_event, path: string) => { const error = await shell.openPath(await projectFiles.resolved(path)); if (error) throw new Error(error) })
   appIpc.handle('app:version', () => app.getVersion())
   appIpc.handle('memory:report', () => memoryReport())
-  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' ? resumeLater(id) : false)
+  appIpc.handle('memory:wake', (_e, id: unknown) => typeof id === 'string' && !stoppedByYou.has(id) ? resumeLater(id) : false)
   appIpc.handle('memory:detail', () => memoryDetail())
   appIpc.handle('memory:process', (_e, pid: unknown) => processInfo(Number(pid)))
   appIpc.handle('memory:stop', (_e, pid: unknown, force: unknown) => Number.isInteger(pid) && Number(pid) > 1 ? stopProcess(Number(pid), force === true) : 'Not a process.')
@@ -773,6 +803,15 @@ function registerIpc(): void {
   const sendPaused = () => { if (win && !win.isDestroyed()) win.webContents.send('tab:paused', pausedTabs()) }
   appIpc.handle('tab:pause', async (_e, id: unknown, on: unknown) => { if (typeof id !== 'string') return pausedTabs(); await (on === false ? resumeTab(id) : pauseTab(id)); sendPaused(); return pausedTabs() })
   appIpc.handle('tab:paused', () => pausedTabs())
+  appIpc.handle('tab:stop', async (_e, id: unknown) => {
+    if (typeof id !== 'string') return false
+    if (ptys.statusOf(id) === 'working' && win && !win.isDestroyed()) {
+      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: ['Stop', 'Cancel'], defaultId: 1, cancelId: 1, message: 'This conversation is working right now', detail: 'Stop ends its current turn and frees its memory. Resume brings the conversation back where it was.' })
+      if (response !== 0) return false
+    }
+    const ok = await stopTab(id); sendPaused(); return ok
+  })
+  appIpc.handle('tab:resume', (_e, id: unknown) => { if (typeof id !== 'string') return false; stoppedByYou.delete(id); return resumeLater(id) })
   watchCloud((tabId, cloud) => { if (win && !win.isDestroyed()) win.webContents.send('tab:cloud', { tabId, cloud }) })
   // A cloud tab's actions: open it on claude.ai, put a follow-up command ready in the tab, or bring it to this Mac.
   appIpc.handle('tab:cloud-action', (_e, tabId: unknown, action: unknown, sessionId: unknown) => {
@@ -794,6 +833,7 @@ function registerIpc(): void {
         { type: 'separator' as const },
       ] : []),
       isPaused ? { label: 'Resume', click: () => { picked = 'resume' } } : { label: 'Pause', enabled: running, toolTip: 'Stops everything running in this chat until you resume it', click: () => { picked = 'pause' } },
+      laterResume.has(id) ? { label: 'Resume conversation', click: () => { picked = 'wake' } } : { label: 'Stop (free its memory)', enabled: running, toolTip: 'Claude Code or Codex exits and gives its memory back; Resume brings the same conversation back', click: () => { picked = 'stop' } },
       { type: 'separator' },
       { label: 'Rename…', click: () => { picked = 'rename' } },
       { label: hidden === true ? 'Unhide' : 'Hide from the sidebar', click: () => { picked = 'hide' } },
@@ -977,17 +1017,24 @@ function registerIpc(): void {
     team: async () => !process.env.TERMINAI_TEST_BUILD ? teamOf(teamKey(), store.load().workspaceId) : null,
     tabName,
     wake: (tabId: string) => resumeLater(tabId),
+    side: (tabId: string, from: string) => forkTab(tabId, `↪ ${from} · ${tabName(tabId)}`),
     waiting: (tabId: string) => laterResume.has(tabId),
     approve: async (from, tab, text, tabId, force) => {
       // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.
       if (store.load().agentMessages === 'allow' && !force) return true
+      if (store.load().agentMessages === 'side' && !force && ptys.agentOf(tabId).kind) return 'side'
       // No window to ask in (closed, with the app still running): the message waits; nothing gets in unasked.
       if (!win || win.isDestroyed()) return null
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
-      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: force ? ['Allow', 'Decline'] : ['Allow', 'Decline', 'Always allow'], defaultId: 1, cancelId: 1,
-        message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') })
-      if (response === 2 && !force) store.save({ ...store.load(), agentMessages: 'allow' })
-      return response !== 1
+      // "In a side conversation": the conversation is forked into a new tab that answers, so the one you are directing is not interrupted.
+      const canFork = !!ptys.agentOf(tabId).kind
+      const buttons = [...(canFork ? ['In a side conversation'] : []), 'Allow here', 'Decline', ...(force ? [] : ['Always allow'])]
+      const { response } = await dialog.showMessageBox(win, { type: 'question', buttons, defaultId: buttons.indexOf('Decline'), cancelId: buttons.indexOf('Decline'),
+        message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') + (canFork ? '\n\nIn a side conversation: a new tab with a copy of this conversation answers it; this one is not interrupted and its context stays clean.' : '') })
+      const picked = buttons[response]
+      if (picked === 'Always allow') store.save({ ...store.load(), agentMessages: 'allow' })
+      if (picked === 'In a side conversation') return 'side'
+      return picked !== 'Decline'
     },
     notify: (title, body, tabId) => {
       notice('agent', title, body, { tab: tabId })
@@ -1001,7 +1048,7 @@ function registerIpc(): void {
     },
   })
   bridge.start()
-  appIpc.handle('team:agentMessages', (_e, v: unknown) => { if (v === 'ask' || v === 'allow') store.save({ ...store.load(), agentMessages: v }); return store.load().agentMessages })
+  appIpc.handle('team:agentMessages', (_e, v: unknown) => { if (v === 'ask' || v === 'allow' || v === 'side') store.save({ ...store.load(), agentMessages: v }); return store.load().agentMessages })
   appIpc.handle('team:tabs', () => { const p = store.load(); return { agentMessages: p.agentMessages, byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)), own: !!p.tabModes[key] || p.tabSharing[key] !== undefined, rule: defaultMode(ptys.cwdOf(id)) } }), folders: p.folderSharing } })
   appIpc.handle('team:folder', async (_e, folder: unknown, mode: unknown) => {
     const p = store.load(), rules = { ...p.folderSharing }
