@@ -1,7 +1,7 @@
-import { app, type BrowserWindow } from 'electron'
+import { app, screen, type BrowserWindow } from 'electron'
 import { spawn, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync, writeFileSync, renameSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile, readFile, chmod } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -27,7 +27,10 @@ export const BROWSER = {
 // The extension IDs Anthropic's native hosts accept (Claude in Chrome: store, beta, internal), as Claude Code writes them.
 const CLAUDE_EXTENSIONS = ['fcoeoabgfenejglbffodgkkbkcdhcgfn', 'dihbgbndebgnbjfmelmegjepbnkhlgni', 'dngcpimnedloihjnnfngkgjoidhnaolf']
 
-export type ChromiumStatus = { state: 'missing' | 'downloading' | 'installed' | 'running' | 'error'; progress?: number; message?: string; endpoint?: string; version: string }
+export type ChromiumStatus = { state: 'missing' | 'downloading' | 'installed' | 'running' | 'error'; progress?: number; message?: string; endpoint?: string; version: string
+  /** shown inside TerminAI's browser pane (the browser window glued onto it) rather than as a window of its own */
+  inPane?: boolean }
+export type PaneRect = { x: number; y: number; width: number; height: number; visible: boolean }
 
 export function createChromium(window: () => BrowserWindow | null) {
   const root = join(app.getPath('userData'), 'TerminAI Browser')
@@ -94,6 +97,41 @@ export function createChromium(window: () => BrowserWindow | null) {
     }
   }
 
+  /**
+   * Inside TerminAI: the browser process loads native/browser-glue.m (shipped in the browser app), which keeps its window
+   * on the pane whose place TerminAI writes to glue.json. A browser built before the glue gets docked beside instead.
+   */
+  const glueLib = join(appPath, 'Contents/Frameworks/TerminAIGlue.dylib'), glueFile = join(root, 'glue.json')
+  let pane: PaneRect | null = null, lastGlue = '', launching = false
+  const glueRunning = () => { try { const pid = Number(readFileSync(`${glueFile}.ack`, 'utf8')); process.kill(pid, 0); return pid > 0 } catch { return false } }
+  function writeGlue() {
+    const w = window()
+    let next: object = { mode: 'hidden' }
+    if (!status.inPane) next = { mode: 'free' }
+    else if (w && !w.isDestroyed() && pane?.visible && w.isVisible() && !w.isMinimized() && pane.width > 50 && pane.height > 50) {
+      const c = w.getContentBounds(), top = c.y + pane.y, primary = screen.getPrimaryDisplay().bounds
+      const target = Number(/^window:(\d+):/.exec(w.getMediaSourceId())?.[1] || 0)
+      // Cocoa's screen points count up from the bottom of the main display.
+      next = { mode: 'glued', target, x: Math.round(c.x + pane.x), y: Math.round(primary.height - top - pane.height), w: Math.round(pane.width), h: Math.round(pane.height) }
+    }
+    const json = JSON.stringify(next); if (json === lastGlue) return
+    lastGlue = json
+    try { writeFileSync(`${glueFile}.tmp`, json); renameSync(`${glueFile}.tmp`, glueFile) } catch {}
+  }
+  /** The browser pane's place in the window (renderer coordinates), or null when it is not on screen. */
+  function setPane(rect: PaneRect | null) { pane = rect; writeGlue() }
+  /** Show it in the pane (true) or as a window of its own again (false, "Pop out"). */
+  function setInPane(on: boolean) { publish({ inPane: on && glueRunning() }); writeGlue() }
+  // Quit from its own menu: the pane closes too.
+  setInterval(() => { if (status.inPane && !launching && !glueRunning() && status.state !== 'downloading') { publish({ inPane: false, state: 'installed' }); lastGlue = ''; writeGlue() } }, 3000).unref()
+  let watching: BrowserWindow | null = null
+  function follow() {
+    const w = window(); if (!w || w === watching) return
+    watching = w
+    for (const e of ['move', 'resize', 'moved', 'resized', 'minimize', 'restore', 'hide', 'show', 'focus', 'enter-full-screen', 'leave-full-screen'] as const) w.on(e as 'move', () => { lastGlue = ''; writeGlue() })
+    w.on('closed', () => { watching = null; lastGlue = ''; pane = null; writeGlue() })
+  }
+
   async function waitAlive(ms: number) { const end = Date.now() + ms; while (Date.now() < end) { if (await alive()) return true; await new Promise(r => setTimeout(r, 250)) } return false }
 
   /** Opens the browser (installing it first if needed) with `url` in a new tab, beside the TerminAI window. */
@@ -102,14 +140,23 @@ export function createChromium(window: () => BrowserWindow | null) {
     if (url && !/^https?:\/\//i.test(url)) throw Error('Only http and https links open in TerminAI Browser')
     if (await alive()) {
       if (url) await fetch(`${endpoint}/json/new?${encodeURI(url)}`, { method: 'PUT' }).catch(() => {})
-      execFile('/usr/bin/open', ['-b', BROWSER.bundleId])
+      if (glueRunning()) { follow(); setInPane(true) } else execFile('/usr/bin/open', ['-b', BROWSER.bundleId])
     } else {
       await nativeHosts()
+      // With the glue the window goes straight into the pane: hidden until the pane says where it is.
+      const glue = existsSync(glueLib)
+      launching = true
+      if (glue) { await rm(`${glueFile}.ack`, { force: true }); follow(); publish({ inPane: true }); lastGlue = ''; writeGlue() }
       const child = spawn(binary, [`--user-data-dir=${profile}`, `--remote-debugging-port=${BROWSER.port}`, '--remote-debugging-address=127.0.0.1',
-        '--no-first-run', '--no-default-browser-check', ...(url ? [url] : [])], { detached: true, stdio: 'ignore' })
+        '--no-first-run', '--no-default-browser-check', ...(url ? [url] : [])], { detached: true, stdio: 'ignore',
+        env: existsSync(glueLib) ? { ...process.env, DYLD_INSERT_LIBRARIES: glueLib, TERMINAI_GLUE_FILE: glueFile } : process.env })
       child.unref()
-      if (!await waitAlive(15_000)) throw Error('TerminAI Browser did not start')
-      await dock().catch(() => {})
+      if (!await waitAlive(15_000)) { launching = false; publish({ inPane: false }); throw Error('TerminAI Browser did not start') }
+      // The glue answers within a moment of the window opening; without it the window is placed beside TerminAI.
+      for (let i = 0; i < 20 && existsSync(glueLib) && !glueRunning(); i++) await new Promise(r => setTimeout(r, 150))
+      launching = false
+      if (glueRunning()) setInPane(true)
+      else { publish({ inPane: false }); writeGlue(); await dock().catch(() => {}) }
     }
     publish({ state: 'running', endpoint })
     return status
@@ -162,5 +209,5 @@ export function createChromium(window: () => BrowserWindow | null) {
     } catch {}
   }
 
-  return { open, install, current, registerMcp, status: () => status }
+  return { open, install, current, registerMcp, setPane, setInPane, status: () => status }
 }

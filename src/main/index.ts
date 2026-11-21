@@ -791,6 +791,12 @@ function registerIpc(): void {
   appIpc.handle('browser:layout', (_event, bounds) => browser?.layout(bounds))
   appIpc.handle('chromium:status', () => chromium?.current())
   appIpc.handle('chromium:open', (_event, url: unknown) => chromium?.open(typeof url === 'string' && url ? url : undefined))
+  // TerminAI Browser inside the browser pane: where the pane is, and Pop out / back in.
+  appIpc.handle('chromium:pane', (_event, r: unknown) => {
+    const v = r as { x?: unknown; y?: unknown; width?: unknown; height?: unknown; visible?: unknown } | null
+    chromium?.setPane(v && [v.x, v.y, v.width, v.height].every(n => typeof n === 'number' && isFinite(n as number)) ? { x: v.x as number, y: v.y as number, width: v.width as number, height: v.height as number, visible: v.visible === true } : null)
+  })
+  appIpc.handle('chromium:inPane', (_event, on: unknown) => chromium?.setInPane(on === true))
   // ---- terminal ----------------------------------------------------------
   appIpc.handle('pty:create', (_e, opts: { cwd?: string; cols?: number; rows?: number; browserKey?: string }) => {
     const created = ptys.createSession(opts ?? {})

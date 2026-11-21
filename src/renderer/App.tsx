@@ -6,6 +6,7 @@ import { TeamChat } from './components/TeamChat'
 import { NoticeBell } from './components/NoticeCenter'
 import { Boundary } from './Boundary'
 import { onOverlayOpened, overlayOpened } from './overlay'
+import { FullBrowserPane } from './components/FullBrowserPane'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
 import { TerminalPane } from './components/TerminalPane'
@@ -127,6 +128,14 @@ export function App(): JSX.Element {
   const [showTerminal, setShowTerminal] = useState(true)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserOnly, setBrowserOnly] = useState(false)
+  // TerminAI Browser inside the browser pane (the real Chromium glued onto it); closing the pane keeps it running hidden.
+  const [fullInPane, setFullInPane] = useState(false), [fullClosed, setFullClosed] = useState(false)
+  useEffect(() => {
+    const seen = (s: { state?: string; inPane?: boolean } | null) => { const on = !!s?.inPane && s.state === 'running'; setFullInPane(on); if (on) { setFullClosed(false); setCompactPane('browser') } }
+    void window.term.browser.fullStatus().then(seen)
+    return window.term.browser.onFullStatus(seen)
+  }, [])
+  const fullShown = fullInPane && !fullClosed
   useEffect(()=>window.term.browser.onReveal(()=>{if(!prefsRef.current.browserBeta)return;setShowBrowser(true);setCompactPane('browser')}),[])
   useEffect(() => {
     const tab = tabs.find(tab => tab.id === activeId)
@@ -142,7 +151,7 @@ export function App(): JSX.Element {
   useEffect(() => { if (!filesOnly) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilesOnly(false) }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k) }, [filesOnly])
   const terminalVisible = !(filesOnly && showFiles) && showTerminal && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'terminal')
   const filesVisible = showFiles && !(browserOnly && showBrowser) && (!compactWorkspace || compactPane === 'files')
-  const browserVisible = !(filesOnly && showFiles) && showBrowser && prefs.browserBeta && (!compactWorkspace || compactPane === 'browser')
+  const browserVisible = !(filesOnly && showFiles) && ((showBrowser && prefs.browserBeta) || fullShown) && (!compactWorkspace || compactPane === 'browser')
   const toggleTerminal = () => {
     setShowTerminal(!terminalVisible); setBrowserOnly(false)
     setCompactPane(terminalVisible ? showBrowser ? 'browser' : showFiles ? 'files' : 'terminal' : 'terminal')
@@ -153,7 +162,8 @@ export function App(): JSX.Element {
     setCompactPane(browserOnly ? 'terminal' : 'browser')
   }
   const toggleBrowser = () => {
-    setShowBrowser(!browserVisible); setBrowserOnly(false)
+    if (fullInPane) setFullClosed(browserVisible); else setShowBrowser(!browserVisible)
+    setBrowserOnly(false)
     setCompactPane(browserVisible ? showTerminal ? 'terminal' : showFiles ? 'files' : 'browser' : 'browser')
   }
   /** A click on a notification: the tab that finished, the To-do (or its Activity), the chat, or Settings. */
@@ -194,7 +204,7 @@ export function App(): JSX.Element {
     if (prefs.hiddenToolbarItems.includes(id)) return null
     const drag = toolDrag(id, side)
     if (id === 'terminal' || id === 'browser' || id === 'files') {
-      if (id === 'browser' && !prefs.browserBeta) return null
+      if (id === 'browser' && !prefs.browserBeta && !fullInPane) return null
       const pane = id as WorkspacePane
       return <button key={id} className="btn icon no-drag" {...drag}
         aria-label={pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'}
@@ -990,7 +1000,7 @@ export function App(): JSX.Element {
           </div>}
         </div>
 
-        {showBrowser && prefs.browserBeta && <div {...paneDrop('browser')} className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'browser' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('browser', 'the browser')}{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}<BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
+        {((showBrowser && prefs.browserBeta) || fullShown) && <div {...paneDrop('browser')} className={`browser-slot ${compactWorkspace && compactPane !== 'browser' ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'browser' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('browser'), width: compactWorkspace ? undefined : browserWidth, flex: compactWorkspace ? undefined : !terminalVisible && !filesVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('browser', 'the browser')}{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'right' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={-1} onChange={setBrowserWidth} onDrag={setResizingPane} />}{fullShown ? <FullBrowserPane layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}-${browserWidth}`} visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setFullClosed(true); setCompactPane('terminal') }} /> : <BrowserPane browserOnly={browserOnly} onToggleOnly={toggleBrowserOnly} layoutKey={`${prefs.railSide}-${prefs.railHidden}-${railWidth}-${prefs.voiceDockHidden}-${showFiles}-${paneOrder.join()}-${compactWorkspace}-${compactPane}-${browserOnly}-${showTerminal}`}  visible={browserVisible && !resizingPane && !showSettings && !showGrid && !showTeam && !showTodos && !showChat && !showToolbar && !(ready && !prefs.seenWelcome)} onClose={() => { setShowBrowser(false); setCompactPane('terminal') }} />}{visiblePanes.length > 1 && !compactWorkspace && browserSide === 'left' && <PaneResizeHandle label="Resize browser" width={browserWidth} sign={1} onChange={setBrowserWidth} onDrag={setResizingPane} />}</div>}
         {!terminalVisible && !browserVisible && !filesVisible && <div className="workspace-empty">Choose Terminal, Browser or Files above to show a pane.</div>}
         </div>
 

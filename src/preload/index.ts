@@ -84,6 +84,9 @@ const api = {
     /** TerminAI Browser: our Chromium beside the window, for Chrome extensions (Claude in Chrome, password managers). */
     openFull: (url?: string): Promise<any> => ipcRenderer.invoke('chromium:open', url),
     fullStatus: (): Promise<any> => ipcRenderer.invoke('chromium:status'),
+    /** Where TerminAI Browser shows inside the window (the browser pane), or null; and Pop out (false) / back in (true). */
+    fullPane: (rect: {x: number; y: number; width: number; height: number; visible: boolean} | null): Promise<void> => ipcRenderer.invoke('chromium:pane', rect),
+    fullInPane: (on: boolean): Promise<void> => ipcRenderer.invoke('chromium:inPane', on),
     onFullStatus: (cb: (s: any) => void): (() => void) => { const h = (_e: IpcRendererEvent, s: any) => cb(s); ipcRenderer.on('chromium:status', h); return () => { ipcRenderer.removeListener('chromium:status', h) } },
     onState: (cb: (state: BrowserState) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, state: BrowserState) => cb(state)

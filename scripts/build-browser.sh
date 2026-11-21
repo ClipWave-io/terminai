@@ -73,11 +73,14 @@ cat > "$entitlements" <<'EOF'
   <key>com.apple.security.automation.apple-events</key><true/>
 </dict></plist>
 EOF
-main_entitlements="$entitlements"
+# The glue that puts the browser inside TerminAI's browser pane (native/browser-glue.m): TerminAI loads it into the
+# browser process with DYLD_INSERT_LIBRARIES, which the hardened runtime only allows with this entitlement.
+clang -dynamiclib -fobjc-arc -arch arm64 -mmacosx-version-min=12.0 -framework Cocoa -o "$app/Contents/Frameworks/TerminAIGlue.dylib" native/browser-glue.m
+main_entitlements="$work/browser-main.entitlements.plist"; cp "$entitlements" "$main_entitlements"
+/usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.allow-dyld-environment-variables bool true" "$main_entitlements"
 if [ -f build/browser.provisionprofile ]; then
   # Apple's managed passkey entitlement: only valid with the provisioning profile that grants it.
   cp build/browser.provisionprofile "$app/Contents/embedded.provisionprofile"
-  main_entitlements="$work/browser-main.entitlements.plist"; cp "$entitlements" "$main_entitlements"
   /usr/libexec/PlistBuddy -c "Add :com.apple.developer.web-browser.public-key-credential bool true" "$main_entitlements"
   /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string 99PQ34696X.$BUNDLE_ID" "$main_entitlements"
   /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string 99PQ34696X" "$main_entitlements"

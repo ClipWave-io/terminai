@@ -53,10 +53,9 @@ export function BrowserPane({ visible, layoutKey, onClose, browserOnly, onToggle
       <span className="arc-fav">{(site || tab.title || '·')[0].toUpperCase()}</span>
       <span className="arc-title">{tab.title || site || 'New tab'}</span>
       <button title="Move to a group" aria-label={`Group ${tab.title}`} onClick={e => { e.stopPropagation(); setEdit({ type: 'group', id: tab.id, value: tab.group }) }}><Icon d={I.group} size={13} /></button>
-  const message = error || state.error || (full?.state === 'downloading' ? `Downloading TerminAI Browser… ${full?.progress ?? 0}%` : full?.state === 'error' ? `TerminAI Browser: ${full?.message || 'could not start'}` : '')
     </div>
   }
-  const message = error || state.error
+  const message = error || state.error || (full?.state === 'downloading' ? `Downloading TerminAI Browser… ${full?.progress ?? 0}%` : full?.state === 'error' ? `TerminAI Browser: ${full?.message || 'could not start'}` : '')
   return <aside className={`browser-pane arc ${sidebar ? '' : 'arc-collapsed'}`} aria-label="Browser">
     {sidebar && <nav className="arc-side" aria-label="Browser tabs">
       <div className="arc-nav">
