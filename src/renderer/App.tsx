@@ -368,7 +368,12 @@ export function App(): JSX.Element {
       claudeSession: '',
     }
     // New conversations start at the top of the sidebar; restored ones keep their saved order.
-    setTabs((prev) => restore ? [...prev, tab] : [tab, ...prev])
+    // With folders in the sidebar, a new one goes at the top of its own folder: the folders stay where they are.
+    setTabs((prev) => {
+      if (restore) return [...prev, tab]
+      const at = prefsRef.current.groupByFolder && !prefsRef.current.railRecent ? prev.findIndex((t) => groupOf(t) === groupOf(tab)) : -1
+      return at < 0 ? [tab, ...prev] : [...prev.slice(0, at), tab, ...prev.slice(at)]
+    })
     setActiveId(id)
 
     const kind = restore?.agent || (restore?.claude ? 'claude' : '')
