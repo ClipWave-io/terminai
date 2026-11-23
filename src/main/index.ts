@@ -678,7 +678,7 @@ function registerIpc(): void {
   appIpc.handle('edu:folders', (_e, folders) => eduSetFolders(folders))
   appIpc.handle('edu:disconnect', () => eduDisconnect())
   appIpc.handle('edu:preview', () => eduPreview())
-  appIpc.handle('edu:sync', () => eduSync())
+  appIpc.handle('edu:sync', () => eduSync(Date.now(), true))
   appIpc.handle('edu:pick-folder', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openDirectory'], defaultPath: homedir(), message: 'Choose a folder whose Claude Code and Codex sessions count for your course' })).filePaths[0] ?? null : null)
   startEduSync()
   appIpc.handle('app:notification-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'))

@@ -130,12 +130,13 @@ async function pending(c: EduConfig, now: number, includeOpen = false) {
   return out
 }
 
-/** Sends every finished, not yet sent session from the chosen folders. Runs every few minutes and on demand. */
-export async function eduSync(now = Date.now()): Promise<EduStatus> {
+/** Sends every finished, not yet sent session from the chosen folders. Runs every few minutes; "Send now" also sends the
+ *  sessions that ended less than 10 minutes ago (a session that goes on is sent again when it changes: the server upserts). */
+export async function eduSync(now = Date.now(), includeOpen = false): Promise<EduStatus> {
   const c = await load(); if (!c || running) return status(c)
   running = true
   try {
-    const todo = await pending(c, now)
+    const todo = await pending(c, now, includeOpen)
     for (let i = 0; i < todo.length; i += 20) {
       const batch = todo.slice(i, i + 20)
       const res = await fetch(`${c.base}/api/edu/coding-sessions/ingest`, {

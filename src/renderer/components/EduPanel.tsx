@@ -36,7 +36,7 @@ export function EduPanel(): JSX.Element {
     {check && <>
       <div className="st-row"><div className="st-label"><strong>{check.institution}</strong><small>Signed in as {check.member}</small></div></div>
       {check.detail === 'off' ? <p className="hint">{check.institution} does not accept coding sessions yet.</p> : <>
-        <div className="st-row"><div className="st-label"><strong>What {check.institution} receives</strong><small>{check.collects}. Only from the folders you choose, only sessions from now on, sent when a session has been quiet for 10 minutes.</small></div></div>
+        <div className="st-row"><div className="st-label"><strong>What {check.institution} receives</strong><small>{check.collects}. Only from the folders you choose, only sessions from now on, sent when a session has been quiet for 10 minutes, or when you click Send now.</small></div></div>
         <div className="st-row"><div className="st-label"><strong>Folders that count</strong><small>For example your course or assignment folder. Everything else stays on this Mac.</small></div>
           <span className="st-inline"><button className="btn" disabled={busy} onClick={() => addFolder(folders, setFolders)}>Add folder…</button></span></div>
         {folders.map(f => <div key={f} className="st-row"><code>{f}</code><button className="todo-link" onClick={() => setFolders(folders.filter(x => x !== f))}>Remove</button></div>)}
@@ -55,12 +55,12 @@ export function EduPanel(): JSX.Element {
       <div className="st-row"><div className="st-label"><strong>Last sent</strong><small>{st.lastError ? st.lastError : when(st.lastSyncAt)}</small></div>
         <span className="st-inline">
           <button className="btn" disabled={busy} onClick={() => run(async () => setPreview(await window.term.edu.preview()))}>See what is sent next</button>
-          <button className="btn" disabled={busy} onClick={() => run(async () => setSt(await window.term.edu.sync()))}>Send now</button>
+          <button className="btn" disabled={busy} onClick={() => run(async () => { setSt(await window.term.edu.sync()); setPreview(null) })}>Send now</button>
           <button className="btn" disabled={busy} onClick={() => run(async () => { setSt(await window.term.edu.disconnect()); setPreview(null) })}>Disconnect</button></span></div>
       {err && <p className="hint" role="alert" style={{ color: 'var(--danger, #c0392b)' }}>{err}</p>}
     </div>
-    {preview && <div className="st-card"><div className="st-card-head"><strong>Next to be sent</strong><span>Exactly what leaves this Mac. Sessions still open are sent once they have been quiet for 10 minutes.</span></div>
-      {!preview.length ? <p className="hint">Nothing waiting.</p> : preview.map((s, i) => <details key={i} className="st-row"><summary>{toolName(s.tool)} · {s.title} · {s.project} · {s.activeMinutes} min · {s.prompts} prompts</summary>
+    {preview && <div className="st-card"><div className="st-card-head"><strong>Next to be sent</strong><span>Exactly what leaves this Mac. Sent by themselves once a session has been quiet for 10 minutes, or now with Send now.</span></div>
+      {!preview.length ? <p className="hint">Nothing waiting.</p> : preview.map((s, i) => <details key={i} className="st-row"><summary>{toolName(s.tool)} · {s.title} · {s.project} · {s.activeMinutes} min · {s.prompts} {s.prompts === 1 ? 'prompt' : 'prompts'}</summary>
         <pre style={{ whiteSpace: 'pre-wrap', fontSize: 11, maxHeight: 240, overflow: 'auto' }}>{JSON.stringify(s, null, 2)}</pre></details>)}</div>}
     {st.history.length > 0 && <div className="st-card"><div className="st-card-head"><strong>Sent</strong><span>The last uploads to {st.institution}.</span></div>
       {st.history.map((h, i) => <div key={i} className="st-row"><div className="st-label"><strong>{when(h.at)}</strong><small>{h.sessions.map(s => `${toolName(s.tool)}: ${s.title} (${s.project}, ${s.minutes} min)`).join(' · ')}</small></div></div>)}</div>}
