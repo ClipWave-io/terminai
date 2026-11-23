@@ -1,7 +1,7 @@
 import { app, screen, type BrowserWindow } from 'electron'
 import { spawn, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync, writeFileSync, renameSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile, readFile, chmod } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -132,9 +132,18 @@ export function createChromium(window: () => BrowserWindow | null) {
   /** The browser pane's place in the window (renderer coordinates), or null when it is not on screen. */
   function setPane(rect: PaneRect | null) { pane = rect; writeGlue() }
   /** Show it in the pane (true) or as a window of its own again (false, "Pop out"). */
-  function setInPane(on: boolean) { publish({ inPane: on && glueRunning() }); writeGlue() }
-  // Quit from its own menu: the pane closes too.
-  setInterval(() => { if (status.inPane && !launching && !glueRunning() && status.state !== 'downloading') { publish({ inPane: false, state: 'installed' }); lastGlue = ''; writeGlue() } }, 3000).unref()
+  function setInPane(on: boolean) { wantPane = on; publish({ inPane: on && glueRunning() }); writeGlue() }
+  let wantPane = false
+  setInterval(() => {
+    // The browser's own TerminAI menu: "Show Inside TerminAI" / "Open in Its Own Window".
+    let req = ''; try { req = readFileSync(`${glueFile}.req`, 'utf8').trim(); rmSync(`${glueFile}.req`, { force: true }) } catch {}
+    if (req === 'pane' && glueRunning()) { setInPane(true); const w = window(); if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); app.focus({ steal: true }) } }
+    else if (req === 'free') setInPane(false)
+    // Quit from its own menu: the pane closes too.
+    if (status.inPane && !launching && !glueRunning() && status.state !== 'downloading') { wantPane = false; publish({ inPane: false, state: 'installed' }); lastGlue = ''; writeGlue() }
+    // A first start can take longer than the launch waited: it goes into the pane as soon as the glue answers.
+    else if (wantPane && !status.inPane && !launching && glueRunning()) { follow(); publish({ inPane: true }); lastGlue = ''; writeGlue() }
+  }, 700).unref()
   let watching: BrowserWindow | null = null
   function follow() {
     const w = window(); if (!w || w === watching) return
@@ -157,17 +166,18 @@ export function createChromium(window: () => BrowserWindow | null) {
       // With the glue the window goes straight into the pane: hidden until the pane says where it is.
       const glue = existsSync(glueLib)
       launching = true
-      if (glue) { await rm(`${glueFile}.ack`, { force: true }); follow(); publish({ inPane: true }); lastGlue = ''; writeGlue() }
+      if (glue) { await rm(`${glueFile}.ack`, { force: true }); follow(); wantPane = true; publish({ inPane: true }); lastGlue = ''; writeGlue() }
       const child = spawn(binary, [`--user-data-dir=${profile}`, `--remote-debugging-port=${BROWSER.port}`, '--remote-debugging-address=127.0.0.1',
         '--no-first-run', '--no-default-browser-check', ...(url ? [url] : [])], { detached: true, stdio: 'ignore',
         env: existsSync(glueLib) ? { ...process.env, DYLD_INSERT_LIBRARIES: glueLib, TERMINAI_GLUE_FILE: glueFile } : process.env })
       child.unref()
       if (!await waitAlive(15_000)) { launching = false; publish({ inPane: false }); throw Error('TerminAI Browser did not start') }
       // The glue answers within a moment of the window opening; without it the window is placed beside TerminAI.
-      for (let i = 0; i < 20 && existsSync(glueLib) && !glueRunning(); i++) await new Promise(r => setTimeout(r, 150))
+      for (let i = 0; i < 100 && existsSync(glueLib) && !glueRunning(); i++) await new Promise(r => setTimeout(r, 150))
       launching = false
       if (glueRunning()) setInPane(true)
-      else { publish({ inPane: false }); writeGlue(); await dock().catch(() => {}) }
+      else if (!existsSync(glueLib)) { publish({ inPane: false }); writeGlue(); await dock().catch(() => {}) }
+      else { publish({ inPane: false }); writeGlue() }
     }
     publish({ state: 'running', endpoint })
     return status

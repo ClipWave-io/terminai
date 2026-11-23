@@ -46,7 +46,14 @@ export function todoMap(user: string, lists: TaskListPage[], team: { key?: strin
   const me = user === 'livio' ? 'Matteo' : 'Ilai', other = user === 'livio' ? 'Ilai' : 'Matteo'
   return `- This Mac's To-do now (rewritten by the app when the lists change; \`terminai todo map\` has the tasks): you work with ${me} (\`${user}\`). The shared page, which ${other} sees too: the columns ${me}, Together, ${other} and Unassigned${tail}. Private lists, only on this Mac: ${pages}.`
 }
-export const agentGuide = (map = '') => map ? `${AGENT_GUIDE}\n${map}` : AGENT_GUIDE
+/** Settings › Claude in Chrome runs in: which connected browser the claude-in-chrome tools are used with. */
+export const chromeLine = (browser: 'terminai' | 'chrome') => browser === 'chrome'
+  ? `- Claude in Chrome (the claude-in-chrome tools): the user chose their own Google Chrome in TerminAI's settings. With more than one browser connected, run list_connected_browsers and select_browser for Google Chrome. Use TerminAI Browser only when the user asks for it.`
+  : `- Claude in Chrome (the claude-in-chrome tools): the user chose TerminAI Browser in TerminAI's settings, not their Google Chrome. Open it first if it is not running (\`terminai browser open <url>\`); with more than one browser connected, run list_connected_browsers and select_browser for TerminAI Browser (the one that is not Google Chrome). Use Google Chrome only when the user asks for it.`
+export const agentGuide = (map = '', browser: 'terminai' | 'chrome' = 'terminai') => {
+  const guide = AGENT_GUIDE.replace(/(\n- A website the user wants you to use[^\n]*)/, `$1\n${chromeLine(browser)}`)
+  return map ? `${guide}\n${map}` : guide
+}
 
 const START = '<!-- BEGIN TERMINAI (written by the TerminAI app at every start: edits inside are replaced) -->'
 const END = '<!-- END TERMINAI -->'

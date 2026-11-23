@@ -167,6 +167,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <AppVersion />
       <div className="st-card">
         <Row label="Trust folders automatically" hint="Claude Code asks “Do you trust this folder?” the first time it runs somewhere new. On: TerminAI answers Yes for every folder a tab opens in. Turn it off if you open code you do not know."><Toggle on={prefs.autoTrust} set={v => onChange({ autoTrust: v })} /></Row>
+        <Row label="Claude in Chrome runs in" hint="Where your agents use the Claude extension: TerminAI Browser, inside TerminAI with its own logins, or your own Google Chrome with its profiles and passwords. Agents are told at once."><select value={prefs.claudeInChromeBrowser} onChange={e => onChange({ claudeInChromeBrowser: e.target.value as 'terminai' | 'chrome' })}><option value="terminai">TerminAI Browser</option><option value="chrome">Google Chrome</option></select></Row>
         <Row label="Claude in Chrome by default" hint="Every new conversation can use your Chrome (the Claude extension) without typing --chrome. Needs the extension installed."><Toggle on={prefs.chromeByDefault} set={v => onChange({ chromeByDefault: v })} /></Row>
         <Row label="New tabs start" hint="Opens a new conversation right away, with permissions skipped.">
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>

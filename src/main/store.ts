@@ -59,6 +59,7 @@ function hydrate(raw: unknown): Prefs {
     autoTrust: p.autoTrust !== false,
     workspaceId: typeof p.workspaceId === 'string' && /^[0-9a-f-]{36}$/.test(p.workspaceId) ? p.workspaceId : '',
     chromeByDefault: p.chromeByDefault !== false,
+    claudeInChromeBrowser: p.claudeInChromeBrowser === 'chrome' ? 'chrome' : 'terminai',
     soundNames: Object.fromEntries(Object.entries(p.soundNames && typeof p.soundNames === 'object' ? p.soundNames : {}).filter(([k, v]) => SOUND_KINDS.includes(k as never) && MAC_SOUNDS.includes(v as string))),
     sounds: Object.fromEntries(SOUND_KINDS.map(k => [k, typeof p.sounds?.[k] === 'boolean' ? p.sounds[k] : k === 'chat' ? p.chatSound !== false : k !== 'update'])) as Prefs['sounds'],
     // A Mac where someone picked Ilai or Matteo keeps the shared page; anyone else gets private lists under a fixed local key.

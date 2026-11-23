@@ -130,12 +130,14 @@ export function App(): JSX.Element {
   const [browserOnly, setBrowserOnly] = useState(false)
   // TerminAI Browser inside the browser pane (the real Chromium glued onto it); closing the pane keeps it running hidden.
   const [fullInPane, setFullInPane] = useState(false), [fullClosed, setFullClosed] = useState(false)
+  // The browser button pressed while TerminAI Browser starts (or downloads): the pane shows at once and it opens there.
+  const [fullOpening, setFullOpening] = useState(false)
   useEffect(() => {
-    const seen = (s: { state?: string; inPane?: boolean } | null) => { const on = !!s?.inPane && s.state === 'running'; setFullInPane(on); if (on) { setFullClosed(false); setCompactPane('browser') } }
+    const seen = (s: { state?: string; inPane?: boolean } | null) => { const on = !!s?.inPane && s.state === 'running'; setFullInPane(on); if (on) { setFullOpening(false); setFullClosed(false); setCompactPane('browser') } else if (s?.state === 'running') setFullOpening(false) }
     void window.term.browser.fullStatus().then(seen)
     return window.term.browser.onFullStatus(seen)
   }, [])
-  const fullShown = fullInPane && !fullClosed
+  const fullShown = (fullInPane || fullOpening) && !fullClosed
   useEffect(()=>window.term.browser.onReveal(()=>{if(!prefsRef.current.browserBeta)return;setShowBrowser(true);setCompactPane('browser')}),[])
   useEffect(() => {
     const tab = tabs.find(tab => tab.id === activeId)
@@ -162,7 +164,10 @@ export function App(): JSX.Element {
     setCompactPane(browserOnly ? 'terminal' : 'browser')
   }
   const toggleBrowser = () => {
-    if (fullInPane) setFullClosed(browserVisible); else setShowBrowser(!browserVisible)
+    // The browser is TerminAI Browser (our Chromium, with extensions and logins); the old built-in one only with the beta setting.
+    if (fullInPane || fullOpening) setFullClosed(browserVisible)
+    else if (!prefs.browserBeta) { setFullClosed(false); setFullOpening(true); void window.term.browser.openFull().catch(() => setFullOpening(false)) }
+    else setShowBrowser(!browserVisible)
     setBrowserOnly(false)
     setCompactPane(browserVisible ? showTerminal ? 'terminal' : showFiles ? 'files' : 'browser' : 'browser')
   }
@@ -204,7 +209,6 @@ export function App(): JSX.Element {
     if (prefs.hiddenToolbarItems.includes(id)) return null
     const drag = toolDrag(id, side)
     if (id === 'terminal' || id === 'browser' || id === 'files') {
-      if (id === 'browser' && !prefs.browserBeta && !fullInPane) return null
       const pane = id as WorkspacePane
       return <button key={id} className="btn icon no-drag" {...drag}
         aria-label={pane === 'terminal' ? 'Terminal' : pane === 'browser' ? 'Browser' : 'Files'}

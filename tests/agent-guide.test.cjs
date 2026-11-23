@@ -52,7 +52,7 @@ test('the map of the To-do pages goes under the guide, private lists with what t
   const f = path.join(tmp(), 'CLAUDE.md')
   writeAgentGuide(f, agentGuide(map))
   const s = fs.readFileSync(f, 'utf8')
-  assert.ok(s.includes(AGENT_GUIDE + '\n' + map + '\n<!-- END TERMINAI -->'))
+  assert.ok(s.includes(agentGuide() + '\n' + map + '\n<!-- END TERMINAI -->'))
   // A list renamed: the same section, rewritten.
   writeAgentGuide(f, agentGuide(todoMap('livio', [{ id: 'private', name: 'General' }, { id: 'x1', name: 'Agency' }])))
   assert.equal(fs.readFileSync(f, 'utf8').split('<!-- BEGIN TERMINAI').length, 2)

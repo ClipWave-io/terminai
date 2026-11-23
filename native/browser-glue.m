@@ -12,6 +12,7 @@
 static NSString *gluePath;
 static NSDictionary *want;
 static struct timespec seen;
+static void addMenu(void);
 static __weak NSWindow *glued;
 static NSRect freeFrame;
 
@@ -45,6 +46,7 @@ static void readWant(void) {
   if ([json isKindOfClass:NSDictionary.class]) want = json;
 }
 static void tick(void) {
+  addMenu();
   readWant(); if (!want) return;
   NSString *mode = want[@"mode"]; NSWindow *w = browserWindow(); if (!w) return;
   if ([mode isEqual:@"glued"]) {
@@ -66,6 +68,31 @@ static void tick(void) {
   }
   // TerminAI reads this to know the browser can be glued (an older browser without this file is placed beside it).
   static BOOL acked; if (!acked) { acked = YES; [[NSString stringWithFormat:@"%d", getpid()] writeToFile:[gluePath stringByAppendingString:@".ack"] atomically:YES encoding:NSUTF8StringEncoding error:nil]; }
+}
+
+// A "TerminAI" menu in the browser's menu bar: back into TerminAI's pane when it is a window of its own (⇧⌘I), or out
+// of it. TerminAI picks the request up from <glueFile>.req ("pane" or "free") and writes the new mode.
+@interface TerminAIGlueMenu : NSObject <NSMenuDelegate>
+@end
+@implementation TerminAIGlueMenu
+- (void)toggle:(id)sender {
+  NSString *req = [want[@"mode"] isEqual:@"free"] || !want ? @"pane" : @"free";
+  [req writeToFile:[gluePath stringByAppendingString:@".req"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+  menu.itemArray.firstObject.title = [want[@"mode"] isEqual:@"free"] || !want ? @"Show Inside TerminAI" : @"Open in Its Own Window";
+}
+@end
+static TerminAIGlueMenu *menuTarget;
+static void addMenu(void) {
+  NSMenu *bar = NSApp.mainMenu; if (!bar || menuTarget) return;
+  menuTarget = [TerminAIGlueMenu new];
+  NSMenu *menu = [[NSMenu alloc] initWithTitle:@"TerminAI"]; menu.delegate = menuTarget;
+  NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Show Inside TerminAI" action:@selector(toggle:) keyEquivalent:@"i"];
+  item.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift; item.target = menuTarget;
+  [menu addItem:item];
+  NSMenuItem *top = [[NSMenuItem alloc] initWithTitle:@"TerminAI" action:nil keyEquivalent:@""]; top.submenu = menu;
+  [bar insertItem:top atIndex:MIN((NSInteger)2, bar.numberOfItems)];
 }
 
 __attribute__((constructor)) static void start(void) {

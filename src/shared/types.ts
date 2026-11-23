@@ -444,6 +444,8 @@ export interface Prefs {
   workspaceId: string
   /** Claude in Chrome on by default in Claude Code (claudeInChromeDefaultEnabled), set once when this is on */
   chromeByDefault: boolean
+  /** Which browser Claude in Chrome is used in: TerminAI Browser (inside TerminAI) or the person's own Google Chrome. Told to the agents in their guide. */
+  claudeInChromeBrowser: 'terminai' | 'chrome'
   /** who edits the to-do list on this Mac; '' until chosen in the To-do sheet */
   tasksUser: TasksUser | ''
   /** A member's key on the server (`u:<id>`), set when they sign in: their shared page goes through the server, not git; '' on the partners' Macs */
@@ -513,6 +515,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoTrust: true,
   workspaceId: '',
   chromeByDefault: true,
+  claudeInChromeBrowser: 'terminai',
   tasksUser: 'ilai',
   tasksKey: '',
   todoHiddenColumns: [],

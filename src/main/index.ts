@@ -112,7 +112,7 @@ function guideFiles(): string[] {
 /** The terminai commands and the map of this Mac's To-do pages, at start and whenever the lists or the user change. */
 function writeGuides(): void {
   const p = store.load(), page = todos?.list()
-  const guide = agentGuide(todos ? todoMap(p.tasksUser, todos.pages(), { key: page?.me, members: page?.members }) : '')
+  const guide = agentGuide(todos ? todoMap(p.tasksUser, todos.pages(), { key: page?.me, members: page?.members }) : '', p.claudeInChromeBrowser)
   for (const file of guideFiles()) try { writeAgentGuide(file, guide) } catch (e) { console.error('[agent-guide]', e) }
   const claude = guideFiles().find(f => f.endsWith('CLAUDE.md'))
   if (claude) try { registerLogHook(join(dirname(claude), 'settings.json')) } catch (e) { console.error('[log-hook]', e) }
@@ -1176,6 +1176,7 @@ function registerIpc(): void {
     // The first clone waits for the user to say who they are in the To-do sheet.
     // Private tasks are per user: the sheet reloads them once the new name is saved.
     if (patch.tasksUser) { todosChanged(); void todos.sync(); writeGuides() }
+    else if (patch.claudeInChromeBrowser) writeGuides()
     if (patch.chromeByDefault === true && !process.env.TERMINAI_TEST_BUILD) { const file = join(homedir(), '.claude.json'); try { const d = JSON.parse(readFileSync(file, 'utf8')); if (d.claudeInChromeDefaultEnabled !== true) { d.claudeInChromeDefaultEnabled = true; writeFileSync(`${file}.terminai-tmp`, JSON.stringify(d, null, 2), { mode: 0o600 }); renameSync(`${file}.terminai-tmp`, file) } } catch {} }
     if (win && patch.theme) {
       const theme = getTheme(next.theme)
