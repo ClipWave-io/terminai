@@ -16,3 +16,4 @@ release-test/
 .t-codex/
 build-browser-work
 release-browser
+.edu-session.test.cjs

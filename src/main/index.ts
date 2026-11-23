@@ -20,6 +20,7 @@ import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-g
 import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
+import { eduCheck, eduConnect, eduDisconnect, eduPreview, eduSetFolders, eduStatus, eduSync, startEduSync } from './edu'
 import { createBridge, transcriptOf } from './teambridge'
 import { askTab } from './sideask'
 import * as voiceChat from './voicechat'
@@ -670,6 +671,16 @@ function registerIpc(): void {
   appIpc.handle('bots:save', (_e, v) => botSave(v))
   appIpc.handle('bots:remove', (_e, id) => botRemove(id))
   appIpc.handle('bots:test', (_e, id) => botTest(id))
+  // ManyMotions for Education: coding sessions into the student's provenance record (edu.ts)
+  appIpc.handle('edu:status', () => eduStatus())
+  appIpc.handle('edu:check', (_e, code, base) => eduCheck(code, base))
+  appIpc.handle('edu:connect', (_e, v) => eduConnect(v))
+  appIpc.handle('edu:folders', (_e, folders) => eduSetFolders(folders))
+  appIpc.handle('edu:disconnect', () => eduDisconnect())
+  appIpc.handle('edu:preview', () => eduPreview())
+  appIpc.handle('edu:sync', () => eduSync())
+  appIpc.handle('edu:pick-folder', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openDirectory'], defaultPath: homedir(), message: 'Choose a folder whose Claude Code and Codex sessions count for your course' })).filePaths[0] ?? null : null)
+  startEduSync()
   appIpc.handle('app:notification-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension'))
   appIpc.handle('team:pick', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])
   appIpc.handle('workspace:pick-files', async () => win ? (await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })).filePaths : [])

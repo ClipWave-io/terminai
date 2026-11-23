@@ -244,6 +244,16 @@ const api = {
   },
 
   /** Plays one kind of notification's sound now, whatever Settings says (the preview in Settings › Notifications). */
+  edu: {
+    status: (): Promise<import('../main/edu').EduStatus> => ipcRenderer.invoke('edu:status'),
+    check: (code: string, base?: string): Promise<{ institution: string; member: string; detail: string; collects: string }> => ipcRenderer.invoke('edu:check', code, base),
+    connect: (v: { code: string; base?: string; folders: string[] }): Promise<import('../main/edu').EduStatus> => ipcRenderer.invoke('edu:connect', v),
+    folders: (folders: string[]): Promise<import('../main/edu').EduStatus> => ipcRenderer.invoke('edu:folders', folders),
+    disconnect: (): Promise<import('../main/edu').EduStatus> => ipcRenderer.invoke('edu:disconnect'),
+    preview: (): Promise<any[]> => ipcRenderer.invoke('edu:preview'),
+    sync: (): Promise<import('../main/edu').EduStatus> => ipcRenderer.invoke('edu:sync'),
+    pickFolder: (): Promise<string | null> => ipcRenderer.invoke('edu:pick-folder'),
+  },
   sound: { test: (kind: string, name?: string): Promise<boolean> => ipcRenderer.invoke('sound:test', kind, name) },
   prefs: {
     get: (): Promise<Prefs> => ipcRenderer.invoke('prefs:get'),

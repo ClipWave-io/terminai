@@ -24,6 +24,7 @@ const LOCAL_VOICES = [
 ]
 import { THEMES } from '../../shared/themes'
 import { PermissionsSetup } from './PermissionsSetup'
+import { EduPanel } from './EduPanel'
 import { BotsPanel } from './BotsPanel'
 import './workspace.css'
 import './welcome.css'
@@ -233,6 +234,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
     </>),
     connections: () => page('Connections', 'Your bots and agents: your sessions ask them, and they reach your Shared sessions.', <>
       <BotsPanel /></>),
+    manymotions: () => page('ManyMotions for Education', 'Add your Claude Code and Codex sessions to your provenance record at your school or university.', <EduPanel />),
     shortcuts: () => page('Keyboard shortcuts', 'Everything you can do from the keyboard.', <div className="st-keys">
       {SHORTCUTS.map(g => <div key={g.group} className="st-card"><div className="st-keys-title">{g.group}</div>
         {g.items.map(([keys, what]) => <div key={keys} className="st-key"><span>{what}</span><span className="kbd">{keys}</span></div>)}</div>)}</div>),
@@ -256,7 +258,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
   )
 }
 
-type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'notifications' | 'connections' | 'shortcuts'
+type SettingsSection = 'general' | 'appearance' | 'voice' | 'memory' | 'notifications' | 'connections' | 'manymotions' | 'shortcuts'
 // One row of a card: what it is on the left, its control on the right. Defined out here, not inside SettingsSheet: a
 // component made anew on every render is a new type to React, so each re-render (the app polls its tabs every 800 ms)
 // rebuilt the row and closed an open dropdown or dropped the focus from a field.
@@ -271,6 +273,7 @@ const SECTIONS: [SettingsSection, string, string][] = [
   ['memory', 'Memory and MacGuard', 'M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'],
   ['notifications', 'Notifications', 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15ZM10 20a2 2 0 0 0 4 0'],
   ['connections', 'Connections', 'M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1'],
+  ['manymotions', 'ManyMotions', 'M4 19V5l5 7 3-4 3 4 5-7v14'],
   ['shortcuts', 'Shortcuts', 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10'],
 ]
 const SIcon = ({ d }: { d: string }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
