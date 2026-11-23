@@ -52,6 +52,7 @@ function hydrate(raw: unknown): Prefs {
     worklogSkip: Array.isArray(p.worklogSkip) ? p.worklogSkip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 50) : [],
     groupByFolder: p.groupByFolder !== false,
     railRecent: p.railRecent === true,
+    newTabsAt: p.newTabsAt === 'top' ? 'top' : 'bottom',
     railTimes: p.railTimes === true,
     resumeAll: p.resumeAll === true,
     chatSound: p.chatSound !== false,

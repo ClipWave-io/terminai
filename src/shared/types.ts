@@ -426,6 +426,8 @@ export interface Prefs {
   groupByFolder: boolean
   /** the sidebar lists the most recently active conversations first (and folders by their newest one) */
   railRecent: boolean
+  /** Where a new chat lands: at the bottom of its folder (or of the list), or at the top. */
+  newTabsAt: 'bottom' | 'top'
   /** each conversation in the sidebar shows when it was last active */
   railTimes: boolean
   /** after a restart every conversation starts again at once (spaced out), not only the open and working ones */
@@ -502,6 +504,7 @@ export const DEFAULT_PREFS: Prefs = {
   folderSharing: {},
   groupByFolder: true,
   railRecent: false,
+  newTabsAt: 'bottom',
   railTimes: false,
   resumeAll: false,
   chatSound: true,
