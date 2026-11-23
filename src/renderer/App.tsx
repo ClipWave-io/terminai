@@ -20,7 +20,6 @@ import { CloseSheet } from './components/CloseSheet'
 import { TabGrid } from './components/TabGrid'
 import { AccountMenu } from './components/AccountMenu'
 import { PrivacyPill } from './components/PrivacyPill'
-import { VoiceTalk } from './components/VoiceTalk'
 import { GuardBanner } from './components/GuardBanner'
 import { getTheme, nextTheme } from '../shared/themes'
 import * as snapshots from './snapshots'
@@ -1006,7 +1005,6 @@ export function App(): JSX.Element {
           {terminalVisible && activeId && pausedAt[activeId] && guard && <GuardBanner key={`guard-${activeId}`} id={activeId} at={pausedAt[activeId]} others={guard.paused.length - 1} running={guard.running} onState={setGuard} />}
           {terminalVisible && <div className="pane-corner">
             {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <PrivacyPill key={`privacy-${activeId}`} tabKey={t.browserKey || t.id} /> : null })()}
-            {(() => { const t = tabs.find(x => x.id === activeId); return t && t.agent && !t.exited ? <VoiceTalk key={`voice-${activeId}`} tabId={t.id} volume={prefs.voice.volume ?? 1} /> : null })()}
             {tabs.some(t => t.id === activeId && t.agent === 'claude' && t.agentAlive && !t.exited) && <AccountMenu key={activeId} ptyId={activeId!} />}
             {prefs.chatButton && <ChatButton open={showChat} unread={chatUnread} onToggle={() => setShowChat(v => !v)} />}
           </div>}
