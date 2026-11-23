@@ -379,7 +379,7 @@ function SessionSharing(): JSX.Element {
     <div className="sh-card">
       <div className="sh-row"><div><strong>New sessions</strong><small>For folders and repos without a rule.</small></div>
         <Seg value={state.byDefault ? 'shared' : 'off'} options={[['shared', 'Shared'], ['off', 'Off the record']]} onPick={v => set(null, v === 'shared')} /></div>
-      <div className="sh-row"><div><strong>Messages from others’ agents and bots</strong><small>Ask me shows each one before it is typed in. Side conversation answers each in a new tab with a copy of the conversation, so the one you are directing is never interrupted. Replies to your own messages always come in.</small></div>
+      <div className="sh-row"><div><strong>Messages from others’ agents and bots</strong><small>Ask me shows each one before it is typed in. Side conversation answers each in a new conversation of its own, which asks yours when it needs to, only once yours has finished its turn, so the one you are directing is never interrupted. Replies to your own messages always come in.</small></div>
         <Seg value={state.agentMessages} options={[['ask', 'Ask me'], ['side', 'Side conversation'], ['allow', 'Allow all']]} onPick={v => void window.term.team.agentMessages(v as 'ask').then(load)} /></div>
     </div>
     <div className="sh-card">

@@ -12,7 +12,7 @@ import type {SavedTab,Task,TaskListPage} from '../shared/types'
  * and `terminai todo start|done|reopen` (resources/terminai.cjs). Same boundary as the browser bridge: loopback only, a random token
  * in a 0600 file next to prefs, the file gone on quit. Every PTY gets its path as TERMINAI_CONTROL.
  */
-type Deps={askGrok?:(a:any)=>Promise<unknown>;wake?:(id:string)=>Promise<boolean>|boolean;window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
+type Deps={askGrok?:(a:any)=>Promise<unknown>;askTab?:(a:any)=>unknown;wake?:(id:string)=>Promise<boolean>|boolean;window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
   todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
     add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;
     request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
@@ -20,7 +20,7 @@ type Deps={askGrok?:(a:any)=>Promise<unknown>;wake?:(id:string)=>Promise<boolean
   team:(args:any)=>Promise<unknown>
   browser?:(args:any)=>Promise<unknown>
   update?:(restart:boolean)=>Promise<unknown>}
-const COMMANDS=['list','open','send','read','close','focus','show','task','log','team','ask-grok','update','browser']
+const COMMANDS=['list','open','send','ask','read','close','focus','show','task','log','team','ask-grok','update','browser']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -120,6 +120,8 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
     // TerminAI Browser (src/main/chromium.ts): start it, open a link in it, or report its state.
     case 'browser':{if(!d.browser)throw Error('Not ready yet');if(a.url!==undefined&&(typeof a.url!=='string'||!/^https?:\/\//i.test(a.url)||a.url.length>4000))throw Error('url must be an http(s) link');return d.browser({action:a.action==='status'?'status':'open',url:a.url})}
     case 'update':if(!d.update)throw Error('Not ready yet');return d.update(a.restart===true)
+    // A side conversation asks the conversation it was opened beside: queued until that one is free (src/main/sideask.ts).
+    case 'ask':{if(!d.askTab)throw Error('Not ready yet');liveTab(a.id);if(typeof a.text!=='string'||!a.text.trim()||a.text.length>20000)throw Error('usage: terminai ask <id> <question>');return d.askTab(a)}
     case 'ask-grok':if(!d.askGrok)throw Error('Not ready yet');return d.askGrok(a)
     case 'log':return a.action==='hook'?d.log.hook(a.session):d.log.day(a.day)
     case 'task':{

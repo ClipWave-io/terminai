@@ -25,7 +25,7 @@
 //   terminai log hook                                      Claude Code's UserPromptSubmit hook: hands finished work of other tabs to this one for the To-do
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','read','close','focus','show','todo','log','team','ask-grok','update','browser'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','off','no-enter','shared','personal','open','mine','urgent','restart'];
+const COMMANDS=['list','open','send','ask','read','close','focus','show','todo','log','team','ask-grok','update','browser'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','off','no-enter','shared','personal','open','mine','urgent','restart'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -107,6 +107,7 @@ function request(command,flags,words){
  if(command==='list')return {};
  if(command==='open')return {cwd:resolve(flags.cwd||process.cwd()),name:flags.name,group:flags.group,command:flags.command,background:!flags.foreground,cols:number(flags.cols),rows:number(flags.rows)};
  if(command==='send')return {id,text:words.slice(1).join(' '),enter:!flags['no-enter']};
+ if(command==='ask')return {id,text:words.slice(1).join(' '),tab:process.env.TERMINAI_TAB_ID};
  if(command==='read')return {id,lines:number(flags.lines)};
  if(command==='show')return {path:resolve(words.join(' '))};
  return {id};

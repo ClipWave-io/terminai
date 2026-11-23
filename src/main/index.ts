@@ -21,6 +21,7 @@ import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, handoff, today } from './worklog'
 import { createBridge, transcriptOf } from './teambridge'
+import { askTab } from './sideask'
 import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
@@ -302,12 +303,17 @@ async function stopTab(id: string): Promise<boolean> {
   return true
 }
 /** A side conversation: the same conversation forked into a new tab, so it knows everything the original does and the original stays untouched. */
-async function forkTab(id: string, name: string): Promise<string | null> {
+/** The name a tab shows in the sidebar. */
+function nameOfTab(id: string): string { const t = store.load().tabs.find(x => x.ptyId === id); return t?.customTitle || t?.name || t?.title || basename(ptys.cwdOf(id)) || 'Session' }
+/**
+ * A side conversation: a new, empty conversation of the same agent with the same launch flags, in the same folder, that
+ * takes the partner's message instead of the conversation it was sent to. It asks that one with `terminai ask` when it
+ * needs to (src/main/sideask.ts), so the conversation you are directing is never typed into mid-turn.
+ */
+async function sideTab(id: string, name: string): Promise<string | null> {
   const agent = ptys.agentOf(id); if (!agent.kind) return null
-  const sessionId = agent.sessionId || (agent.kind === 'claude' ? ptys.claudeSessionOf(id) : '')
-  let line = await ptys.resumeCommandFor({ kind: agent.kind, sessionId, args: agent.args, cwd: ptys.cwdOf(id), fresh: true })
-  if (agent.kind === 'claude') line += /--resume\b/.test(line) ? ' --fork-session' : ''
-  else line = line.replace(/ resume (\S+)$/, ' fork $1')
+  // No session id and no folder: a new conversation, not a resume (nor Codex's "latest thread here").
+  const line = await ptys.resumeCommandFor({ kind: agent.kind, sessionId: '', args: agent.args, fresh: true })
   const opened = await openCommandTab(ptys.cwdOf(id), name.slice(0, 100), line, true).catch(() => null) as { id?: string } | null
   const tab = opened?.id; if (!tab) return null
   // Ready for the message once the agent waits for input (as `terminai send` waits).
@@ -453,6 +459,9 @@ app.whenReady().then(() => {
       // A reply-only bot may now answer into this conversation (for 30 minutes).
       if (r.keyId && session && bridge) await bridge.asked(r.keyId, session).catch(() => {})
       return { ok: r.ok, bot: r.bot, note: r.note }
+    }, askTab: (a) => {
+      if (typeof a.tab !== 'string' || !ptys.liveIds().includes(a.tab)) throw new Error('Run terminai ask from a TerminAI tab.')
+      return askTab({ from: a.tab, to: a.id, question: a.text, fromName: nameOfTab(a.tab), toName: nameOfTab(a.id), transcript: transcriptOf, wake: id => resumeLater(id) })
     }, wake: id => resumeLater(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     browser: async (a) => {
@@ -1023,7 +1032,7 @@ function registerIpc(): void {
     team: async () => !process.env.TERMINAI_TEST_BUILD ? teamOf(teamKey(), store.load().workspaceId) : null,
     tabName,
     wake: (tabId: string) => resumeLater(tabId),
-    side: (tabId: string, from: string) => forkTab(tabId, `↪ ${from} · ${tabName(tabId)}`),
+    side: (tabId: string, from: string) => sideTab(tabId, `↪ ${from} · ${tabName(tabId)}`),
     waiting: (tabId: string) => laterResume.has(tabId),
     approve: async (from, tab, text, tabId, force) => {
       // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.
@@ -1032,11 +1041,11 @@ function registerIpc(): void {
       // No window to ask in (closed, with the app still running): the message waits; nothing gets in unasked.
       if (!win || win.isDestroyed()) return null
       win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
-      // "In a side conversation": the conversation is forked into a new tab that answers, so the one you are directing is not interrupted.
+      // "In a side conversation": a new conversation answers it and asks this one when it must (queued until it is free).
       const canFork = !!ptys.agentOf(tabId).kind
       const buttons = [...(canFork ? ['In a side conversation'] : []), 'Allow here', 'Decline', ...(force ? [] : ['Always allow'])]
       const { response } = await dialog.showMessageBox(win, { type: 'question', buttons, defaultId: buttons.indexOf('Decline'), cancelId: buttons.indexOf('Decline'),
-        message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') + (canFork ? '\n\nIn a side conversation: a new tab with a copy of this conversation answers it; this one is not interrupted and its context stays clean.' : '') })
+        message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') + (canFork ? '\n\nIn a side conversation: a new conversation in its own tab takes the request. When it needs something from this one, it asks, and the question waits until this one has finished its turn, so this conversation is never interrupted.' : '') })
       const picked = buttons[response]
       if (picked === 'Always allow') store.save({ ...store.load(), agentMessages: 'allow' })
       if (picked === 'In a side conversation') return 'side'

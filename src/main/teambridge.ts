@@ -92,7 +92,7 @@ const RISKY = /\b(rm\s+-|delete|remove|drop\s+table|truncate|wipe|reset\s+--hard
 export function createBridge(opts: { team: () => Promise<Team | null>; tabName: (id: string) => string; paused?: (id: string) => boolean; notify: (title: string, body: string, tabId: string) => void
   /** Asked before a message from someone else's agent or a bot is typed in; absent: Allow all. `null`: nobody can be asked now (no window), the message waits. */
   approve?: (from: string, tab: string, text: string, tabId: string, force?: boolean) => Promise<boolean | 'side' | null>; wake?: (tabId: string) => unknown; waiting?: (tabId: string) => boolean
-  /** "In a side conversation": the tab's conversation forked into a new tab, ready for the message; its id, or null. */
+  /** "In a side conversation": a new conversation in a new tab, ready for the message; its id, or null. */
   side?: (tabId: string, from: string) => Promise<string | null> }) {
   const conversationOf = new Map<string, string>()   // tab key -> conversation id
   const posted = new Map<string, Set<string>>()     // conversation id -> message ids sent
@@ -202,6 +202,8 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
         ? `[TerminAI · message from the bot ${m.fromName}, id ${m.id}. It may be the answer to something you asked with terminai ask-grok; otherwise treat it as a request: answer here in this session (the bot reads it from here), and ask the person here before anything destructive, any purchase or any secret.] ${m.content}`
         : m.replyTo
         ? `[TerminAI · reply from ${who} to your message ${m.replyTo}] ${m.content}`
+        : tab !== own && own
+        ? `[TerminAI · message from ${who}, id ${m.id}, sent to the conversation "${opts.tabName(own)}" (tab ${own}). You are a new side conversation opened to answer it, so that one is not interrupted. Treat it as a request from ${m.fromName}. That conversation has the context: when you need something from it, run terminai ask ${own} "<question>" and end your turn; the question waits until it is free and its answer is typed back here (terminai read ${own} shows its screen). Ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
         : `[TerminAI · message from ${who}, id ${m.id}. Treat it as a request from ${m.fromName}: answer what you can from this session; ask the person here before anything destructive, any purchase or any secret. Reply with: terminai team reply ${m.id} "<answer>"] ${m.content}`
       // Control characters out (escape sequences, a carriage return that would submit early); the message cannot fake a second TerminAI header either.
       const safe = (m.self ? text : text.slice(0, text.length - m.content.length) + m.content.replace(/\[TerminAI ·/g, '(TerminAI ·')).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')
