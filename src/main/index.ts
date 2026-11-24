@@ -23,6 +23,7 @@ import { workDay, handoff, today } from './worklog'
 import { eduCheck, eduConnect, eduDisconnect, eduPreview, eduSetFolders, eduStatus, eduSync, startEduSync } from './edu'
 import { createBridge, transcriptOf } from './teambridge'
 import { askTab } from './sideask'
+import { readClean, sendClean } from './cleanview'
 import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
@@ -901,6 +902,9 @@ function registerIpc(): void {
   appIpc.handle('pty:list', () => ptys.list())
   appIpc.handle('pty:attach', (e, { id }: { id: string }) => ptys.attach(e.sender, id))
   appIpc.on('pty:write', (_e, { id, data }: { id: string; data: string }) => ptys.write(id, data))
+  // Clean view: the tab's conversation without tool calls, and a message typed into it from the view's box.
+  appIpc.handle('clean:read', (_e, { id, seen }: { id: string; seen?: number }) => typeof id === 'string' && ptys.liveIds().includes(id) ? readClean(id, transcriptOf, typeof seen === 'number' ? seen : -1) : { file: false, version: 0, items: [] })
+  appIpc.handle('clean:send', (_e, { id, text }: { id: string; text: string }) => typeof id === 'string' && typeof text === 'string' && text.length < 100_000 && ptys.liveIds().includes(id) ? sendClean(id, text) : undefined)
   appIpc.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) =>
     ptys.resize(id, cols, rows),
   )

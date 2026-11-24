@@ -53,6 +53,7 @@ function hydrate(raw: unknown): Prefs {
     groupByFolder: p.groupByFolder !== false,
     railRecent: p.railRecent === true,
     newTabsAt: p.newTabsAt === 'top' ? 'top' : 'bottom',
+    cleanView: p.cleanView !== false,
     railTimes: p.railTimes === true,
     resumeAll: p.resumeAll === true,
     chatSound: p.chatSound !== false,

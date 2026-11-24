@@ -6,6 +6,7 @@ import { TeamChat } from './components/TeamChat'
 import { NoticeBell } from './components/NoticeCenter'
 import { Boundary } from './Boundary'
 import { onOverlayOpened, overlayOpened } from './overlay'
+import { CleanView } from './components/CleanView'
 import { FullBrowserPane } from './components/FullBrowserPane'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
@@ -126,6 +127,8 @@ export function App(): JSX.Element {
   }, [])
   const [showTerminal, setShowTerminal] = useState(true)
   const [showBrowser, setShowBrowser] = useState(false)
+  // Clean view: tabs switched to the terminal by hand (⇧⌘E or its Terminal button), for this run of the app.
+  const [cleanOff, setCleanOff] = useState<Record<string, boolean>>({})
   const [browserOnly, setBrowserOnly] = useState(false)
   // TerminAI Browser inside the browser pane (the real Chromium glued onto it); closing the pane keeps it running hidden.
   const [fullInPane, setFullInPane] = useState(false), [fullClosed, setFullClosed] = useState(false)
@@ -789,6 +792,9 @@ export function App(): JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       const list = tabsRef.current
       const cur = list.findIndex((t) => t.id === activeRef.current)
+      if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === 'e' && activeRef.current) {
+        e.preventDefault(); const id = activeRef.current; setCleanOff(o => ({ ...o, [id]: !o[id] })); return
+      }
 
       // ⌃⇥ / ⌃⇧⇥ cycle. Everything else here is ⌘-based, which no TUI claims.
       if (e.ctrlKey && e.key === 'Tab' && list.length) {
@@ -998,6 +1004,13 @@ export function App(): JSX.Element {
               onTitle={(title) => setTitle(tab.id, title)}
             />
           ))}
+          {(() => {
+            const t = tabs.find(x => x.id === activeId)
+            if (!terminalVisible || !t || !prefs.cleanView || !t.agent || t.exited) return null
+            // A question or a permission is answered in the terminal: it shows by itself until that is done.
+            if (cleanOff[t.id] || t.status === 'question') return <button className="btn clean-toggle" title="Only the messages and the answers  ⇧⌘E" onClick={() => setCleanOff(o => ({ ...o, [t.id]: false }))}>Clean view</button>
+            return <CleanView key={`clean-${t.id}`} tabId={t.id} status={t.status} onTerminal={() => setCleanOff(o => ({ ...o, [t.id]: true }))} />
+          })()}
           {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
           {terminalVisible && activeId && pausedByYou[activeId] && <div className="guard-banner" role="status"><span className="guard-icon" aria-hidden="true" />
             <span className="guard-text"><strong>Paused by you at {pausedByYou[activeId]}.</strong> Nothing runs in this chat until you resume it; nothing is lost.</span>

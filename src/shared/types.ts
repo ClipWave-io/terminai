@@ -428,6 +428,8 @@ export interface Prefs {
   railRecent: boolean
   /** Where a new chat lands: at the bottom of its folder (or of the list), or at the top. */
   newTabsAt: 'bottom' | 'top'
+  /** Claude Code and Codex tabs open as a chat (only messages and answers); the terminal is one click away. */
+  cleanView: boolean
   /** each conversation in the sidebar shows when it was last active */
   railTimes: boolean
   /** after a restart every conversation starts again at once (spaced out), not only the open and working ones */
@@ -507,6 +509,7 @@ export const DEFAULT_PREFS: Prefs = {
   groupByFolder: true,
   railRecent: false,
   newTabsAt: 'bottom',
+  cleanView: true,
   railTimes: false,
   resumeAll: false,
   chatSound: true,

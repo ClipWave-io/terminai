@@ -1,0 +1,58 @@
+// Clean view: a (fake) claude tab shows as a chat: the person's messages and the answers, no tool calls, the first and
+// last text of a turn with the ones between folded, a Markdown table as a table; its box types into the tab; ⇧⌘E
+// switches to the terminal and back. After `npx electron-vite build`: TERMINAI_TEST_BUILD=1 npx electron tests/clean-view-ui.cjs
+process.env.TERMINAI_TEST_ALLOW_AGENTS = '1'
+const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto'), assert = require('assert/strict'), { execFileSync, execFile } = require('child_process')
+const REPO = path.join(__dirname, '..')
+const PROJ = path.join(os.homedir(), '.claude', 'projects', `-terminai-clean-test-${process.pid}`); fs.mkdirSync(PROJ, { recursive: true })
+const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-clean-'))
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-clean-data-')); app.setPath('userData', dir)
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, newTabAgent: 'none' }))
+const delay = ms => new Promise(r => setTimeout(r, ms))
+const waitFor = async (what, fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return; await delay(250) } throw new Error('timed out: ' + what) }
+const LOG = path.join(WORK, 'fake.log'), SID = crypto.randomUUID(), T = path.join(PROJ, `${SID}.jsonl`)
+const inputs = () => { try { return fs.readFileSync(LOG, 'utf8').split('\n').filter(l => l.startsWith('input ')) } catch { return [] } }
+const line = o => fs.appendFileSync(T, JSON.stringify(o) + '\n')
+const cli = (...args) => new Promise((resolve, reject) => execFile(process.execPath, [path.join(REPO, 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => e ? reject(new Error(err || e.message)) : resolve(String(out))))
+
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = s => win.webContents.executeJavaScript(s)
+  fs.mkdirSync(path.join(WORK, 'fakebin'))
+  execFileSync('clang', ['-O1', '-o', path.join(WORK, 'fakebin', 'claude'), path.join(__dirname, 'fixtures', 'fake-claude.c')])
+  await waitFor('control', () => fs.existsSync(path.join(dir, 'control.json')), 10000)
+  const { id } = JSON.parse(await cli('open', '--cwd', '/tmp', '--name', 'clean', '--command', `export PATH="${WORK}/fakebin:$PATH" FAKE_CLAUDE_LOG=${LOG} FAKE_PROJECT_DIR=${PROJ}; claude --session-id ${SID}`))
+  await cli('focus', id)
+  await waitFor('conversation', async () => (await js(`window.term.pty.agent(${JSON.stringify(id)})`))?.sessionId === SID, 15000)
+  line({ type: 'user', message: { role: 'user', content: '<command-name>/clear</command-name>' } })
+  line({ type: 'user', message: { role: 'user', content: 'How many users signed up?' } })
+  line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '1. **Signups:** how many users signed up.' }] } })
+  line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'psql SECRET_TOOL_CALL' } }] } })
+  line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'TOOL_OUTPUT 42' }] } })
+  line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Checking the database now.' }] } })
+  line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '1. **Signups:** 42 this week.\n\n| Day | Users |\n|---|---|\n| Mon | 20 |\n| Tue | 22 |' }] } })
+  line({ type: 'system', subtype: 'turn_duration' })
+  await waitFor('clean view', () => js(`!!document.querySelector('.clean-view .clean-msg.assistant')`), 15000)
+  const text = await js(`document.querySelector('.clean-scroll').innerText`)
+  assert.match(text, /How many users signed up\?/)
+  assert.doesNotMatch(text, /SECRET_TOOL_CALL|TOOL_OUTPUT|\/clear/, text)
+  assert.doesNotMatch(text, /Checking the database/, 'the update in between is folded')
+  assert.match(await js(`document.querySelector('.clean-more')?.textContent || ''`), /1 update/)
+  assert.equal(await js(`document.querySelectorAll('.clean-table td').length`), 4)
+  assert.equal(await js(`document.querySelectorAll('.clean-msg.assistant strong').length`), 2)
+  await js(`document.querySelector('.clean-more').click()`)
+  await waitFor('unfolded', async () => /Checking the database/.test(await js(`document.querySelector('.clean-scroll').innerText`)), 3000)
+
+  await js(`(() => { const t = document.querySelector('.clean-input textarea'); const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; set.call(t, 'And last week?'); t.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+  await delay(100)
+  await js(`document.querySelector('.clean-input textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`)
+  await waitFor('typed into the tab', () => inputs().some(l => /And last week\?/.test(l)), 10000)
+
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', metaKey: true, shiftKey: true, bubbles: true }))`)
+  await waitFor('terminal shown', () => js(`!document.querySelector('.clean-view') && !!document.querySelector('.clean-toggle')`), 3000)
+  await js(`document.querySelector('.clean-toggle').click()`)
+  await waitFor('clean again', () => js(`!!document.querySelector('.clean-view')`), 3000)
+  console.log('PASS clean view: messages and answers only, in-between folded, table rendered, the box types into the tab, ⇧⌘E switches')
+  await cli('close', id).catch(() => {}); app.quit()
+})().catch(e => { console.error(e); app.exit(1) }) }))
+app.on('quit', () => { try { fs.rmSync(PROJ, { recursive: true, force: true }) } catch {}; try { execFileSync('/usr/bin/pkill', ['-f', `^claude --session-id ${SID}`]) } catch {} })
+setTimeout(() => { console.error('timeout'); app.exit(1) }, 90000).unref(); require('../out/main/index.js')
