@@ -1554,3 +1554,8 @@ textarea.card-notes.editing {
 .find-count { font-size: 11.5px; color: var(--dim); min-width: 64px; text-align: right; white-space: nowrap; }
 .find-bar button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--dim); cursor: pointer; font-size: 13px; }
 .find-bar button:hover { background: var(--pane); color: var(--fg); }
+
+/* A row's colour (right-click › Colour): a tint across the row and a bar on its left edge. */
+.rail .tab.colored { background: color-mix(in srgb, var(--tab-color) 14%, transparent); box-shadow: inset 3px 0 0 var(--tab-color); }
+.rail .tab.colored:hover { background: color-mix(in srgb, var(--tab-color) 20%, transparent); }
+.rail .tab.colored.active { background: color-mix(in srgb, var(--tab-color) 26%, var(--surface)); }

@@ -228,6 +228,8 @@ export interface TabInfo {
   name?: string
   /** rail heading this tab sits under instead of its folder; set by `terminai open --group` */
   group?: string
+  /** A colour the person gave the row in the sidebar (Colour in its right-click menu): a key of TAB_COLORS. */
+  color?: string
   /** tucked out of the rail; its folder heading counts it and can show it again */
   hidden?: boolean
   agent?: string
@@ -303,6 +305,8 @@ export interface SavedTab {
   cloud?: CloudSession
   name?: string
   group?: string
+  /** A colour the person gave the row in the sidebar (Colour in its right-click menu): a key of TAB_COLORS. */
+  color?: string
   hidden?: boolean
   agent?: string
   browserKey?: string
@@ -536,3 +540,6 @@ export interface WorkConversation { tool: 'Claude' | 'Codex'; title: string; pla
 export interface WorkDay { day: string; person: string; workingMinutes: number; projects: { place: string; minutes: number }[]; conversations: WorkConversation[]; writtenAt: string }
 
 export type FolderMode = 'shared' | 'private' | 'off'
+
+/** The sidebar row colours (right-click › Colour). */
+export const TAB_COLORS: Record<string, string> = { red: '#e5484d', orange: '#f76b15', yellow: '#e2b93b', green: '#30a46c', teal: '#12a594', blue: '#3e63dd', purple: '#8e4ec6', pink: '#d6409f' }

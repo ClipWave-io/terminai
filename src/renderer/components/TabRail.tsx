@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { groupOf, tabLabel, type TabInfo, type TabStatus } from '../../shared/types'
+import { groupOf, tabLabel, TAB_COLORS, type TabInfo, type TabStatus } from '../../shared/types'
 import type { JSX } from 'react'
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
   onRename: (id: string, name: string) => void
   /** tuck a session out of its folder in the rail, or bring it back */
   onHide: (id: string, hidden: boolean) => void
+  onColor?: (id: string, color: string) => void
   /** chats paused by hand (right-click › Pause): tab id -> when */
   pausedByYou?: Record<string, string>
   onReorderGroups: (from: string, to: string) => void
@@ -90,7 +91,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
 }
 
 export function TabRail({
-  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onReorderGroups,
+  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onColor, onReorderGroups,
   activeId,
   speakingId,
   incoming = {},
@@ -162,6 +163,7 @@ export function TabRail({
         dragOver === i && dragFrom !== null && dragFrom !== i ? 'dropping' : '',
         dragFrom === i ? 'dragging' : '',
         tab.hidden ? 'is-hidden' : '',
+        tab.color && TAB_COLORS[tab.color] ? 'colored' : '',
         asleep(tab) ? 'is-asleep' : '',
         incoming[tab.id] ? 'incoming' : '',
       ]
@@ -199,6 +201,7 @@ export function TabRail({
         if (from !== null && from !== i) onReorder(from, i)
         clearDrag()
       }}
+      style={tab.color && TAB_COLORS[tab.color] ? ({ '--tab-color': TAB_COLORS[tab.color] } as React.CSSProperties) : undefined}
       onMouseDown={(e) => { if (e.button === 0) onSelect(tab.id) }}
       onDoubleClick={() => startEdit(tab)}
       onContextMenu={(e) => { e.preventDefault(); void window.term.pty.menu(tab.id, !!tab.hidden, !!tab.cloud).then(action => {
@@ -208,6 +211,7 @@ export function TabRail({
         else if (action === 'wake') void window.term.pty.resume(tab.id)
         else if (action === 'rename') startEdit(tab)
         else if (action === 'hide') onHide(tab.id, !tab.hidden)
+        else if (action?.startsWith('color:')) onColor?.(tab.id, action.slice(6))
         else if (action === 'close') onClose(tab.id)
       }) }}
       title={`${tabLabel(tab)}\n${tab.cwd}\nDouble-click to rename`}

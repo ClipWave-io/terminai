@@ -363,7 +363,7 @@ export function App(): JSX.Element {
     const now = Date.now()
     const tab: TabInfo = {
       id, browserKey,
-      customTitle: restore?.customTitle || restore?.name, group: restore?.group, hidden: restore?.hidden,
+      customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, hidden: restore?.hidden,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
@@ -419,7 +419,7 @@ export function App(): JSX.Element {
       ...prev,
       {
         id: live.id,
-        customTitle: restore?.customTitle || restore?.name, group: restore?.group, hidden: restore?.hidden,
+        customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, hidden: restore?.hidden,
       browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
@@ -551,6 +551,7 @@ export function App(): JSX.Element {
     // The name field older builds read and wrote, kept so prefs stay interchangeable.
     name: t.customTitle,
     group: t.group,
+    color: t.color || undefined,
     hidden: t.hidden || undefined,
     browserKey: t.browserKey || t.id,
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
@@ -931,6 +932,7 @@ export function App(): JSX.Element {
             filter={filterOpen && (!findOpen || titleHits > 0) ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
             onRename={(id,name)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,customTitle:name||undefined}:t))}
             onHide={(id,hidden)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,hidden:hidden||undefined}:t))}
+            onColor={(id,color)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,color:color||undefined}:t))}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
             activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}

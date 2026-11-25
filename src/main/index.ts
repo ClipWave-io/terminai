@@ -854,6 +854,10 @@ function registerIpc(): void {
       laterResume.has(id) ? { label: 'Resume conversation', click: () => { picked = 'wake' } } : { label: 'Stop (free its memory)', enabled: running, toolTip: 'Claude Code or Codex exits and gives its memory back; Resume brings the same conversation back', click: () => { picked = 'stop' } },
       { type: 'separator' },
       { label: 'Rename…', click: () => { picked = 'rename' } },
+      { label: 'Colour', submenu: [
+        { label: 'None', click: () => { picked = 'color:' } }, { type: 'separator' as const },
+        ...['Red', 'Orange', 'Yellow', 'Green', 'Teal', 'Blue', 'Purple', 'Pink'].map(c => ({ label: c, click: () => { picked = `color:${c.toLowerCase()}` } })),
+      ] },
       { label: hidden === true ? 'Unhide' : 'Hide from the sidebar', click: () => { picked = 'hide' } },
       { type: 'separator' },
       { label: 'Close', click: () => { picked = 'close' } },
