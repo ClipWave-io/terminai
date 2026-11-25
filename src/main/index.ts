@@ -1064,7 +1064,7 @@ function registerIpc(): void {
       if (store.load().agentMessages === 'side' && !force && ptys.agentOf(tabId).kind) return 'side'
       // No window to ask in (closed, with the app still running): the message waits; nothing gets in unasked.
       if (!win || win.isDestroyed()) return null
-      win.webContents.send('tab:request', { reqId: `ask-${Date.now()}`, kind: 'focus', input: { id: tabId } })
+      // No switch to the tab being messaged: the dialog names it, and the tab you are typing in stays in view.
       // "In a side conversation": a new conversation answers it and asks this one when it must (queued until it is free).
       const canFork = !!ptys.agentOf(tabId).kind
       const buttons = [...(canFork ? ['In a side conversation'] : []), 'Allow here', 'Decline', ...(force ? [] : ['Always allow'])]
