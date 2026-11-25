@@ -1568,3 +1568,11 @@ details.st-more > summary::before { content: ''; width: 6px; height: 6px; border
 details.st-more[open] > summary::before { transform: rotate(45deg); }
 details.st-more > summary:hover { color: var(--fg); }
 .clean-msg.assistant.streaming > :last-child::after { content: "▍"; margin-left: 2px; color: var(--accent); animation: clean-dot 1s infinite; }
+
+.full-browser-strip { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--border); font-size: 11.5px; color: var(--dim); }
+.full-browser-strip span { flex: 1; font-weight: 600; letter-spacing: .01em; }
+.full-browser-strip button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--dim); cursor: pointer; }
+.full-browser-strip button:hover { background: var(--surface); color: var(--fg); }
+.full-browser-popped { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 24px; }
+.full-browser-popped strong { color: var(--fg); font-size: 14px; } .full-browser-popped small { color: var(--dim); font-size: 12.5px; }
+.full-browser-popped span { display: flex; gap: 8px; margin-top: 8px; }

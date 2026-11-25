@@ -204,7 +204,9 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
     setPending(p => p.filter(q => {
       if (Date.now() - q.at > 30 * 60_000) return false
       const t = q.text.replace(/\s+/g, ' ').slice(0, 200)
-      return t ? !said.some(u => u.includes(t)) : users.length <= q.users
+      // Gone once the conversation has it: its words, or simply a new message of yours since it was sent (Claude Code may
+      // rewrite what it shows, e.g. pictures as [Image #1], so the words alone can miss it and leave it stuck as "Sending…").
+      return users.length <= q.users && (!t || !said.some(u => u.includes(t)))
     }))
   }, [items])
   // Streaming: while it works, the answer being written is read off the terminal screen and shown as it grows, until
