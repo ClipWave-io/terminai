@@ -3,6 +3,8 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { SearchAddon } from '@xterm/addon-search'
+import { finders } from '../find'
 import { toXtermTheme } from '../../shared/themes'
 import { claudeDarkOnLight, type Remap } from '../../shared/claude-colors'
 import * as snapshots from '../snapshots'
@@ -167,6 +169,23 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon((_event, uri) => { if (!term.hasSelection()) openLink(uri) }))
 
+    // ⌘F: the find bar searches this terminal's scrollback, the way a normal terminal does.
+    const search = new SearchAddon()
+    term.loadAddon(search)
+    let last = { index: -1, count: 0 }
+    search.onDidChangeResults(r => { last = { index: r.resultIndex, count: r.resultCount } })
+    const deco = { matchBackground: '#5a4a1a', matchBorder: '#00000000', matchOverviewRuler: '#d7a634', activeMatchBackground: '#d7a634', activeMatchBorder: '#00000000', activeMatchColorOverviewRuler: '#ffcf5a' }
+    finders.set(ptyId, {
+      find: async (q, back, incremental) => {
+        if (!q) { search.clearDecorations(); return { index: -1, count: 0 } }
+        const opts = { caseSensitive: false, incremental, decorations: deco }
+        const found = back ? search.findPrevious(q, opts) : search.findNext(q, opts)
+        await new Promise(r => setTimeout(r, 30))
+        return found ? last : { index: -1, count: 0 }
+      },
+      clear: () => { search.clearDecorations(); term.clearSelection() },
+    })
+
     const unicode = new Unicode11Addon()
     term.loadAddon(unicode)
     term.unicode.activeVersion = '11'
@@ -238,6 +257,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       offExit()
       ro.disconnect()
       cancelAnimationFrame(raf)
+      finders.delete(ptyId)
       term.dispose()
       termRef.current = null
       fitRef.current = null

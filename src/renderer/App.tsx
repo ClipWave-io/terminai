@@ -7,6 +7,7 @@ import { NoticeBell } from './components/NoticeCenter'
 import { Boundary } from './Boundary'
 import { onOverlayOpened, overlayOpened } from './overlay'
 import { CleanView } from './components/CleanView'
+import { FindBar } from './components/FindBar'
 import { FullBrowserPane } from './components/FullBrowserPane'
 import { BrowserPane } from './components/BrowserPane'
 import { TabRail } from './components/TabRail'
@@ -286,6 +287,10 @@ export function App(): JSX.Element {
   const closedTabs = useRef<SavedTab[]>([])
   const [filter, setFilter] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
+  // ⌘F: the find bar over the conversation (inside it) with the same words filtering the sidebar's titles.
+  const [findOpen, setFindOpen] = useState(false)
+  // With the find bar, the sidebar narrows to matching titles only when some match (no empty sidebar while searching text).
+  const titleHits = filter ? tabs.filter(t => `${tabLabel(t)} ${t.cwd}`.toLowerCase().includes(filter.toLowerCase())).length : 0
   // Tabs from a run that never quit cleanly, waiting for the user's say-so.
   const [recovery, setRecovery] = useState<SavedTab[] | null>(null)
   // Tab whose close is waiting on the user: an agent is still running in it.
@@ -820,7 +825,7 @@ export function App(): JSX.Element {
 
       if (e.key.toLowerCase() === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); return }
       // Opens, never closes (Escape in the field does that); pressed again it takes the field back.
-      if (e.key.toLowerCase() === 'f') { e.preventDefault(); if (prefs.railHidden) patchPrefs({ railHidden: false }); setFilterOpen(true); const field = document.querySelector<HTMLInputElement>('.rail-filter'); field?.focus(); field?.select(); return }
+      if (e.key.toLowerCase() === 'f') { e.preventDefault(); setFilterOpen(true); setFindOpen(true); const field = document.querySelector<HTMLInputElement>('.find-input'); field?.focus(); field?.select(); return }
       switch (e.key) {
         // ⌘N as in Livio's build: a new tab in the current folder, like ⌘T.
         case 'n':
@@ -923,7 +928,7 @@ export function App(): JSX.Element {
         <>
           <TabRail
             tabs={tabs}
-            filter={filterOpen ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
+            filter={filterOpen && (!findOpen || titleHits > 0) ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
             onRename={(id,name)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,customTitle:name||undefined}:t))}
             onHide={(id,hidden)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,hidden:hidden||undefined}:t))}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
@@ -1007,6 +1012,9 @@ export function App(): JSX.Element {
               onTitle={(title) => setTitle(tab.id, title)}
             />
           ))}
+          {terminalVisible && activeId && findOpen && <FindBar tabId={activeId} query={filter} onQuery={setFilter}
+            titles={titleHits}
+            onClose={() => { setFindOpen(false); setFilterOpen(false); setFilter(''); document.querySelector<HTMLTextAreaElement>('.clean-input textarea, .term-host.active textarea')?.focus() }} />}
           {(() => {
             const t = tabs.find(x => x.id === activeId)
             if (!terminalVisible || !t || !prefs.cleanView || !t.agent || t.exited) return null

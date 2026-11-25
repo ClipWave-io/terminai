@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
+import { finders } from '../find'
 
 /**
  * Clean view: a Claude Code or Codex tab as a chat. Only the person's messages and the agent's text, read from the
@@ -127,6 +128,34 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
     return () => { stop = true; clearInterval(t) }
   }, [tabId])
   useLayoutEffect(() => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight }, [items, status])
+  // ⌘F while the Clean view is shown searches the conversation here (highlighted with the CSS Highlight API).
+  useEffect(() => {
+    const H = (globalThis as any).Highlight, reg = (CSS as any).highlights
+    let ranges: Range[] = [], at = -1, query = ''
+    const collect = (q: string) => {
+      ranges = []; const root = scroller.current; if (!root || !q) return
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), lq = q.toLowerCase()
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const t = (n.textContent || '').toLowerCase()
+        for (let i = t.indexOf(lq); i >= 0; i = t.indexOf(lq, i + lq.length)) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + q.length); ranges.push(r) }
+      }
+    }
+    const paint = () => {
+      if (!reg || !H) return
+      reg.set('clean-find', new H(...ranges)); reg.set('clean-find-current', at >= 0 && ranges[at] ? new H(ranges[at]) : new H())
+      const r = ranges[at]; if (r) { stick.current = false; (r.startContainer.parentElement as HTMLElement | null)?.scrollIntoView({ block: 'center' }) }
+    }
+    finders.set(`clean:${tabId}`, {
+      find: async (q, back, incremental) => {
+        if (q !== query || !incremental) { const changed = q !== query; query = q; collect(q); if (changed) at = back ? ranges.length : -1 }
+        if (!ranges.length) { at = -1; paint(); return { index: -1, count: 0 } }
+        if (!incremental || at < 0) at = back ? (at - 1 + ranges.length) % ranges.length : (at + 1) % ranges.length
+        paint(); return { index: at, count: ranges.length }
+      },
+      clear: () => { ranges = []; at = -1; query = ''; reg?.delete('clean-find'); reg?.delete('clean-find-current') },
+    })
+    return () => { finders.delete(`clean:${tabId}`); reg?.delete('clean-find'); reg?.delete('clean-find-current') }
+  }, [tabId])
   const [dragging, setDragging] = useState(false)
   // Files and pictures become attachments above the text (a picture with its thumbnail); they go in as their paths when
   // sent, the way the terminal takes a drop, and Claude Code turns a picture's path into [Image #n].
