@@ -157,6 +157,8 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
     return () => { finders.delete(`clean:${tabId}`); reg?.delete('clean-find'); reg?.delete('clean-find-current') }
   }, [tabId])
   const [dragging, setDragging] = useState(false)
+  // The box grows with what is typed, wrapped lines included, up to about ten lines; then it scrolls.
+  useLayoutEffect(() => { const el = box.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 10 * 22 + 10)}px`; el.style.overflowY = el.scrollHeight > 10 * 22 + 10 ? 'auto' : 'hidden' }, [draft])
   // Files and pictures become attachments above the text (a picture with its thumbnail); they go in as their paths when
   // sent, the way the terminal takes a drop, and Claude Code turns a picture's path into [Image #n].
   const attach = (paths: string[]) => {
@@ -239,7 +241,7 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
           <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles(l => l.filter(x => x.path !== f.path))}>×</button>
         </span>)}</div>}
         <div className="clean-row">
-          <textarea ref={box} value={draft} rows={Math.min(10, Math.max(1, draft.split('\n').length))} placeholder={working ? 'Reply… it goes in when this turn ends' : 'Reply…'}
+          <textarea ref={box} value={draft} rows={1} placeholder={working ? 'Reply… it goes in when this turn ends' : 'Reply…'}
             onChange={e => setDraft(e.target.value)} onPaste={onPaste}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
           <button className="clean-send" type="submit" disabled={!draft.trim() && !files.length} aria-label="Send" title="Send  ↩">
