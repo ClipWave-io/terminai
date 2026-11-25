@@ -1580,6 +1580,7 @@ details.st-more > summary:hover { color: var(--fg); }
 /* Rows picked with ⌘-click / ⇧-click (to colour several at once). */
 .rail .tab.picked { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
 
-/* Everything drawn over a pane (Clean view, find bar, its switch) stays inside the pane: popups from the toolbar
-   (notifications, chat, menus) always come on top. */
-.pane, .files-slot, .browser-slot { isolation: isolate; }
+/* Popups from the toolbar (notifications, menus) come above everything drawn over a pane (Clean view, find bar).
+   Done by lifting the toolbar, not by isolating the panes: an isolated pane made the terminal's WebGL canvas flash
+   black and white whenever the sidebar changed (hiding a conversation). */
+.topbar { position: relative; z-index: 50; }
