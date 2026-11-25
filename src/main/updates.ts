@@ -10,7 +10,8 @@ let ready = ''
 // with no timeout) would otherwise block every later one for good, since the updater reuses a download in progress.
 let downloading: { token: CancellationToken; version: string; moved: number; percent: number } | null = null
 function download(version: string): void {
-  if (ready || downloading) return
+  // A newer version than the one waiting replaces it (0.3.97 waiting while 0.3.106 is out).
+  if (ready === version || downloading) return
   const token = new CancellationToken()
   downloading = { token, version, moved: Date.now(), percent: 0 }
   autoUpdater.downloadUpdate(token).catch(() => {}).finally(() => { if (downloading?.token === token) downloading = null })
@@ -52,7 +53,7 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
   autoUpdater.on('error', error => console.error('Update check failed:', String(error?.message ?? error).split('\n')[0]))
   // Every 15 minutes, and when the Mac wakes or unlocks: a new version shows up within minutes of its release. The feed
   // answer is a few hundred bytes from terminai.xyz; the download only happens once per version.
-  const check = () => { if (!ready) void autoUpdater.checkForUpdates().catch(() => {}) }
+  const check = () => { void autoUpdater.checkForUpdates().catch(() => {}) }
   setTimeout(check, 10_000)
   setInterval(check, 15 * 60 * 1000)
   powerMonitor.on('resume', () => setTimeout(check, 5000))
@@ -73,7 +74,7 @@ export async function checkForUpdatesNow(owner: BrowserWindow | null, quiet = fa
     if (!quiet) { const options = { message: 'TerminAI is up to date', detail: `You have version ${app.getVersion()}.` }; if (owner) await dialog.showMessageBox(owner, options); else await dialog.showMessageBox(options) }
     return `Up to date (${app.getVersion()}).`
   }
-  if (ready) return `TerminAI ${ready} is downloaded: terminai update --restart installs it.`
+  if (ready === result.updateInfo.version) return `TerminAI ${ready} is ready: Restart to update installs it.`
   download(result.updateInfo.version)
   return `TerminAI ${result.updateInfo.version} is downloading${downloading?.percent ? ` (${downloading.percent}%)` : ''}: it asks to restart when it is ready.`
 }

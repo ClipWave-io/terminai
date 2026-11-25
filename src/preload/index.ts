@@ -28,7 +28,9 @@ const api = {
     stopProcess: (pid: number, force: boolean): Promise<string> => ipcRenderer.invoke('memory:stop', pid, force),
     storage: (): Promise<import('../main/memoryDetail').StorageReport> => ipcRenderer.invoke('memory:storage'),
     onOpenSettings: (cb: (section?: string) => void): (() => void) => { const h = (_e: IpcRendererEvent, section?: string) => cb(section); ipcRenderer.on('settings:open', h); return () => { ipcRenderer.removeListener('settings:open', h) } },
-    checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates') },
+    checkForUpdates: (): Promise<string> => ipcRenderer.invoke('app:check-updates'),
+    updateReady: (): Promise<string> => ipcRenderer.invoke('app:update-ready'),
+    installUpdate: (): Promise<boolean> => ipcRenderer.invoke('app:install-update') },
   team: {
     agentMessages: (v?: 'ask' | 'allow' | 'side'): Promise<'ask' | 'allow' | 'side'> => ipcRenderer.invoke('team:agentMessages', v),
     onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow' | 'side'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string; own?: boolean; rule?: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), tabMode: (key: string, mode: 'shared' | 'private' | 'off' | null): Promise<void> => ipcRenderer.invoke('team:tabMode', key, mode), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),

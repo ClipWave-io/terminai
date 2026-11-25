@@ -283,10 +283,12 @@ const SIcon = ({ d }: { d: string }) => <svg width="16" height="16" viewBox="0 0
 function AppVersion(): JSX.Element {
   const [version, setVersion] = useState('')
   const [status, setStatus] = useState('')
-  useEffect(() => { void window.term.window.version().then(setVersion) }, [])
+  const [ready, setReady] = useState('')
+  useEffect(() => { void window.term.window.version().then(setVersion); const poll = () => void window.term.window.updateReady().then(setReady); poll(); const t = setInterval(poll, 5000); return () => clearInterval(t) }, [])
   return <div className="row">
-    <label>TerminAI {version}<span className="hint">{status || 'New versions download by themselves; they install when you click Restart now.'}</span></label>
-    <button className="btn settings-update" disabled={status === 'Checking…'} onClick={() => { setStatus('Checking…'); void window.term.window.checkForUpdates().then(setStatus).catch(e => setStatus(`Could not check: ${e?.message ?? e}`)) }}>{status === 'Checking…' ? 'Checking…' : 'Check for updates'}</button>
+    <label>TerminAI {version}<span className="hint">{ready ? `TerminAI ${ready} is ready. Your tabs come back after the restart.` : status || 'New versions download by themselves; they install when you click Restart to update.'}</span></label>
+    <span style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>{ready && <button className="btn primary" onClick={() => void window.term.window.installUpdate()}>Restart to update</button>}
+    <button className="btn" disabled={status === 'Checking…'} onClick={() => { setStatus('Checking…'); void window.term.window.checkForUpdates().then(setStatus).catch(e => setStatus(`Could not check: ${e?.message ?? e}`)) }}>{status === 'Checking…' ? 'Checking…' : 'Check for updates'}</button></span>
   </div>
 }
 
