@@ -274,7 +274,7 @@ const SECTIONS: [SettingsSection, string, string][] = [
   ['memory', 'Memory and MacGuard', 'M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4'],
   ['notifications', 'Notifications', 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15ZM10 20a2 2 0 0 0 4 0'],
   ['connections', 'Connections', 'M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1'],
-  ['manymotions', 'ManyMotions', 'M4 19V5l5 7 3-4 3 4 5-7v14'],
+  ['manymotions', 'ManyMotions', 'M4 19V5.5l8 8.5 8-8.5V19'],
   ['shortcuts', 'Shortcuts', 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10'],
 ]
 const SIcon = ({ d }: { d: string }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>

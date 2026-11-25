@@ -31,7 +31,7 @@ export function EduPanel(): JSX.Element {
     <div className="st-row"><div className="st-label"><strong>Connection code</strong><small>Starts with mm_tai_. It works like a password.</small></div>
       <span className="st-inline"><input type="password" style={{ width: 260 }} spellCheck={false} placeholder="mm_tai_…" value={code} onChange={e => { setCode(e.target.value); setCheck(null) }} />
         <button className="btn" disabled={busy || !code.trim()} onClick={() => run(async () => setCheck(await window.term.edu.check(code.trim(), base || undefined)))}>Check</button></span></div>
-    <details><summary className="hint">Server</summary><div className="st-row"><div className="st-label"><strong>Address</strong><small>Leave empty for https://manymotions.org</small></div>
+    <details className="st-more"><summary>Server address</summary><div className="st-row"><div className="st-label"><strong>Address</strong><small>Leave empty for https://manymotions.org</small></div>
       <span className="st-inline"><input type="text" spellCheck={false} placeholder="https://manymotions.org" value={base} onChange={e => setBase(e.target.value)} /></span></div></details>
     {check && <>
       <div className="st-row"><div className="st-label"><strong>{check.institution}</strong><small>Signed in as {check.member}</small></div></div>
