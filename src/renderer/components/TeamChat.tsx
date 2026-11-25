@@ -291,7 +291,7 @@ function Search({ company, me, chats, keyOf, onPick, onPerson, onNewGroup, onClo
   const found = t.length < 2 ? [] : chats.flatMap(x => cache.get<Message[]>(`${keyOf(x.c)}:m`, []).filter(m => m.body?.toLowerCase().includes(t)).map(m => ({ chat: x, m }))).sort((a, b) => b.m.at.localeCompare(a.m.at)).slice(0, 20)
   const mark = (text: string) => { const i = text.toLowerCase().indexOf(t); if (!t || i < 0) return text.slice(0, 120); const from = Math.max(0, i - 40)
     return <>{from ? '…' : ''}{text.slice(from, i)}<mark>{text.slice(i, i + t.length)}</mark>{text.slice(i + t.length, i + t.length + 80)}</> }
-  return <div className="tc-search">
+  return <div className="tc-find">
     <div className="tc-search-box"><Ico n="search" s={15} /><input autoFocus value={q} placeholder="Search chats, people and messages" onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') onClose() }} />
       <button className="tc-x" aria-label="Close search" onClick={onClose}><Ico n="close" s={14} /></button></div>
     <div className="tc-search-list">

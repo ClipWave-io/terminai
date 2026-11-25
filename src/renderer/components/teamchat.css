@@ -183,7 +183,7 @@
 .tc-channels button.dm { padding-left: 4px; }
 .tc-x.on { color: var(--fg); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 /* Search: chats, people and messages kept on this Mac. */
-.tc-search { display: flex; flex-direction: column; min-height: 0; flex: 1; border-bottom: 1px solid var(--border); }
+.tc-find { display: flex; flex-direction: column; min-height: 0; flex: 1; border-bottom: 1px solid var(--border); }
 .tc-search-box { display: flex; align-items: center; gap: 8px; margin: 10px 12px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: 9px; color: var(--dim); background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .tc-search-box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .tc-search-box input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; padding: 4px 0; }
@@ -191,7 +191,7 @@
 .tc-search-list h4 { margin: 10px 6px 4px; font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
 .tc-search-list > button { display: flex; align-items: center; gap: 9px; width: 100%; border: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; padding: 7px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
 .tc-search-list > button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.tc-search-list > button > span:not(.tc-search-hash) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-search-list > button > span:not(.tc-search-hash):not(.pp-avatar) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tc-search-list > button small { color: var(--dim); font-size: 11px; }
 .tc-search-list > button em { font-style: normal; font-size: 10px; font-weight: 700; color: #fff; background: var(--danger); padding: 1px 6px; border-radius: 999px; }
 .tc-search-list > button.unread > span { color: var(--danger); font-weight: 600; }
@@ -220,3 +220,14 @@
 .tc-live-dot.question, .tc-live-dot.waiting { background: #e8a900; } .tc-live-dot.paused { background: transparent; border: 1.5px solid var(--dim); }
 .tc-live-turns { margin: 2px 8px 8px 25px; display: grid; gap: 6px; font-size: 12px; color: var(--dim); }
 .tc-live-turns p { margin: 0; white-space: pre-wrap; word-break: break-word; } .tc-live-turns b { color: var(--fg); font-weight: 600; }
+
+/* Header in two rows (25 Nov): faces, who and the buttons on top, with Close always visible at the right; the tabs
+   below, full width. One row overflowed the panel and pushed Close out of reach. */
+.tc-head { flex-wrap: wrap; row-gap: 10px; }
+.tc-head .tc-tabs { order: 10; flex: 1 0 100%; }
+.tc-head .tc-tabs button { flex: 1; padding: 5px 6px; }
+.tc-head > .tc-x, .tc-head > .tc-calls { flex: none; }
+/* Search results: the list uses the panel's full width, avatars stay round (the name takes the room, not the avatar). */
+.tc-search-list > button > span:not(.tc-search-hash):not(.pp-avatar) { flex: 1; }
+.tc-search-list > button > .pp-avatar { flex: none; }
+.tc-find, .tc-search-list { align-self: stretch; width: auto; }
