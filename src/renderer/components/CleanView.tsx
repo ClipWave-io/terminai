@@ -12,7 +12,13 @@ function turnsOf(items: Item[]): Turn[] {
   const turns: Turn[] = []
   for (const it of items) {
     if (it.role === 'user' || !turns.length) turns.push({ user: it.role === 'user' ? it : undefined, replies: it.role === 'user' ? [] : [it], done: !!it.end })
-    else { const t = turns[turns.length - 1]; t.replies.push(it); if (it.end) t.done = true }
+    else {
+      const t = turns[turns.length - 1]
+      // An answer begun, cut off by a tool call and written again in full: only the full one.
+      const head = it.text.slice(0, 120)
+      t.replies = t.replies.filter(r => !(r.text.length >= 60 && (head.startsWith(r.text.slice(0, 120)) || it.text.startsWith(r.text.slice(0, Math.min(r.text.length, 400))))))
+      t.replies.push(it); if (it.end) t.done = true
+    }
   }
   return turns
 }
