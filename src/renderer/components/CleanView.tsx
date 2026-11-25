@@ -117,6 +117,34 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
     return () => { stop = true; clearInterval(t) }
   }, [tabId])
   useLayoutEffect(() => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight }, [items, status])
+  const [dragging, setDragging] = useState(false)
+  // Files and pictures go in as their paths, the way the terminal takes a drop: Claude Code attaches a picture's path as the picture.
+  const insert = (text: string) => {
+    const el = box.current, at = el ? el.selectionStart : draft.length, end = el ? el.selectionEnd : draft.length
+    const before = draft.slice(0, at), sep = before && !/\s$/.test(before) ? ' ' : ''
+    const next = `${before}${sep}${text} ${draft.slice(end)}`
+    setDraft(next); requestAnimationFrame(() => { if (el) { const p = before.length + sep.length + text.length + 1; el.focus(); el.setSelectionRange(p, p) } })
+  }
+  const quote = (p: string) => /^[A-Za-z0-9_@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setDragging(false)
+    const team = e.dataTransfer.getData('application/x-terminai-teamfile')
+    if (team) { try { const f = JSON.parse(team) as { company: string; id: string; name: string }; void window.term.teamchat.fetch(f.company, f.id, f.name).then(p => insert(quote(p))).catch(() => {}) } catch {} return }
+    const files = Array.from(e.dataTransfer.files), paths = files.map(f => window.term.files.pathFor(f)).filter(Boolean)
+    if (paths.length) { insert(paths.map(quote).join(' ')); return }
+    const pics = files.filter(f => f.type.startsWith('image/'))
+    if (pics.length) { void Promise.all(pics.map(async f => window.term.pty.cleanSaveImage(await f.arrayBuffer(), f.type))).then(ps => { const ok = ps.filter(Boolean); if (ok.length) insert(ok.map(quote).join(' ')) }); return }
+    const text = e.dataTransfer.getData('text/uri-list').trim() || e.dataTransfer.getData('text/plain')
+    if (text && !/^(data|blob):/i.test(text) && text.length < 20000) insert(text)
+  }
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData.files)
+    if (!files.length || e.clipboardData.getData('text/plain')) return
+    e.preventDefault()
+    const paths = files.map(f => window.term.files.pathFor(f)).filter(Boolean)
+    if (paths.length) { insert(paths.map(quote).join(' ')); return }
+    void Promise.all(files.filter(f => f.type.startsWith('image/')).map(async f => window.term.pty.cleanSaveImage(await f.arrayBuffer(), f.type))).then(ps => { const ok = ps.filter(Boolean); if (ok.length) insert(ok.map(quote).join(' ')) })
+  }
   const send = () => { const text = draft.trim(); if (!text) return; setDraft(''); stick.current = true; void window.term.pty.cleanSend(tabId, text) }
   const turns = turnsOf(items ?? [])
   const working = status === 'working'
@@ -142,11 +170,14 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
         })}
       {working && <div className="clean-working"><span /><span /><span /></div>}
     </div>
-    <form className="clean-input" onSubmit={e => { e.preventDefault(); send() }}>
-      <textarea ref={box} value={draft} rows={Math.min(8, Math.max(1, draft.split('\n').length))} placeholder={working ? 'Message (sent when it is your turn, like in the terminal)…' : 'Message…'}
-        onChange={e => setDraft(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
-      <button className="btn primary" type="submit" disabled={!draft.trim()}>Send</button>
+    <form className={`clean-input${dragging ? ' dragging' : ''}`} onSubmit={e => { e.preventDefault(); send() }}
+      onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
+      <div className="clean-box">
+        <textarea ref={box} value={draft} rows={Math.min(10, Math.max(1, draft.split('\n').length))} placeholder={working ? 'Message Claude (it reads it when this turn ends)… drop or paste images and files' : 'Message Claude… drop or paste images and files'}
+          onChange={e => setDraft(e.target.value)} onPaste={onPaste}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
+        <button className="clean-send" type="submit" disabled={!draft.trim()} aria-label="Send" title="Send  ↩">↑</button>
+      </div>
     </form>
   </div>
 }

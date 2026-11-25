@@ -121,6 +121,7 @@ const api = {
     write: (id: string, data: string): void => ipcRenderer.send('pty:write', { id, data }),
     cleanRead: (id: string, seen?: number): Promise<{ file: boolean; version: number; items?: { role: 'user' | 'assistant'; text: string; end?: boolean }[] }> => ipcRenderer.invoke('clean:read', { id, seen }),
     cleanSend: (id: string, text: string): Promise<void> => ipcRenderer.invoke('clean:send', { id, text }),
+    cleanSaveImage: (data: ArrayBuffer, type: string): Promise<string> => ipcRenderer.invoke('clean:saveImage', { data, type }),
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('pty:resize', { id, cols, rows }),
     kill: (id: string): void => ipcRenderer.send('pty:kill', { id }),

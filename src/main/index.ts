@@ -3,7 +3,7 @@ import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme, protocol
 import { join, basename, resolve, sep, dirname, extname } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync, statSync, readdirSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { ProjectFiles, MEDIA_SCHEME, MEDIA_TYPES, mediaFile } from './project-files'
@@ -904,6 +904,14 @@ function registerIpc(): void {
   appIpc.on('pty:write', (_e, { id, data }: { id: string; data: string }) => ptys.write(id, data))
   // Clean view: the tab's conversation without tool calls, and a message typed into it from the view's box.
   appIpc.handle('clean:read', (_e, { id, seen }: { id: string; seen?: number }) => typeof id === 'string' && ptys.liveIds().includes(id) ? readClean(id, transcriptOf, typeof seen === 'number' ? seen : -1) : { file: false, version: 0, items: [] })
+  // A picture pasted into the Clean view's box (it has no file): saved so its path can go in, as a drag would.
+  appIpc.handle('clean:saveImage', (_e, { data, type }: { data: ArrayBuffer; type: string }) => {
+    if (!(data instanceof ArrayBuffer) || data.byteLength > 30_000_000) return ''
+    const ext = type === 'image/jpeg' ? 'jpg' : type === 'image/gif' ? 'gif' : type === 'image/webp' ? 'webp' : 'png'
+    const dir = join(tmpdir(), 'terminai-pasted'); mkdirSync(dir, { recursive: true })
+    const file = join(dir, `pasted-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`)
+    writeFileSync(file, Buffer.from(data)); return file
+  })
   appIpc.handle('clean:send', (_e, { id, text }: { id: string; text: string }) => typeof id === 'string' && typeof text === 'string' && text.length < 100_000 && ptys.liveIds().includes(id) ? sendClean(id, text) : undefined)
   appIpc.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) =>
     ptys.resize(id, cols, rows),

@@ -55,6 +55,13 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await js(`document.querySelector('.clean-input textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`)
   await waitFor('typed into the tab', () => inputs().some(l => /And last week\?/.test(l)), 10000)
 
+  // A picture pasted (no file behind it) goes in as a saved file's path; a dropped picture too.
+  await js(`(() => { const t = document.querySelector('.clean-input textarea'); t.focus(); const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([137,80,78,71])], 'x.png', { type: 'image/png' })); t.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })) })()`)
+  await waitFor('pasted picture path', async () => /terminai-pasted\/pasted-.*\.png/.test(await js(`document.querySelector('.clean-input textarea').value`)), 5000)
+  await js(`(() => { const f = document.querySelector('.clean-input'); const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([255,216,255])], 'y.jpg', { type: 'image/jpeg' })); f.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })) })()`)
+  await waitFor('dropped picture path', async () => /\.jpg/.test(await js(`document.querySelector('.clean-input textarea').value`)), 5000)
+  const box = await js(`(() => { const b = document.querySelector('.clean-box').getBoundingClientRect(), v = document.querySelector('.clean-view').getBoundingClientRect(); return b.width / v.width })()`)
+  assert.ok(box > 0.9, 'the box is full width: ' + box)
   await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', metaKey: true, shiftKey: true, bubbles: true }))`)
   await waitFor('terminal shown', () => js(`!document.querySelector('.clean-view') && !!document.querySelector('.clean-toggle')`), 3000)
   await js(`document.querySelector('.clean-toggle').click()`)
