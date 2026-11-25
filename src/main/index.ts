@@ -912,6 +912,11 @@ function registerIpc(): void {
     const file = join(dir, `pasted-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`)
     writeFileSync(file, Buffer.from(data)); return file
   })
+  // A small preview of an attached picture for its chip (a data URL; pictures up to 15 MB).
+  appIpc.handle('clean:thumb', async (_e, { path }: { path: string }) => {
+    if (typeof path !== 'string' || !/\.(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i.test(path)) return ''
+    try { const img = nativeImage.createFromPath(path); if (img.isEmpty()) return ''; return img.resize({ height: 64 }).toDataURL() } catch { return '' }
+  })
   appIpc.handle('clean:send', (_e, { id, text }: { id: string; text: string }) => typeof id === 'string' && typeof text === 'string' && text.length < 100_000 && ptys.liveIds().includes(id) ? sendClean(id, text) : undefined)
   appIpc.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) =>
     ptys.resize(id, cols, rows),

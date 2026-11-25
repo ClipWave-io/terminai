@@ -1514,13 +1514,23 @@ textarea.card-notes.editing {
 .clean-working span { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); animation: clean-dot 1.2s infinite ease-in-out; }
 .clean-working span:nth-child(2) { animation-delay: .15s; } .clean-working span:nth-child(3) { animation-delay: .3s; }
 @keyframes clean-dot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-.clean-input { flex: 0 0 auto; padding: 10px 14px 52px; border-top: 1px solid var(--border); }
-.clean-box { position: relative; display: flex; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 8px 8px 8px 14px; }
-.clean-box:focus-within { border-color: var(--accent); }
+.clean-input { flex: 0 0 auto; padding: 12px 16px 52px; }
+.clean-box { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 10px 10px 10px 16px; box-shadow: 0 2px 14px rgba(0,0,0,.18); transition: border-color .15s, box-shadow .15s; }
+.clean-box:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 2px 18px rgba(0,0,0,.24); }
 .clean-input.dragging .clean-box { border-color: var(--accent); border-style: dashed; }
-.clean-box textarea { flex: 1; min-width: 0; resize: none; font: inherit; font-size: 14px; line-height: 1.45; color: var(--fg); background: none; border: 0; outline: none; padding: 4px 0; max-height: 40vh; }
-.clean-send { flex: 0 0 auto; width: 30px; height: 30px; margin-left: 8px; border-radius: 50%; border: 0; background: var(--accent); color: var(--bg); font-size: 16px; font-weight: 700; cursor: pointer; }
-.clean-send:disabled { opacity: .35; cursor: default; }
+.clean-row { display: flex; align-items: flex-end; gap: 10px; }
+.clean-row textarea { flex: 1; min-width: 0; resize: none; font: inherit; font-size: 14.5px; line-height: 1.5; color: var(--fg); background: none; border: 0; outline: none; padding: 5px 0; max-height: 40vh; }
+.clean-row textarea::placeholder { color: var(--dim); }
+.clean-send { flex: 0 0 auto; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; border: 0; background: var(--fg); color: var(--bg); cursor: pointer; transition: opacity .15s, transform .1s; }
+.clean-send:hover:not(:disabled) { transform: scale(1.06); }
+.clean-send:disabled { background: var(--border); color: var(--dim); cursor: default; }
+.clean-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.clean-msg .clean-chips { margin-bottom: 6px; justify-content: flex-end; }
+.clean-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 6px 4px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--pane); font-size: 12px; }
+.clean-chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; }
+.clean-chip-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: var(--surface); color: var(--dim); }
+.clean-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clean-chip button { border: 0; background: none; color: var(--dim); cursor: pointer; font-size: 14px; padding: 0 2px; }
 .clean-toggle { position: absolute; top: 8px; right: 14px; z-index: 5; font-size: 12px; }
 
 .clean-msg.user.queued { opacity: .6; border-style: dashed; margin-bottom: 4px; }

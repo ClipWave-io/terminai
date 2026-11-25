@@ -98,9 +98,19 @@ export function Markdown({ text }: { text: string }): JSX.Element {
   return <>{out}</>
 }
 
+type Attachment = { path: string; name: string; image: boolean; thumb?: string }
+type Queued = { text: string; files: Attachment[]; at: number; users: number }
+/** What is typed, attached and queued in each tab's box: kept when you switch tabs and come back. */
+const boxes = new Map<string, { draft: string; files: Attachment[]; pending: Queued[] }>()
+const IMAGE = /\.(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i
+
 export function CleanView({ tabId, status, onTerminal }: { tabId: string; status: string; onTerminal: () => void }): JSX.Element {
   const [items, setItems] = useState<Item[] | null>(null)
-  const [draft, setDraft] = useState('')
+  const saved = boxes.get(tabId) ?? { draft: '', files: [], pending: [] }
+  const [draft, setDraft] = useState(saved.draft)
+  const [files, setFiles] = useState<Attachment[]>(saved.files)
+  const [pending, setPending] = useState<Queued[]>(saved.pending)
+  useEffect(() => { boxes.set(tabId, { draft, files, pending }) }, [tabId, draft, files, pending])
   const [open, setOpen] = useState<Record<number, boolean>>({})
   const version = useRef(-1), scroller = useRef<HTMLDivElement>(null), stick = useRef(true), box = useRef<HTMLTextAreaElement>(null)
   // Typing goes here, not to the terminal underneath (which takes focus when its tab opens).
@@ -118,42 +128,53 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
   }, [tabId])
   useLayoutEffect(() => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight }, [items, status])
   const [dragging, setDragging] = useState(false)
-  // Files and pictures go in as their paths, the way the terminal takes a drop: Claude Code attaches a picture's path as the picture.
-  const insert = (text: string) => {
-    const el = box.current, at = el ? el.selectionStart : draft.length, end = el ? el.selectionEnd : draft.length
-    const before = draft.slice(0, at), sep = before && !/\s$/.test(before) ? ' ' : ''
-    const next = `${before}${sep}${text} ${draft.slice(end)}`
-    setDraft(next); requestAnimationFrame(() => { if (el) { const p = before.length + sep.length + text.length + 1; el.focus(); el.setSelectionRange(p, p) } })
+  // Files and pictures become attachments above the text (a picture with its thumbnail); they go in as their paths when
+  // sent, the way the terminal takes a drop, and Claude Code turns a picture's path into [Image #n].
+  const attach = (paths: string[]) => {
+    const add = paths.filter(Boolean).map(p => ({ path: p, name: p.split('/').pop() || p, image: IMAGE.test(p) }))
+    if (!add.length) return
+    setFiles(f => [...f, ...add.filter(x => !f.some(y => y.path === x.path))])
+    for (const a of add) if (a.image) void window.term.pty.cleanThumb(a.path).then(t => { if (t) setFiles(f => f.map(x => x.path === a.path ? { ...x, thumb: t } : x)) })
+    box.current?.focus()
   }
   const quote = (p: string) => /^[A-Za-z0-9_@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`
+  const saveAll = (list: File[]) => Promise.all(list.filter(f => f.type.startsWith('image/')).map(async f => window.term.pty.cleanSaveImage(await f.arrayBuffer(), f.type))).then(attach)
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragging(false)
     const team = e.dataTransfer.getData('application/x-terminai-teamfile')
-    if (team) { try { const f = JSON.parse(team) as { company: string; id: string; name: string }; void window.term.teamchat.fetch(f.company, f.id, f.name).then(p => insert(quote(p))).catch(() => {}) } catch {} return }
-    const files = Array.from(e.dataTransfer.files), paths = files.map(f => window.term.files.pathFor(f)).filter(Boolean)
-    if (paths.length) { insert(paths.map(quote).join(' ')); return }
-    const pics = files.filter(f => f.type.startsWith('image/'))
-    if (pics.length) { void Promise.all(pics.map(async f => window.term.pty.cleanSaveImage(await f.arrayBuffer(), f.type))).then(ps => { const ok = ps.filter(Boolean); if (ok.length) insert(ok.map(quote).join(' ')) }); return }
+    if (team) { try { const f = JSON.parse(team) as { company: string; id: string; name: string }; void window.term.teamchat.fetch(f.company, f.id, f.name).then(p => attach([p])).catch(() => {}) } catch {} return }
+    const list = Array.from(e.dataTransfer.files), paths = list.map(f => window.term.files.pathFor(f)).filter(Boolean)
+    if (paths.length) { attach(paths); return }
+    if (list.length) { void saveAll(list); return }
     const text = e.dataTransfer.getData('text/uri-list').trim() || e.dataTransfer.getData('text/plain')
-    if (text && !/^(data|blob):/i.test(text) && text.length < 20000) insert(text)
+    if (text && !/^(data|blob):/i.test(text) && text.length < 20000) setDraft(d => d ? `${d} ${text}` : text)
   }
   const onPaste = (e: React.ClipboardEvent) => {
-    const files = Array.from(e.clipboardData.files)
-    if (!files.length || e.clipboardData.getData('text/plain')) return
+    const list = Array.from(e.clipboardData.files)
+    if (!list.length || e.clipboardData.getData('text/plain')) return
     e.preventDefault()
-    const paths = files.map(f => window.term.files.pathFor(f)).filter(Boolean)
-    if (paths.length) { insert(paths.map(quote).join(' ')); return }
-    void Promise.all(files.filter(f => f.type.startsWith('image/')).map(async f => window.term.pty.cleanSaveImage(await f.arrayBuffer(), f.type))).then(ps => { const ok = ps.filter(Boolean); if (ok.length) insert(ok.map(quote).join(' ')) })
+    const paths = list.map(f => window.term.files.pathFor(f)).filter(Boolean)
+    if (paths.length) attach(paths); else void saveAll(list)
   }
-  // Sent but not in the conversation yet (queued behind a working turn, as in the terminal): shown above the box until it is.
-  const [pending, setPending] = useState<{ text: string; at: number }[]>([])
-  const send = () => { const text = draft.trim(); if (!text) return; setDraft(''); stick.current = true; setPending(p => [...p, { text, at: Date.now() }]); void window.term.pty.cleanSend(tabId, text) }
+  const userCount = (items ?? []).filter(i => i.role === 'user').length
+  const send = () => {
+    const text = draft.trim(); if (!text && !files.length) return
+    const out = [...files.map(f => quote(f.path)), text].filter(Boolean).join(' ')
+    setDraft(''); setFiles([]); stick.current = true
+    setPending(p => [...p, { text, files, at: Date.now(), users: userCount }])
+    void window.term.pty.cleanSend(tabId, out)
+  }
   // Claude Code's "send now" for a queued message (ctrl+x ctrl+s): it stops waiting for the turn to end.
   const sendNow = () => { window.term.pty.write(tabId, '\x18\x13'); box.current?.focus() }
+  // A queued message leaves the list once the conversation has it (its words, or any new message for pictures alone).
   useEffect(() => {
     if (!items || !pending.length) return
-    const said = items.filter(i => i.role === 'user').slice(-20).map(i => i.text.replace(/\s+/g, ' '))
-    setPending(p => p.filter(q => { const t = q.text.replace(/\s+/g, ' ').slice(0, 200); return !said.some(u => u.includes(t)) && Date.now() - q.at < 30 * 60_000 }))
+    const users = items.filter(i => i.role === 'user'), said = users.slice(-20).map(i => i.text.replace(/\s+/g, ' '))
+    setPending(p => p.filter(q => {
+      if (Date.now() - q.at > 30 * 60_000) return false
+      const t = q.text.replace(/\s+/g, ' ').slice(0, 200)
+      return t ? !said.some(u => u.includes(t)) : users.length <= q.users
+    }))
   }, [items])
   const turns = turnsOf(items ?? [])
   const working = status === 'working'
@@ -178,16 +199,25 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
           </div>
         })}
       {working && <div className="clean-working"><span /><span /><span /></div>}
-      {pending.map(q => <div key={q.at} className="clean-turn"><div className="clean-msg user queued"><Markdown text={q.text} /></div>
+      {pending.map(q => <div key={q.at} className="clean-turn"><div className="clean-msg user queued">{q.files.length > 0 && <div className="clean-chips">{q.files.map((f, i) => <span key={f.path} className="clean-chip">{f.thumb ? <img src={f.thumb} alt="" /> : <span className="clean-chip-icon">{f.image ? '▣' : '▤'}</span>}{f.image ? `Image ${i + 1}` : f.name}</span>)}</div>}{q.text && <Markdown text={q.text} />}</div>
         <div className="clean-queued-note">{working ? <>Queued: it goes in when this turn ends · <button type="button" className="clean-link" onClick={sendNow}>send now</button> <span className="kbd">⌃X ⌃S</span></> : 'Sending…'}</div></div>)}
     </div>
     <form className={`clean-input${dragging ? ' dragging' : ''}`} onSubmit={e => { e.preventDefault(); send() }}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
       <div className="clean-box">
-        <textarea ref={box} value={draft} rows={Math.min(10, Math.max(1, draft.split('\n').length))} placeholder={working ? 'Message Claude (it reads it when this turn ends)… drop or paste images and files' : 'Message Claude… drop or paste images and files'}
-          onChange={e => setDraft(e.target.value)} onPaste={onPaste}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
-        <button className="clean-send" type="submit" disabled={!draft.trim()} aria-label="Send" title="Send  ↩">↑</button>
+        {files.length > 0 && <div className="clean-chips">{files.map((f, i) => <span key={f.path} className="clean-chip" title={f.path}>
+          {f.thumb ? <img src={f.thumb} alt="" /> : <span className="clean-chip-icon">{f.image ? '▣' : '▤'}</span>}
+          <span className="clean-chip-name">{f.image ? `Image ${files.slice(0, i + 1).filter(x => x.image).length}` : f.name}</span>
+          <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles(l => l.filter(x => x.path !== f.path))}>×</button>
+        </span>)}</div>}
+        <div className="clean-row">
+          <textarea ref={box} value={draft} rows={Math.min(10, Math.max(1, draft.split('\n').length))} placeholder={working ? 'Reply… it goes in when this turn ends' : 'Reply…'}
+            onChange={e => setDraft(e.target.value)} onPaste={onPaste}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }} />
+          <button className="clean-send" type="submit" disabled={!draft.trim() && !files.length} aria-label="Send" title="Send  ↩">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        </div>
       </div>
     </form>
   </div>
