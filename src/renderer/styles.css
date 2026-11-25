@@ -1576,3 +1576,6 @@ details.st-more > summary:hover { color: var(--fg); }
 .full-browser-popped { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 24px; }
 .full-browser-popped strong { color: var(--fg); font-size: 14px; } .full-browser-popped small { color: var(--dim); font-size: 12.5px; }
 .full-browser-popped span { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Rows picked with ⌘-click / ⇧-click (to colour several at once). */
+.rail .tab.picked { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }

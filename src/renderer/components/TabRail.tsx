@@ -124,6 +124,9 @@ export function TabRail({
   // A search finds hidden sessions too, and a hidden session stopped on a question
   // comes back while it waits: hiding it must not hide that it needs an answer.
   const shown = (tab: TabInfo, key: string) => !tab.hidden || tab.status === 'question' || !!filter || revealed.has(key)
+  // Several rows picked with ⌘-click (or ⇧-click for a range): right-click › Colour colours them all at once.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const anchor = useRef<string | null>(null)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   // The dragged row's bucket, read during dragover where state from the same gesture can still be stale.
@@ -164,6 +167,7 @@ export function TabRail({
         dragFrom === i ? 'dragging' : '',
         tab.hidden ? 'is-hidden' : '',
         tab.color && TAB_COLORS[tab.color] ? 'colored' : '',
+        picked.has(tab.id) ? 'picked' : '',
         asleep(tab) ? 'is-asleep' : '',
         incoming[tab.id] ? 'incoming' : '',
       ]
@@ -202,7 +206,16 @@ export function TabRail({
         clearDrag()
       }}
       style={tab.color && TAB_COLORS[tab.color] ? ({ '--tab-color': TAB_COLORS[tab.color] } as React.CSSProperties) : undefined}
-      onMouseDown={(e) => { if (e.button === 0) onSelect(tab.id) }}
+      onMouseDown={(e) => {
+        if (e.button !== 0) return
+        if (e.metaKey) { setPicked(p => { const n = new Set(p); if (n.size === 0 && activeId) n.add(activeId); if (n.has(tab.id)) n.delete(tab.id); else n.add(tab.id); return n }); anchor.current = tab.id; return }
+        if (e.shiftKey && (anchor.current || activeId)) {
+          const ids = tabs.map(t => t.id), a = ids.indexOf(anchor.current || activeId!), b = ids.indexOf(tab.id)
+          if (a >= 0 && b >= 0) { setPicked(new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1))); return }
+        }
+        if (picked.size) setPicked(new Set())
+        anchor.current = tab.id; onSelect(tab.id)
+      }}
       onDoubleClick={() => startEdit(tab)}
       onContextMenu={(e) => { e.preventDefault(); void window.term.pty.menu(tab.id, !!tab.hidden, !!tab.cloud).then(action => {
         if (action?.startsWith('cloud-') && tab.cloud) { void window.term.pty.cloudAction(tab.id, action.slice(6) as 'open', tab.cloud.id); return }
@@ -211,7 +224,7 @@ export function TabRail({
         else if (action === 'wake') void window.term.pty.resume(tab.id)
         else if (action === 'rename') startEdit(tab)
         else if (action === 'hide') onHide(tab.id, !tab.hidden)
-        else if (action?.startsWith('color:')) onColor?.(tab.id, action.slice(6))
+        else if (action?.startsWith('color:')) { for (const id of picked.has(tab.id) ? [...picked] : [tab.id]) onColor?.(id, action.slice(6)); setPicked(new Set()) }
         else if (action === 'close') onClose(tab.id)
       }) }}
       title={`${tabLabel(tab)}\n${tab.cwd}\nDouble-click to rename`}
