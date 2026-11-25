@@ -24,6 +24,7 @@ import { eduCheck, eduConnect, eduDisconnect, eduPreview, eduSetFolders, eduStat
 import { createBridge, transcriptOf } from './teambridge'
 import { askTab } from './sideask'
 import { readClean, sendClean } from './cleanview'
+import { keepLocalFlow } from './localflow'
 import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
@@ -446,6 +447,7 @@ app.whenReady().then(() => {
   registerAudioProtocol()
   registerMediaProtocol()
   chromium = createChromium(() => win)
+  if (app.isPackaged) keepLocalFlow()
   if (!process.env.TERMINAI_TEST_BUILD) void chromium.registerMcp()
   registerIpc()
   createWindow()

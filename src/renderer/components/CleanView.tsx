@@ -180,9 +180,8 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
   const working = status === 'working'
   return <div className="clean-view" aria-label="Clean view">
     <div className="clean-bar">
-      <span className="clean-title">Clean view</span>
       <span className="clean-status">{working ? 'Working…' : status === 'question' ? 'Waiting for your answer in the terminal' : ''}</span>
-      <button className="btn" title="Show the terminal with every step  ⇧⌘E" onClick={onTerminal}>Terminal</button>
+      <button className="clean-switch" title="Show the terminal with every step" onClick={onTerminal}>Terminal <span className="kbd">⇧⌘E</span></button>
     </div>
     <div className="clean-scroll" ref={scroller} onScroll={e => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40 }}>
       {items === null ? <div className="clean-empty">Loading the conversation…</div>

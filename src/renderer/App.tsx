@@ -1011,7 +1011,7 @@ export function App(): JSX.Element {
             const t = tabs.find(x => x.id === activeId)
             if (!terminalVisible || !t || !prefs.cleanView || !t.agent || t.exited) return null
             // A question or a permission is answered in the terminal: it shows by itself until that is done.
-            if (cleanOff[t.id] || t.status === 'question') return <button className="btn clean-toggle" title="Only the messages and the answers  ⇧⌘E" onClick={() => setCleanOff(o => ({ ...o, [t.id]: false }))}>Clean view</button>
+            if (cleanOff[t.id] || t.status === 'question') return <button className="clean-switch clean-toggle" title="Only the messages and the answers" onClick={() => setCleanOff(o => ({ ...o, [t.id]: false }))}>Clean view <span className="kbd">⇧⌘E</span></button>
             return <CleanView key={`clean-${t.id}`} tabId={t.id} status={t.status} onTerminal={() => setCleanOff(o => ({ ...o, [t.id]: true }))} />
           })()}
           {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
