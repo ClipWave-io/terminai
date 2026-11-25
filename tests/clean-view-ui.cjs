@@ -54,6 +54,10 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   await delay(100)
   await js(`document.querySelector('.clean-input textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`)
   await waitFor('typed into the tab', () => inputs().some(l => /And last week\?/.test(l)), 10000)
+  // Not in the conversation yet: shown above the box as queued until the transcript has it.
+  assert.match(await js(`document.querySelector('.clean-msg.user.queued')?.textContent || ''`), /And last week\?/)
+  line({ type: 'user', message: { role: 'user', content: 'And last week?' } })
+  await waitFor('queued one replaced by the real one', () => js(`!document.querySelector('.clean-msg.user.queued')`), 5000)
 
   // A picture pasted (no file behind it) goes in as a saved file's path; a dropped picture too.
   await js(`(() => { const t = document.querySelector('.clean-input textarea'); t.focus(); const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([137,80,78,71])], 'x.png', { type: 'image/png' })); t.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })) })()`)

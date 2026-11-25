@@ -145,7 +145,16 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
     if (paths.length) { insert(paths.map(quote).join(' ')); return }
     void Promise.all(files.filter(f => f.type.startsWith('image/')).map(async f => window.term.pty.cleanSaveImage(await f.arrayBuffer(), f.type))).then(ps => { const ok = ps.filter(Boolean); if (ok.length) insert(ok.map(quote).join(' ')) })
   }
-  const send = () => { const text = draft.trim(); if (!text) return; setDraft(''); stick.current = true; void window.term.pty.cleanSend(tabId, text) }
+  // Sent but not in the conversation yet (queued behind a working turn, as in the terminal): shown above the box until it is.
+  const [pending, setPending] = useState<{ text: string; at: number }[]>([])
+  const send = () => { const text = draft.trim(); if (!text) return; setDraft(''); stick.current = true; setPending(p => [...p, { text, at: Date.now() }]); void window.term.pty.cleanSend(tabId, text) }
+  // Claude Code's "send now" for a queued message (ctrl+x ctrl+s): it stops waiting for the turn to end.
+  const sendNow = () => { window.term.pty.write(tabId, '\x18\x13'); box.current?.focus() }
+  useEffect(() => {
+    if (!items || !pending.length) return
+    const said = items.filter(i => i.role === 'user').slice(-20).map(i => i.text.replace(/\s+/g, ' '))
+    setPending(p => p.filter(q => { const t = q.text.replace(/\s+/g, ' ').slice(0, 200); return !said.some(u => u.includes(t)) && Date.now() - q.at < 30 * 60_000 }))
+  }, [items])
   const turns = turnsOf(items ?? [])
   const working = status === 'working'
   return <div className="clean-view" aria-label="Clean view">
@@ -169,6 +178,8 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
           </div>
         })}
       {working && <div className="clean-working"><span /><span /><span /></div>}
+      {pending.map(q => <div key={q.at} className="clean-turn"><div className="clean-msg user queued"><Markdown text={q.text} /></div>
+        <div className="clean-queued-note">{working ? <>Queued: it goes in when this turn ends · <button type="button" className="clean-link" onClick={sendNow}>send now</button> <span className="kbd">⌃X ⌃S</span></> : 'Sending…'}</div></div>)}
     </div>
     <form className={`clean-input${dragging ? ' dragging' : ''}`} onSubmit={e => { e.preventDefault(); send() }}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
