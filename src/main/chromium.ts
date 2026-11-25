@@ -20,8 +20,8 @@ import { pipeline } from 'node:stream/promises'
  */
 export const BROWSER = {
   version: '159.0.8154.0',
-  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-glue2/TerminAI-Browser-159.0.8154.0-arm64.zip',
-  sha256: '40b8010677927279deff7bee70d7e9bc2fc56a4bdf74e1d2d6541aca5ae15604',
+  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-spaces/TerminAI-Browser-159.0.8154.0-arm64.zip',
+  sha256: '557325f3518c4d57708e7df7625ef330a0d902bddbcff2a54d7b8dd052c8bc3c',
   bundleId: 'com.clipwave.term.browser',
   port: 9347,
 }

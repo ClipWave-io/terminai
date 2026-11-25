@@ -18,16 +18,31 @@ static void showBackIn(NSWindow *w, BOOL show);
 static __weak NSWindow *glued;
 static NSRect freeFrame;
 
+// The browser window: the biggest normal window that can be main (tabs, toolbar). Chromium 159's windows were missed by a
+// class-name test (it only ever matched a stand-in in tests), so the glue never found the window on a real browser.
 static BOOL isBrowserWindow(NSWindow *w) {
-  return [NSStringFromClass(w.class) containsString:@"NativeWidget"] && w.parentWindow == nil && (w.styleMask & NSWindowStyleMaskTitled) && w.contentView.frame.size.width > 300;
+  return w.parentWindow == nil && w.level == NSNormalWindowLevel && ![w isKindOfClass:NSPanel.class] && w.canBecomeMainWindow
+    && w.frame.size.width > 300 && w.frame.size.height > 200;
 }
 static NSWindow *browserWindow(void) {
-  if (glued && glued.isVisible) return glued;
-  for (NSWindow *w in NSApp.orderedWindows) if (isBrowserWindow(w)) return w;
-  return glued;
+  if (glued && (glued.isVisible || isBrowserWindow(glued))) return glued;
+  NSWindow *best = nil; CGFloat area = 0;
+  for (NSWindow *w in NSApp.windows) if (isBrowserWindow(w)) { CGFloat a = w.frame.size.width * w.frame.size.height; if (w.isVisible) a *= 4; if (a > area) { area = a; best = w; } }
+  return best ?: glued;
+}
+// What the glue sees, for diagnosis: <glueFile>.diag lists every window of the browser.
+static void diag(void) {
+  static int n; if (n++ % 25) return;
+  NSMutableArray *rows = [NSMutableArray array];
+  for (NSWindow *w in NSApp.windows) [rows addObject:[NSString stringWithFormat:@"%@ #%ld level=%ld main=%d visible=%d %@ parent=%d", NSStringFromClass(w.class), (long)w.windowNumber, (long)w.level, w.canBecomeMainWindow, w.isVisible, NSStringFromRect(w.frame), w.parentWindow != nil]];
+  [[rows componentsJoinedByString:@"\n"] writeToFile:[gluePath stringByAppendingString:@".diag"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 static void buttons(NSWindow *w, BOOL hidden) {
   for (NSWindowButton b = NSWindowCloseButton; b <= NSWindowZoomButton; b++) [w standardWindowButton:b].hidden = hidden;
+}
+static BOOL targetOnScreen(CGWindowID target) {
+  NSArray *info = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, target));
+  return info.count > 0 && [info[0][(id)kCGWindowIsOnscreen] boolValue];
 }
 static BOOL rightAbove(NSWindow *w, CGWindowID target) {
   // The windows above TerminAI's, front to back: ours must be the nearest one of this app (child popups sit above it).
@@ -48,7 +63,7 @@ static void readWant(void) {
   if ([json isKindOfClass:NSDictionary.class]) want = json;
 }
 static void tick(void) {
-  addMenu();
+  addMenu(); diag();
   readWant(); if (!want) return;
   NSString *mode = want[@"mode"]; NSWindow *w = browserWindow(); if (!w) return;
   if ([mode isEqual:@"glued"]) {
@@ -57,16 +72,23 @@ static void tick(void) {
     if (frame.size.width < 50 || frame.size.height < 50 || !target) return;
     if (glued != w) { if (glued) { buttons(glued, NO); glued.movable = YES; showControls(glued, NO); } freeFrame = w.frame; glued = w; }
     if (w.styleMask & NSWindowStyleMaskFullScreen) return;
+    // TerminAI's window may be on another Space (desktop) than the browser's: the browser joins every Space while glued
+    // and is shown only while TerminAI's window is on screen, so it is always where TerminAI is, and nowhere else.
+    if (!(w.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces)) w.collectionBehavior = (w.collectionBehavior & ~NSWindowCollectionBehaviorMoveToActiveSpace) | NSWindowCollectionBehaviorCanJoinAllSpaces;
+    if (!targetOnScreen(target)) { if (w.isVisible) [w orderOut:nil]; return; }
+    if (NSApp.isHidden) [NSApp unhideWithoutActivation];
     if (w.isMiniaturized) [w deminiaturize:nil];
-    showBackIn(w, NO); buttons(w, YES); w.movable = NO; showControls(w, YES);
+    showBackIn(w, NO); buttons(w, YES); w.movable = NO;
     if (!NSEqualRects(w.frame, frame)) [w setFrame:frame display:YES];
     if (!w.isVisible || !rightAbove(w, target)) [w orderWindow:NSWindowAbove relativeTo:(NSInteger)target];
   } else if ([mode isEqual:@"free"] && !glued) {
     NSWindow *bw = browserWindow(); if (bw && !(bw.styleMask & NSWindowStyleMaskFullScreen)) showBackIn(bw, YES);
   } else if ([mode isEqual:@"hidden"]) {
-    if (glued && glued.isVisible) [glued orderOut:nil];
+    // Also before it was ever glued: started in the background (TerminAI opens it at launch so the pane is instant).
+    NSWindow *h = glued ?: w; if (h.isVisible) [h orderOut:nil];
   } else if (glued) {
     NSWindow *g = glued; glued = nil; buttons(g, NO); g.movable = YES; showControls(g, NO); showBackIn(g, YES);
+    g.collectionBehavior = g.collectionBehavior & ~NSWindowCollectionBehaviorCanJoinAllSpaces;
     if (!NSIsEmptyRect(freeFrame)) [g setFrame:freeFrame display:YES];
     [g makeKeyAndOrderFront:nil];
   }
