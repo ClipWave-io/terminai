@@ -36,7 +36,8 @@ function hydrate(raw: unknown): Prefs {
     // Anything but an explicit true means the tour has not been dismissed, so
     // an upgrade from a prefs file that predates this field shows it once.
     seenWelcome: p.seenWelcome === true,
-    browserBeta: p.browserBeta === true,
+    // The old built-in browser pane is gone: TerminAI Browser is the only browser, whatever was saved before.
+    browserBeta: false,
     nightUpdates: p.nightUpdates !== false,
     newTabAgent: p.newTabAgent === 'codex' || p.newTabAgent === 'none' || p.newTabAgent === 'custom' ? p.newTabAgent : 'claude',
     newTabCommand: typeof p.newTabCommand === 'string' ? p.newTabCommand.replace(/[\r\n]/g, ' ').slice(0, 300) : '',
