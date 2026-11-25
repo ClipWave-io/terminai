@@ -18,12 +18,24 @@ function textOf(content: unknown, kinds: string[]): string {
   return content.filter((b: any) => b && kinds.includes(b.type) && typeof b.text === 'string').map((b: any) => b.text).join('\n\n')
 }
 
+/**
+ * The short progress lines Claude Code shows during a turn ("· summary" in the terminal) are thinking blocks marked as
+ * narration in their signature; other thinking stays hidden.
+ */
+function narration(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  return content.filter((b: any) => b?.type === 'thinking' && typeof b.thinking === 'string' && b.thinking.trim() && typeof b.signature === 'string'
+    && Buffer.from(b.signature.slice(0, 200), 'base64').includes('narration')).map((b: any) => b.thinking.trim()).join('\n\n')
+}
+
 function parse(line: string, items: CleanItem[]): void {
   let d: any; try { d = JSON.parse(line) } catch { return }
   if (d.isSidechain || d.isMeta) return
   let role: 'user' | 'assistant' | null = null, text = ''
   if (d.type === 'user' && d.message?.role === 'user') { role = 'user'; text = textOf(d.message.content, ['text']) }
-  else if (d.type === 'assistant') { role = 'assistant'; text = textOf(d.message?.content, ['text']) }
+  else if (d.type === 'assistant') { role = 'assistant'; text = [narration(d.message?.content), textOf(d.message?.content, ['text'])].filter(Boolean).join('\n\n') }
+  // A message typed while the agent was working, taken in between two steps of the turn.
+  else if (d.type === 'attachment' && d.attachment?.type === 'queued_command' && typeof d.attachment.prompt === 'string' && d.attachment.commandMode !== 'bash') { role = 'user'; text = d.attachment.prompt }
   else if (d.type === 'response_item' && d.payload?.type === 'message' && (d.payload.role === 'user' || d.payload.role === 'assistant')) {
     role = d.payload.role; text = textOf(d.payload.content, ['input_text', 'output_text', 'text'])
   } else if ((d.type === 'system' && d.subtype === 'turn_duration') || (d.type === 'event_msg' && d.payload?.type === 'task_complete')) {

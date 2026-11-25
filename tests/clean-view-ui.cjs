@@ -30,6 +30,8 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'TOOL_OUTPUT 42' }] } })
   line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Checking the database now.' }] } })
   line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '1. **Signups:** 42 this week.\n\n| Day | Users |\n|---|---|\n| Mon | 20 |\n| Tue | 22 |' }] } })
+  line({ type: 'attachment', attachment: { type: 'queued_command', prompt: 'MIDTURN_QUESTION was it sent?', commandMode: 'prompt', origin: { kind: 'human' } } })
+  line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'NARRATED only 4 went out.', signature: Buffer.from('xx narration yy').toString('base64') }, { type: 'thinking', thinking: 'SECRET_THOUGHT', signature: Buffer.from('plain').toString('base64') }] } })
   line({ type: 'system', subtype: 'turn_duration' })
   // An answer cut off by a tool call and then written in full shows once.
   line({ type: 'user', message: { role: 'user', content: 'Second question' } })
@@ -41,6 +43,9 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   const text = await js(`document.querySelector('.clean-scroll').innerText`)
   assert.match(text, /How many users signed up\?/)
   assert.doesNotMatch(text, /SECRET_TOOL_CALL|TOOL_OUTPUT|\/clear/, text)
+  assert.match(text, /MIDTURN_QUESTION was it sent\?/, 'a message typed during the turn shows')
+  assert.match(text, /NARRATED only 4 went out/, 'the narrated progress line shows')
+  assert.doesNotMatch(text, /SECRET_THOUGHT/, 'other thinking stays hidden')
   assert.doesNotMatch(text, /Checking the database/, 'the update in between is folded')
   await waitFor('second turn', async () => /FULL_END/.test(await js(`document.querySelector('.clean-scroll').innerText`)), 10000)
   assert.equal((await js(`document.querySelector('.clean-scroll').innerText`)).split('the planning is done').length - 1, 1, 'the cut-off answer shows once')
