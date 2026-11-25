@@ -19,8 +19,8 @@ import { pipeline } from 'node:stream/promises'
  */
 export const BROWSER = {
   version: '159.0.8154.0',
-  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-menu/TerminAI-Browser-159.0.8154.0-arm64.zip',
-  sha256: 'cb89bfdad4ea8abe75703895ad4fe2ad918b86eb89fd4235ab1d3f65f992f356',
+  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-tabx/TerminAI-Browser-159.0.8154.0-arm64.zip',
+  sha256: 'e59ae87fa22975c13973e5790dc48b899759775ba246c6dc0ced77749bf0fd23',
   bundleId: 'com.clipwave.term.browser',
   port: 9347,
 }
@@ -139,6 +139,8 @@ export function createChromium(window: () => BrowserWindow | null) {
     let req = ''; try { req = readFileSync(`${glueFile}.req`, 'utf8').trim(); rmSync(`${glueFile}.req`, { force: true }) } catch {}
     if (req === 'pane' && glueRunning()) { setInPane(true); const w = window(); if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); app.focus({ steal: true }) } }
     else if (req === 'free') setInPane(false)
+    // Its × in the tab strip: the pane closes, the browser keeps running hidden for the agents.
+    else if (req === 'close') { const w = window(); if (w && !w.isDestroyed()) w.webContents.send('chromium:closePane') }
     // Quit from its own menu: the pane closes too.
     if (status.inPane && !launching && !glueRunning() && status.state !== 'downloading') { wantPane = false; publish({ inPane: false, state: 'installed' }); lastGlue = ''; writeGlue() }
     // A first start can take longer than the launch waited: it goes into the pane as soon as the glue answers.

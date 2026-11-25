@@ -140,6 +140,7 @@ export function App(): JSX.Element {
     return window.term.browser.onFullStatus(seen)
   }, [])
   const fullShown = (fullInPane || fullOpening) && !fullClosed
+  useEffect(() => window.term.browser.onFullClose(() => { setFullClosed(true); setCompactPane('terminal') }), [])
   useEffect(()=>window.term.browser.onReveal(()=>{if(!prefsRef.current.browserBeta)return;setShowBrowser(true);setCompactPane('browser')}),[])
   useEffect(() => {
     const tab = tabs.find(tab => tab.id === activeId)

@@ -13,6 +13,8 @@ static NSString *gluePath;
 static NSDictionary *want;
 static struct timespec seen;
 static void addMenu(void);
+static void showControls(NSWindow *w, BOOL show);
+static void showBackIn(NSWindow *w, BOOL show);
 static __weak NSWindow *glued;
 static NSRect freeFrame;
 
@@ -53,16 +55,18 @@ static void tick(void) {
     CGWindowID target = (CGWindowID)[want[@"target"] unsignedIntValue];
     NSRect frame = NSMakeRect([want[@"x"] doubleValue], [want[@"y"] doubleValue], [want[@"w"] doubleValue], [want[@"h"] doubleValue]);
     if (frame.size.width < 50 || frame.size.height < 50 || !target) return;
-    if (glued != w) { if (glued) { buttons(glued, NO); glued.movable = YES; } freeFrame = w.frame; glued = w; }
+    if (glued != w) { if (glued) { buttons(glued, NO); glued.movable = YES; showControls(glued, NO); } freeFrame = w.frame; glued = w; }
     if (w.styleMask & NSWindowStyleMaskFullScreen) return;
     if (w.isMiniaturized) [w deminiaturize:nil];
-    buttons(w, YES); w.movable = NO;
+    showBackIn(w, NO); buttons(w, YES); w.movable = NO; showControls(w, YES);
     if (!NSEqualRects(w.frame, frame)) [w setFrame:frame display:YES];
     if (!w.isVisible || !rightAbove(w, target)) [w orderWindow:NSWindowAbove relativeTo:(NSInteger)target];
+  } else if ([mode isEqual:@"free"] && !glued) {
+    NSWindow *bw = browserWindow(); if (bw && !(bw.styleMask & NSWindowStyleMaskFullScreen)) showBackIn(bw, YES);
   } else if ([mode isEqual:@"hidden"]) {
     if (glued && glued.isVisible) [glued orderOut:nil];
   } else if (glued) {
-    NSWindow *g = glued; glued = nil; buttons(g, NO); g.movable = YES;
+    NSWindow *g = glued; glued = nil; buttons(g, NO); g.movable = YES; showControls(g, NO); showBackIn(g, YES);
     if (!NSIsEmptyRect(freeFrame)) [g setFrame:freeFrame display:YES];
     [g makeKeyAndOrderFront:nil];
   }
@@ -84,6 +88,55 @@ static void tick(void) {
 }
 @end
 static TerminAIGlueMenu *menuTarget;
+
+// In the pane, the traffic lights are hidden and their place at the left of the tab strip holds TerminAI's own two
+// buttons: × closes the pane (the browser keeps running hidden), the arrow pops it out into a window of its own.
+@interface TerminAIGlueButtons : NSObject
+@end
+@implementation TerminAIGlueButtons
+- (void)close:(id)sender { [@"close" writeToFile:[gluePath stringByAppendingString:@".req"] atomically:YES encoding:NSUTF8StringEncoding error:nil]; }
+- (void)popIn:(id)sender { [@"pane" writeToFile:[gluePath stringByAppendingString:@".req"] atomically:YES encoding:NSUTF8StringEncoding error:nil]; }
+- (void)popOut:(id)sender { [@"free" writeToFile:[gluePath stringByAppendingString:@".req"] atomically:YES encoding:NSUTF8StringEncoding error:nil]; }
+@end
+static TerminAIGlueButtons *buttonTarget;
+static NSView *controls;
+static NSButton *symbolButton(NSString *symbol, NSString *tip, SEL action) {
+  NSImage *img = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:tip];
+  img = [img imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
+  NSButton *b = [NSButton buttonWithImage:img target:buttonTarget action:action];
+  b.bordered = NO; b.toolTip = tip; b.contentTintColor = [NSColor secondaryLabelColor];
+  b.frame = NSMakeRect(0, 0, 26, 26);
+  return b;
+}
+// As a window of its own: the green zoom button's place holds a button back into TerminAI's pane.
+static NSButton *backIn;
+static void showBackIn(NSWindow *w, BOOL show) {
+  NSButton *zoom = [w standardWindowButton:NSWindowZoomButton];
+  if (!show || !zoom.superview) { [backIn removeFromSuperview]; zoom.hidden = NO; return; }
+  if (!buttonTarget) buttonTarget = [TerminAIGlueButtons new];
+  if (!backIn) backIn = symbolButton(@"arrow.down.left.square", @"Show inside TerminAI  ⇧⌘I", @selector(popIn:));
+  backIn.image = [[NSImage imageWithSystemSymbolName:@"arrow.down.left.square" accessibilityDescription:@"Show inside TerminAI"] imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
+  NSRect f = zoom.frame; f = NSMakeRect(NSMidX(f) - 11, NSMidY(f) - 11, 22, 22);
+  if (backIn.superview != zoom.superview) { [backIn removeFromSuperview]; [zoom.superview addSubview:backIn positioned:NSWindowAbove relativeTo:nil]; }
+  backIn.frame = f; zoom.hidden = YES;
+}
+static void showControls(NSWindow *w, BOOL show) {
+  NSView *frame = w.contentView.superview; if (!frame) return;
+  if (!buttonTarget) buttonTarget = [TerminAIGlueButtons new];
+  if (!controls) {
+    controls = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 64, 30)];
+    NSButton *x = symbolButton(@"xmark", @"Close the browser pane (it keeps running for your agents)", @selector(close:));
+    NSButton *out = symbolButton(@"arrow.up.forward.square", @"Open in its own window", @selector(popOut:));
+    x.frame = NSMakeRect(6, 2, 26, 26); out.frame = NSMakeRect(34, 2, 26, 26);
+    [controls addSubview:x]; [controls addSubview:out];
+  }
+  if (!show) { [controls removeFromSuperview]; return; }
+  // Top left of the window, centred on the tab strip (about 40 points high in Chromium's normal density).
+  NSRect f = NSMakeRect(8, frame.bounds.size.height - 38, 64, 30);
+  if (controls.superview != frame) { [controls removeFromSuperview]; [frame addSubview:controls positioned:NSWindowAbove relativeTo:nil]; }
+  if (!NSEqualRects(controls.frame, f)) controls.frame = f;
+  controls.autoresizingMask = NSViewMinYMargin | NSViewMaxXMargin;
+}
 static void addMenu(void) {
   NSMenu *bar = NSApp.mainMenu; if (!bar || menuTarget) return;
   menuTarget = [TerminAIGlueMenu new];
