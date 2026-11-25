@@ -74,8 +74,13 @@ static void tick(void) {
     if (w.styleMask & NSWindowStyleMaskFullScreen) return;
     // TerminAI's window may be on another Space (desktop) than the browser's: the browser joins every Space while glued
     // and is shown only while TerminAI's window is on screen, so it is always where TerminAI is, and nowhere else.
-    if (!(w.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces)) w.collectionBehavior = (w.collectionBehavior & ~NSWindowCollectionBehaviorMoveToActiveSpace) | NSWindowCollectionBehaviorCanJoinAllSpaces;
-    if (!targetOnScreen(target)) { if (w.isVisible) [w orderOut:nil]; return; }
+    // Same Space (desktop) as TerminAI, and only that one: when TerminAI is on screen but the browser is not (it sits on
+    // another Space), it joins all Spaces for one moment, is ordered in here, and is a normal one-Space window again on
+    // the next tick. So switching desktops or apps moves it together with TerminAI, never showing it anywhere else.
+    static BOOL joining;
+    if (joining) { w.collectionBehavior &= ~NSWindowCollectionBehaviorCanJoinAllSpaces; joining = NO; }
+    if (!targetOnScreen(target)) return;
+    if (w.isVisible && !w.isOnActiveSpace) { w.collectionBehavior |= NSWindowCollectionBehaviorCanJoinAllSpaces; joining = YES; }
     if (NSApp.isHidden) [NSApp unhideWithoutActivation];
     if (w.isMiniaturized) [w deminiaturize:nil];
     showBackIn(w, NO); buttons(w, YES); w.movable = NO;
@@ -88,7 +93,7 @@ static void tick(void) {
     NSWindow *h = glued ?: w; if (h.isVisible) [h orderOut:nil];
   } else if (glued) {
     NSWindow *g = glued; glued = nil; buttons(g, NO); g.movable = YES; showControls(g, NO); showBackIn(g, YES);
-    g.collectionBehavior = g.collectionBehavior & ~NSWindowCollectionBehaviorCanJoinAllSpaces;
+    g.collectionBehavior &= ~NSWindowCollectionBehaviorCanJoinAllSpaces;
     if (!NSIsEmptyRect(freeFrame)) [g setFrame:freeFrame display:YES];
     [g makeKeyAndOrderFront:nil];
   }
@@ -176,7 +181,10 @@ __attribute__((constructor)) static void start(void) {
   // Only this process: Chromium's helpers (GPU, renderers) must not inherit it.
   unsetenv("DYLD_INSERT_LIBRARIES"); unsetenv("TERMINAI_GLUE_FILE");
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSTimer *t = [NSTimer timerWithTimeInterval:0.08 repeats:YES block:^(NSTimer *_) { tick(); }];
+    NSTimer *t = [NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *_) { tick(); }];
+    NSNotificationCenter *ws = NSWorkspace.sharedWorkspace.notificationCenter;
+    for (NSNotificationName n in @[NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidHideApplicationNotification, NSWorkspaceDidUnhideApplicationNotification, NSWorkspaceDidActivateApplicationNotification])
+      [ws addObserverForName:n object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *_) { tick(); }];
     [NSRunLoop.mainRunLoop addTimer:t forMode:NSRunLoopCommonModes];
   });
 }

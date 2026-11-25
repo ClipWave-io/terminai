@@ -25,16 +25,32 @@ const HOME = homedir()
 const place = (cwd: string) => cwd.startsWith(HOME) ? '~' + cwd.slice(HOME.length) : cwd
 
 const found = new Map<string, string>()   // Claude session id -> its transcript
+const scanned = new Map<string, number>()
 export function transcriptOf(tabId: string): string {
   const agent = ptys.agentOf(tabId)
-  if (!agent.sessionId) return ''
   if (agent.kind === 'claude') {
-    // Found once, then only checked: scanning every project folder for every tab every 5 seconds adds up.
-    const known = found.get(agent.sessionId)
-    if (known) { try { statSync(known); return known } catch { found.delete(agent.sessionId) } }
-    const root = join(HOME, '.claude', 'projects')
-    try { for (const d of readdirSync(root)) { const f = join(root, d, `${agent.sessionId}.jsonl`); try { statSync(f); found.set(agent.sessionId, f); return f } catch {} } } catch {}
+    // The conversation running now: the id Claude Code reports for this tab, or the one it was started with. A resume in
+    // another folder continues under a new id (a new transcript), so the start id alone left the Clean view and the
+    // sharing on the old file. Of the two, the transcript written to last.
+    const find = (id: string): string => {
+      if (!id) return ''
+      // A conversation moved to another folder keeps its id and goes on in a file under the new folder: of all the
+      // files with this id, the one written to last. Looked up again every 30 s (scanning every project folder for
+      // every tab every second would add up).
+      const known = found.get(id)
+      if (known && Date.now() - (scanned.get(id) ?? 0) < 30_000) { try { statSync(known); return known } catch { found.delete(id) } }
+      const root = join(HOME, '.claude', 'projects')
+      let best = '', at = 0
+      try { for (const d of readdirSync(root)) { const f = join(root, d, `${id}.jsonl`); try { const m = statSync(f).mtimeMs; if (m > at) { at = m; best = f } } catch {} } } catch {}
+      scanned.set(id, Date.now())
+      if (best) found.set(id, best)
+      return best
+    }
+    const files = [...new Set([ptys.claudeSessionOf(tabId), agent.sessionId])].map(find).filter(Boolean)
+    const mtime = (f: string) => { try { return statSync(f).mtimeMs } catch { return 0 } }
+    return files.sort((a, b) => mtime(b) - mtime(a))[0] ?? ''
   }
+  if (!agent.sessionId) return ''
   if (agent.kind === 'codex') {
     const walk = (dir: string, depth: number): string => {
       let names: string[] = []; try { names = readdirSync(dir) } catch { return '' }

@@ -7,6 +7,7 @@ import { cursor, readAppended, type Cursor } from './transcripts'
  * text (no tool calls, no tool output). Read incrementally per transcript file, like the sharing bridge does.
  */
 export type CleanItem = { role: 'user' | 'assistant'; text: string; end?: boolean }
+let versions = 0
 const cache = new Map<string, { cur: Cursor; items: CleanItem[]; version: number }>()
 
 // What the agents write into the conversation themselves: commands, reminders, the environment they start with.
@@ -55,10 +56,11 @@ export async function readClean(tabId: string, transcript: (id: string) => strin
   if (!file) return { file: false, version: 0, items: [] }
   try { await stat(file) } catch { return { file: false, version: 0, items: [] } }
   let entry = cache.get(file)
-  if (!entry) { entry = { cur: cursor(), items: [], version: 1 }; cache.set(file, entry) }
+  if (!entry) { entry = { cur: cursor(), items: [], version: ++versions }; cache.set(file, entry) }
   const e = entry, before = e.cur.at
   await readAppended(file, e.cur, line => parse(line, e.items), () => { e.items = [] })
-  if (e.cur.at !== before) e.version++
+  // One counter for every file: when a tab's transcript changes (a conversation moved folders), the view always reloads.
+  if (e.cur.at !== before) e.version = ++versions
   // Long conversations: the newest 400 messages are plenty for a view.
   if (e.items.length > 600) e.items = e.items.slice(-400)
   return seen === e.version ? { file: true, version: e.version } : { file: true, version: e.version, items: e.items }
