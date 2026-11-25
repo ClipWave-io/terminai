@@ -1,4 +1,5 @@
 import { app, screen, type BrowserWindow } from 'electron'
+import { importFromChrome, type ImportResult } from './chrome-import'
 import { spawn, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs'
@@ -19,8 +20,8 @@ import { pipeline } from 'node:stream/promises'
  */
 export const BROWSER = {
   version: '159.0.8154.0',
-  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-tabx/TerminAI-Browser-159.0.8154.0-arm64.zip',
-  sha256: 'e59ae87fa22975c13973e5790dc48b899759775ba246c6dc0ced77749bf0fd23',
+  url: 'https://github.com/ClipWave-io/terminai/releases/download/browser-v159.0.8154.0-glue2/TerminAI-Browser-159.0.8154.0-arm64.zip',
+  sha256: '40b8010677927279deff7bee70d7e9bc2fc56a4bdf74e1d2d6541aca5ae15604',
   bundleId: 'com.clipwave.term.browser',
   port: 9347,
 }
@@ -232,5 +233,18 @@ export function createChromium(window: () => BrowserWindow | null) {
     } catch {}
   }
 
-  return { open, install, current, registerMcp, setPane, setInPane, status: () => status }
+  /** Import from Chrome: the browser closes (its files must not be in use), takes Chrome's logins, passwords and bookmarks, and opens again. */
+  async function importChrome(): Promise<ImportResult> {
+    await install()
+    const wasRunning = await alive()
+    if (wasRunning) {
+      execFile('/usr/bin/pkill', ['-TERM', '-f', binary])
+      for (let i = 0; i < 40 && await alive(); i++) await new Promise(r => setTimeout(r, 250))
+      await new Promise(r => setTimeout(r, 800))
+    }
+    try { return await importFromChrome(profile) }
+    finally { if (wasRunning) void open().catch(() => {}) }
+  }
+
+  return { open, install, current, registerMcp, setPane, setInPane, importChrome, status: () => status }
 }

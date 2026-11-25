@@ -791,6 +791,7 @@ function registerIpc(): void {
     notice('memory', `Paused by MacGuard: ${name}`, `At ${p.at.slice(0, 5)} the Mac was about to run out of memory. Open the tab and press Resume, or it resumes by itself once the Mac is back to normal.`, { tab: p.id })
   })
   appIpc.handle('app:check-updates', () => checkForUpdatesNow(win, true))
+  appIpc.handle('chromium:import', async () => { if (!chromium) throw new Error('Not ready yet'); return chromium.importChrome() })
   appIpc.handle('app:update-ready', () => (process.env.TERMINAI_TEST_BUILD && process.env.TERMINAI_FAKE_UPDATE) || updateReady() || '')
   appIpc.handle('app:install-update', () => installUpdateNow())
   appIpc.handle('window:fullscreen', () => win?.isFullScreen() || false)

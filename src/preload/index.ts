@@ -89,6 +89,7 @@ const api = {
     /** Where TerminAI Browser shows inside the window (the browser pane), or null; and Pop out (false) / back in (true). */
     fullPane: (rect: {x: number; y: number; width: number; height: number; visible: boolean} | null): Promise<void> => ipcRenderer.invoke('chromium:pane', rect),
     fullInPane: (on: boolean): Promise<void> => ipcRenderer.invoke('chromium:inPane', on),
+    importChrome: (): Promise<{ cookies: number; passwords: number; bookmarks: boolean; profile: string }> => ipcRenderer.invoke('chromium:import'),
     onFullClose: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('chromium:closePane', h); return () => { ipcRenderer.removeListener('chromium:closePane', h) } },
     onFullStatus: (cb: (s: any) => void): (() => void) => { const h = (_e: IpcRendererEvent, s: any) => cb(s); ipcRenderer.on('chromium:status', h); return () => { ipcRenderer.removeListener('chromium:status', h) } },
     onState: (cb: (state: BrowserState) => void): (() => void) => {

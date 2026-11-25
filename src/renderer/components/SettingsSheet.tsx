@@ -169,6 +169,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <div className="st-card">
         <Row label="Trust folders automatically" hint="Claude Code asks “Do you trust this folder?” the first time it runs somewhere new. On: TerminAI answers Yes for every folder a tab opens in. Turn it off if you open code you do not know."><Toggle on={prefs.autoTrust} set={v => onChange({ autoTrust: v })} /></Row>
         <Row label="Claude in Chrome runs in" hint="Where your agents use the Claude extension: TerminAI Browser, inside TerminAI with its own logins, or your own Google Chrome with its profiles and passwords. Agents are told at once."><select value={prefs.claudeInChromeBrowser} onChange={e => onChange({ claudeInChromeBrowser: e.target.value as 'terminai' | 'chrome' })}><option value="terminai">TerminAI Browser</option><option value="chrome">Google Chrome</option></select></Row>
+        <Row label="Logins from Chrome" hint="Copies your Chrome logins, saved passwords and bookmarks into TerminAI Browser, so sites open signed in there too. macOS asks once to allow it. Run it again to bring newer logins over."><ImportChrome /></Row>
         <Row label="Claude in Chrome by default" hint="Every new conversation can use your Chrome (the Claude extension) without typing --chrome. Needs the extension installed."><Toggle on={prefs.chromeByDefault} set={v => onChange({ chromeByDefault: v })} /></Row>
         <Row label="New tabs start" hint="Opens a new conversation right away, with permissions skipped.">
           <select value={prefs.newTabAgent} onChange={e => onChange({ newTabAgent: e.target.value as 'claude' })}>
@@ -278,6 +279,16 @@ const SECTIONS: [SettingsSection, string, string][] = [
   ['shortcuts', 'Shortcuts', 'M3 6h18v12H3ZM7 10h.01M11 10h.01M15 10h.01M7 14h10'],
 ]
 const SIcon = ({ d }: { d: string }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
+
+/** Settings › Connections: Import from Chrome into TerminAI Browser, with what it brought over. */
+function ImportChrome(): JSX.Element {
+  const [state, setState] = useState<'' | 'busy' | string>('')
+  const go = () => { setState('busy'); void window.term.browser.importChrome().then(r => setState(`Imported from ${r.profile}: ${r.cookies.toLocaleString()} logins, ${r.passwords.toLocaleString()} passwords${r.bookmarks ? ', bookmarks' : ''}.`)).catch(e => setState(`Could not import: ${String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)) }
+  return <span className="st-inline" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    {state && state !== 'busy' && <small className="hint" style={{ maxWidth: 260 }}>{state}</small>}
+    <button className="btn" disabled={state === 'busy'} onClick={go}>{state === 'busy' ? 'Importing…' : 'Import from Chrome'}</button>
+  </span>
+}
 
 /** The version this Mac runs, and the same check as TerminAI › Check for Updates… in the menu bar. */
 function AppVersion(): JSX.Element {
