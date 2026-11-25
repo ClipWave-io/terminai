@@ -283,9 +283,12 @@ const SIcon = ({ d }: { d: string }) => <svg width="16" height="16" viewBox="0 0
 /** Settings › Connections: Import from Chrome into TerminAI Browser, with what it brought over. */
 function ImportChrome(): JSX.Element {
   const [state, setState] = useState<'' | 'busy' | string>('')
-  const go = () => { setState('busy'); void window.term.browser.importChrome().then(r => setState(`Imported from ${r.profile}: ${r.cookies.toLocaleString()} logins, ${r.passwords.toLocaleString()} passwords${r.bookmarks ? ', bookmarks' : ''}.`)).catch(e => setState(`Could not import: ${String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)) }
+  const [profiles, setProfiles] = useState<{ dir: string; name: string }[]>([]), [from, setFrom] = useState('')
+  useEffect(() => { void window.term.browser.chromeProfiles().then(p => { setProfiles(p); if (p[0]) setFrom(p[0].dir) }).catch(() => {}) }, [])
+  const go = () => { setState('busy'); void window.term.browser.importChrome(from || undefined).then(r => setState(`Imported from ${r.profile}: ${r.cookies.toLocaleString()} logins, ${r.passwords.toLocaleString()} passwords${r.bookmarks ? ', bookmarks' : ''}.`)).catch(e => setState(`Could not import: ${String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)) }
   return <span className="st-inline" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
     {state && state !== 'busy' && <small className="hint" style={{ maxWidth: 260 }}>{state}</small>}
+    {profiles.length > 1 && <select value={from} onChange={e => setFrom(e.target.value)} aria-label="Chrome profile">{profiles.map(p => <option key={p.dir} value={p.dir}>{p.name}</option>)}</select>}
     <button className="btn" disabled={state === 'busy'} onClick={go}>{state === 'busy' ? 'Importing…' : 'Import from Chrome'}</button>
   </span>
 }

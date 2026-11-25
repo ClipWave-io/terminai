@@ -1,5 +1,5 @@
 import { app, screen, type BrowserWindow } from 'electron'
-import { importFromChrome, type ImportResult } from './chrome-import'
+import { importFromChrome, chromeProfiles, type ImportResult } from './chrome-import'
 import { spawn, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs'
@@ -246,7 +246,7 @@ export function createChromium(window: () => BrowserWindow | null) {
   }
 
   /** Import from Chrome: the browser closes (its files must not be in use), takes Chrome's logins, passwords and bookmarks, and opens again. */
-  async function importChrome(): Promise<ImportResult> {
+  async function importChrome(from?: string): Promise<ImportResult> {
     await install()
     const wasRunning = await alive()
     if (wasRunning) {
@@ -254,9 +254,9 @@ export function createChromium(window: () => BrowserWindow | null) {
       for (let i = 0; i < 40 && await alive(); i++) await new Promise(r => setTimeout(r, 250))
       await new Promise(r => setTimeout(r, 800))
     }
-    try { return await importFromChrome(profile) }
+    try { return await importFromChrome(profile, from) }
     finally { if (wasRunning) void open().catch(() => {}) }
   }
 
-  return { open, install, current, registerMcp, setPane, setInPane, importChrome, prewarm, status: () => status }
+  return { open, install, current, registerMcp, setPane, setInPane, importChrome, chromeProfiles, prewarm, status: () => status }
 }

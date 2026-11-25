@@ -55,8 +55,17 @@ export async function chromeProfile(): Promise<{ dir: string; name: string }> {
   try { const s = JSON.parse(await readFile(join(root, 'Local State'), 'utf8')); const p = s.profile?.last_used || 'Default'; return { dir: join(root, p), name: s.profile?.info_cache?.[p]?.name || p } }
   catch { return { dir: join(root, 'Default'), name: 'Default' } }
 }
-export async function importFromChrome(browserProfile: string): Promise<ImportResult> {
-  const chrome = await chromeProfile()
+/** Every Chrome profile on this Mac (folder and the name Chrome shows), the last used first. */
+export async function chromeProfiles(): Promise<{ dir: string; name: string }[]> {
+  const root = join(process.env.HOME ?? '', 'Library/Application Support/Google/Chrome')
+  try {
+    const s = JSON.parse(await readFile(join(root, 'Local State'), 'utf8')), last = s.profile?.last_used || 'Default'
+    const all = Object.entries(s.profile?.info_cache ?? {}).map(([k, v]: [string, any]) => ({ dir: join(root, k), name: String(v?.name || k), key: k }))
+    return all.sort((a, b) => (b.key === last ? 1 : 0) - (a.key === last ? 1 : 0)).map(({ dir, name }) => ({ dir, name }))
+  } catch { return existsSync(join(root, 'Default')) ? [{ dir: join(root, 'Default'), name: 'Default' }] : [] }
+}
+export async function importFromChrome(browserProfile: string, source?: string): Promise<ImportResult> {
+  const list = await chromeProfiles(), chrome = list.find(p => p.dir === source) ?? (source ? { dir: source, name: source.split('/').pop() || source } : await chromeProfile())
   if (!existsSync(chrome.dir)) throw Error('No Google Chrome profile found on this Mac.')
   const from = keyFrom(await secret('Chrome Safe Storage', 'Chrome').catch(() => { throw Error('macOS did not allow reading Chrome\'s key (click Always Allow when it asks).') }))
   const to = keyFrom(await secret('Chromium Safe Storage', 'Chromium').catch(() => { throw Error('Open TerminAI Browser once first, then import.') }))

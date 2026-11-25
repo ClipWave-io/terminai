@@ -9,10 +9,22 @@ export function FullBrowserPane({ visible, layoutKey, mode, onPopOut, onBringBac
   useEffect(() => {
     const element = slot.current
     if (!element) return
+    // The browser is a window of its own, drawn above TerminAI: while a TerminAI popup (a notice card, the notifications
+    // list, the chat, a dialog, a menu) covers the pane, the browser steps aside so the popup can be seen and clicked.
+    const OVERLAYS = '.notice-card, .toast, .nc-panel, .tc, [role="dialog"], [role="menu"], .ctx-menu, .sheet, .modal'
+    const covered = (r: DOMRect) => [...document.querySelectorAll(OVERLAYS)].some(o => { if (element.contains(o)) return false; const b = o.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top })
+    let last = ''
     const report = () => {
-      const { x, y, width, height } = element.getBoundingClientRect()
-      void window.term.browser.fullPane({ x, y, width, height, visible: visible && mode === 'pane' && document.visibilityState === 'visible' })
+      const r = element.getBoundingClientRect(), { x, y, width, height } = r
+      const v = visible && mode === 'pane' && document.visibilityState === 'visible' && !covered(r)
+      const key = `${Math.round(x)},${Math.round(y)},${Math.round(width)},${Math.round(height)},${v}`
+      if (key === last) return
+      last = key
+      void window.term.browser.fullPane({ x, y, width, height, visible: v })
     }
+    const watch = new MutationObserver(() => report())
+    watch.observe(document.body, { childList: true, subtree: true })
+    const poll = setInterval(report, 400)
     const observer = new ResizeObserver(report)
     observer.observe(element)
     window.addEventListener('resize', report)
@@ -20,7 +32,7 @@ export function FullBrowserPane({ visible, layoutKey, mode, onPopOut, onBringBac
     // Panes slide when the sidebar or another pane changes size: follow for a moment after any change.
     const settle = [60, 200, 400].map(ms => setTimeout(report, ms))
     report()
-    return () => { observer.disconnect(); window.removeEventListener('resize', report); document.removeEventListener('visibilitychange', report); settle.forEach(clearTimeout); void window.term.browser.fullPane(null) }
+    return () => { watch.disconnect(); clearInterval(poll); observer.disconnect(); window.removeEventListener('resize', report); document.removeEventListener('visibilitychange', report); settle.forEach(clearTimeout); void window.term.browser.fullPane(null) }
   }, [visible, layoutKey, mode])
   const icon = (d: string) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
   // A slim strip on top (TerminAI's own, so it always works): the name, pop out, close. The browser fills the rest.
