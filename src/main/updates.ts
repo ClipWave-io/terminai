@@ -1,11 +1,20 @@
 import { app, dialog, powerMonitor, type BrowserWindow } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { autoUpdater, CancellationToken } from 'electron-updater'
 import { notice } from './notices'
 
 // Updates come from the GitHub releases of ClipWave-io/terminai (publish in package.json). A new version
 // downloads in the background; then a dialog offers to restart into it. Only the signed, installed app checks.
 let asking = false
 let ready = ''
+// The download in progress: its token, and when it last moved. A download that stops moving (a dropped connection
+// with no timeout) would otherwise block every later one for good, since the updater reuses a download in progress.
+let downloading: { token: CancellationToken; version: string; moved: number; percent: number } | null = null
+function download(version: string): void {
+  if (ready || downloading) return
+  const token = new CancellationToken()
+  downloading = { token, version, moved: Date.now(), percent: 0 }
+  autoUpdater.downloadUpdate(token).catch(() => {}).finally(() => { if (downloading?.token === token) downloading = null })
+}
 /** The version downloaded and waiting for a restart, '' when none. */
 export const updateReady = (): string => ready
 /** Restart into the downloaded version now (`terminai update --restart`); false when nothing is downloaded yet. */
@@ -14,7 +23,11 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
   if (!app.isPackaged || process.env.TERMINAI_TEST_BUILD) return
   // From TerminAI's server (it fetches GitHub's release through the API), so a GitHub download outage never blocks updates.
   autoUpdater.setFeedURL({ provider: 'generic', url: 'https://terminai.xyz/updates' })
-  autoUpdater.autoDownload = true
+  autoUpdater.autoDownload = false
+  autoUpdater.on('update-available', info => download(info.version))
+  autoUpdater.on('download-progress', p => { if (downloading) { downloading.moved = Date.now(); downloading.percent = Math.floor(p.percent) } })
+  // Stalled for 5 minutes: cancelled, and the next check starts it again (resuming what was already fetched).
+  setInterval(() => { if (downloading && Date.now() - downloading.moved > 5 * 60_000) { downloading.token.cancel(); downloading = null; void autoUpdater.checkForUpdates().catch(() => {}) } }, 60_000)
   // Installed when the person clicks Restart now, when they quit, or at night by itself (Settings › Install updates at night).
   autoUpdater.autoInstallOnAppQuit = true
   // Between 3 and 6 at night, with nothing working or asking in any tab and nobody at the Mac for 10 minutes: restart into
@@ -24,7 +37,7 @@ export function startUpdates(win: () => BrowserWindow | null, opts: { night: () 
     if (ready && opts.night() && h >= 3 && h < 6 && !opts.busy() && powerMonitor.getSystemIdleTime() > 600) autoUpdater.quitAndInstall(true, true)
   }, 5 * 60_000)
   autoUpdater.on('update-downloaded', async info => {
-    ready = info.version
+    ready = info.version; downloading = null
     notice('update', `TerminAI ${info.version} is ready`, opts.night() ? 'It installs by itself tonight, or restart now from Settings.' : 'Restart TerminAI to update.', { open: 'updates' })
     if (asking) return
     asking = true
@@ -60,5 +73,7 @@ export async function checkForUpdatesNow(owner: BrowserWindow | null, quiet = fa
     if (!quiet) { const options = { message: 'TerminAI is up to date', detail: `You have version ${app.getVersion()}.` }; if (owner) await dialog.showMessageBox(owner, options); else await dialog.showMessageBox(options) }
     return `Up to date (${app.getVersion()}).`
   }
-  return `TerminAI ${result.updateInfo.version} is downloading: it asks to restart when it is ready.`
+  if (ready) return `TerminAI ${ready} is downloaded: terminai update --restart installs it.`
+  download(result.updateInfo.version)
+  return `TerminAI ${result.updateInfo.version} is downloading${downloading?.percent ? ` (${downloading.percent}%)` : ''}: it asks to restart when it is ready.`
 }
