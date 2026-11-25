@@ -1526,3 +1526,8 @@ textarea.card-notes.editing {
 .clean-msg.user.queued { opacity: .6; border-style: dashed; margin-bottom: 4px; }
 .clean-queued-note { text-align: right; font-size: 12px; color: var(--dim); margin-bottom: 12px; }
 .clean-link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+
+/* Stacked panes (Settings › Panes): one above the other, sharing the height; pane order goes top to bottom. */
+.workspace.stacked { flex-direction: column; }
+.workspace.stacked > .pane, .workspace.stacked > .files-slot, .workspace.stacked > .browser-slot { width: auto !important; max-width: none; flex: 1 1 0 !important; min-height: 140px; min-width: 0; }
+.workspace.stacked .pane-resize-handle { display: none; }

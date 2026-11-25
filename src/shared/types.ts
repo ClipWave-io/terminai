@@ -430,6 +430,8 @@ export interface Prefs {
   newTabsAt: 'bottom' | 'top'
   /** Claude Code and Codex tabs open as a chat (only messages and answers); the terminal is one click away. */
   cleanView: boolean
+  /** The terminal, the browser and Files one above the other instead of side by side. */
+  paneStack: boolean
   /** each conversation in the sidebar shows when it was last active */
   railTimes: boolean
   /** after a restart every conversation starts again at once (spaced out), not only the open and working ones */
@@ -510,6 +512,7 @@ export const DEFAULT_PREFS: Prefs = {
   railRecent: false,
   newTabsAt: 'bottom',
   cleanView: true,
+  paneStack: false,
   railTimes: false,
   resumeAll: false,
   chatSound: true,

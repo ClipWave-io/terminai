@@ -1,0 +1,27 @@
+// Stacked panes: with Settings › Panes = Stacked, the terminal and Files sit one above the other at full width;
+// ⌥⌘L puts them side by side again. After `npx electron-vite build`: TERMINAI_TEST_BUILD=1 npx electron tests/stacked-panes-ui.cjs
+const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), { execFile } = require('child_process')
+const REPO = path.join(__dirname, '..')
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-stack-')); app.setPath('userData', dir)
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, newTabAgent: 'none', paneStack: true }))
+const note = path.join(dir, 'note.txt'); fs.writeFileSync(note, 'hello')
+const delay = ms => new Promise(r => setTimeout(r, ms))
+const waitFor = async (what, fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return; await delay(200) } throw new Error('timed out: ' + what) }
+const cli = (...args) => new Promise((resolve, reject) => execFile(process.execPath, [path.join(REPO, 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => e ? reject(new Error(err || e.message)) : resolve(String(out))))
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = s => win.webContents.executeJavaScript(s)
+  await waitFor('control', () => fs.existsSync(path.join(dir, 'control.json')), 10000)
+  const { id } = JSON.parse(await cli('open', '--cwd', dir, '--name', 'shell')); await cli('focus', id)
+  await cli('show', note)
+  const rects = () => js(`(() => { const r = s => { const e = document.querySelector('.workspace > ' + s); if (!e || e.classList.contains('workspace-hidden')) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height } }; return { t: r('.pane'), f: r('.files-slot'), stacked: document.querySelector('.workspace').classList.contains('stacked') } })()`)
+  await waitFor('files shown', async () => { const r = await rects(); return r.t && r.f && r.f.h > 50 }, 15000)
+  let r = await rects()
+  assert.ok(r.stacked, 'stacked class')
+  assert.ok(Math.abs(r.t.x - r.f.x) < 2 && Math.abs(r.t.w - r.f.w) < 2, 'same column, full width: ' + JSON.stringify(r))
+  assert.ok(r.f.y >= r.t.y + r.t.h - 1 || r.t.y >= r.f.y + r.f.h - 1, 'one above the other: ' + JSON.stringify(r))
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'L', modifiers: ['meta', 'alt'] })
+  await waitFor('side by side', async () => { const x = await rects(); return x.t && x.f && !x.stacked && Math.abs(x.t.y - x.f.y) < 2 }, 5000)
+  console.log('PASS stacked panes: terminal and Files one above the other at full width, ⌥⌘L back to side by side')
+  await cli('close', id).catch(() => {}); app.quit()
+})().catch(e => { console.error(e); app.exit(1) }) }))
+setTimeout(() => { console.error('timeout'); app.exit(1) }, 60000).unref(); require('../out/main/index.js')

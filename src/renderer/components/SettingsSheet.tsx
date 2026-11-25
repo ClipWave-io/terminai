@@ -184,6 +184,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
     appearance: () => page('Appearance', 'Theme, panes, sidebar and text size.', <div className="st-card">
       <Row label="Theme" hint={<>Cycle all {Object.keys(THEMES).length} with <span className="kbd">⇧⌘L</span></>}>
         <select value={prefs.theme} onChange={e => onChange({ theme: e.target.value as ThemeName })}>{Object.values(THEMES).map(t => <option key={t.name} value={t.name}>{t.label}</option>)}</select></Row>
+      <Row label="Panes" hint={<>The terminal, the browser and Files side by side, or one above the other (<span className="kbd">⌥⌘L</span> switches). Pane order goes top to bottom when stacked.</>}><select value={prefs.paneStack ? "stacked" : "side"} onChange={e => onChange({ paneStack: e.target.value === "stacked" })}><option value="side">Side by side</option><option value="stacked">Stacked</option></select></Row>
       <Row label="Pane order" hint="Left to right: which goes where when the terminal, Files and the browser are open together. You can also drag a pane by the grip at its top.">
         <span className="st-panes">{prefs.paneOrder.map((pane, i) => <span key={pane} className="st-pane">
           <button className="todo-link" aria-label={`Move ${PANE_NAMES[pane]} left`} disabled={i === 0} onClick={() => { const next = [...prefs.paneOrder]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange({ paneOrder: next }) }}>‹</button>

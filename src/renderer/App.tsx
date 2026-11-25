@@ -792,6 +792,8 @@ export function App(): JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       const list = tabsRef.current
       const cur = list.findIndex((t) => t.id === activeRef.current)
+      // ⌥⌘L: the panes side by side or one above the other.
+      if (e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === 'KeyL') { e.preventDefault(); void patchPrefs({ paneStack: !prefsRef.current.paneStack }); return }
       if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === 'e' && activeRef.current) {
         e.preventDefault(); const id = activeRef.current; setCleanOff(o => ({ ...o, [id]: !o[id] })); return
       }
@@ -978,7 +980,7 @@ export function App(): JSX.Element {
           <button className="btn icon no-drag" title="Customize toolbar" aria-label="Customize toolbar" aria-expanded={showToolbar} onClick={() => setShowToolbar(value => !value)}>⋯</button>
         </div>
 
-        <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}`}>
+        <div ref={workspace} className={`workspace ${compactWorkspace ? 'compact-workspace' : ''}${prefs.paneStack && !compactWorkspace ? ' stacked' : ''}`}>
         {showFiles && <div {...paneDrop('files')} className={`files-slot ${!filesVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'files' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('files'), width: compactWorkspace || filesOnly ? undefined : filesWidth, flex: compactWorkspace ? undefined : !terminalVisible ? '1 1 auto' : '0 1 auto' }}>{paneGrip('files', 'Files')}{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'right' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={-1} onChange={setFilesWidth} onDrag={setResizingPane} />}<ProjectFilesPane full={filesOnly} onFull={() => setFilesOnly(v => !v)} openRequest={openFileRequest} onDirty={setFilesDirty} side={filesSide} onSide={() => movePane('files', paneOrder[filesSide === 'left' ? paneOrder.length - 1 : 0])} onClose={() => { setShowFiles(false); setFilesOnly(false); setCompactPane('terminal') }} />{visiblePanes.length > 1 && !compactWorkspace && filesSide === 'left' && <PaneResizeHandle label="Resize files" width={filesWidth} sign={1} onChange={setFilesWidth} onDrag={setResizingPane} />}</div>}
         <div {...paneDrop('terminal')} className={`pane ${!terminalVisible ? 'workspace-hidden' : ''}${paneDrag && paneDrag !== 'terminal' ? ' pane-target' : ''}`} style={{ order: paneOrder.indexOf('terminal') }}>
           {paneGrip('terminal', 'the terminal')}
