@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
-import { finders } from '../find'
+import { finders, screens, streamingAnswer } from '../find'
 
 /**
  * Clean view: a Claude Code or Codex tab as a chat. Only the person's messages and the agent's text, read from the
@@ -207,6 +207,16 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
       return t ? !said.some(u => u.includes(t)) : users.length <= q.users
     }))
   }, [items])
+  // Streaming: while it works, the answer being written is read off the terminal screen and shown as it grows, until
+  // the transcript has it.
+  const [stream, setStream] = useState('')
+  useEffect(() => {
+    if (status !== 'working') { setStream(''); return }
+    const t = setInterval(() => { const read = screens.get(tabId); setStream(read ? streamingAnswer(read()) : '') }, 300)
+    return () => clearInterval(t)
+  }, [tabId, status])
+  const lastSaid = [...(items ?? [])].reverse().find(i => i.role === 'assistant')?.text ?? ''
+  const streaming = stream && !lastSaid.replace(/\s+/g, ' ').startsWith(stream.replace(/\s+/g, ' ').slice(0, 80)) ? stream : ''
   const turns = turnsOf(items ?? [])
   const working = status === 'working'
   return <div className="clean-view" aria-label="Clean view">
@@ -228,6 +238,7 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
             </Fragment>)}
           </div>
         })}
+      {streaming && <div className="clean-turn"><div className="clean-msg assistant streaming"><Markdown text={streaming} /></div></div>}
       {working && <div className="clean-working"><span /><span /><span /></div>}
       {pending.map(q => <div key={q.at} className="clean-turn"><div className="clean-msg user queued">{q.files.length > 0 && <div className="clean-chips">{q.files.map((f, i) => <span key={f.path} className="clean-chip">{f.thumb ? <img src={f.thumb} alt="" /> : <span className="clean-chip-icon">{f.image ? '▣' : '▤'}</span>}{f.image ? `Image ${i + 1}` : f.name}</span>)}</div>}{q.text && <Markdown text={q.text} />}</div>
         <div className="clean-queued-note">{working ? <>Queued: it goes in when this turn ends · <button type="button" className="clean-link" onClick={sendNow}>send now</button> <span className="kbd">⌃X ⌃S</span></> : 'Sending…'}</div></div>)}

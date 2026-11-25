@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
-import { finders } from '../find'
+import { finders, screens } from '../find'
 import { toXtermTheme } from '../../shared/themes'
 import { claudeDarkOnLight, type Remap } from '../../shared/claude-colors'
 import * as snapshots from '../snapshots'
@@ -185,6 +185,11 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       },
       clear: () => { search.clearDecorations(); term.clearSelection() },
     })
+    screens.set(ptyId, () => {
+      const b = term.buffer.active, out: string[] = []
+      for (let y = Math.max(0, b.length - 200); y < b.length; y++) out.push(b.getLine(y)?.translateToString(true) ?? '')
+      return out
+    })
 
     const unicode = new Unicode11Addon()
     term.loadAddon(unicode)
@@ -257,7 +262,7 @@ export function TerminalPane({ ptyId, active, theme, fontSize, onTitle }: Props)
       offExit()
       ro.disconnect()
       cancelAnimationFrame(raf)
-      finders.delete(ptyId)
+      finders.delete(ptyId); screens.delete(ptyId)
       term.dispose()
       termRef.current = null
       fitRef.current = null

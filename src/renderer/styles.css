@@ -1567,3 +1567,4 @@ details.st-more > summary::-webkit-details-marker { display: none; }
 details.st-more > summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s; margin-right: 2px; }
 details.st-more[open] > summary::before { transform: rotate(45deg); }
 details.st-more > summary:hover { color: var(--fg); }
+.clean-msg.assistant.streaming > :last-child::after { content: "▍"; margin-left: 2px; color: var(--accent); animation: clean-dot 1s infinite; }
