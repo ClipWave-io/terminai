@@ -119,7 +119,7 @@ export function createChromium(window: () => BrowserWindow | null) {
   function writeGlue() {
     const w = window()
     let next: object = { mode: 'hidden' }
-    if (!status.inPane) next = { mode: 'free' }
+    if (!status.inPane) next = { mode: background ? 'hidden' : 'free' }
     else if (w && !w.isDestroyed() && pane?.visible && w.isVisible() && !w.isMinimized() && pane.width > 50 && pane.height > 50) {
       const c = w.getContentBounds(), top = c.y + pane.y, primary = screen.getPrimaryDisplay().bounds
       const target = Number(/^window:(\d+):/.exec(w.getMediaSourceId())?.[1] || 0)
@@ -133,8 +133,10 @@ export function createChromium(window: () => BrowserWindow | null) {
   /** The browser pane's place in the window (renderer coordinates), or null when it is not on screen. */
   function setPane(rect: PaneRect | null) { pane = rect; writeGlue() }
   /** Show it in the pane (true) or as a window of its own again (false, "Pop out"). */
-  function setInPane(on: boolean) { wantPane = on; publish({ inPane: on && glueRunning() }); writeGlue() }
+  function setInPane(on: boolean) { background = false; wantPane = on; publish({ inPane: on && glueRunning() }); writeGlue() }
   let wantPane = false
+  // Started at TerminAI's launch, out of sight, so the pane is instant when it is asked for.
+  let background = false
   setInterval(() => {
     // The browser's own TerminAI menu: "Show Inside TerminAI" / "Open in Its Own Window".
     let req = ''; try { req = readFileSync(`${glueFile}.req`, 'utf8').trim(); rmSync(`${glueFile}.req`, { force: true }) } catch {}
@@ -184,6 +186,16 @@ export function createChromium(window: () => BrowserWindow | null) {
     }
     publish({ state: 'running', endpoint })
     return status
+  }
+
+  /** At TerminAI's start, for someone who uses TerminAI Browser: it starts hidden, so opening the pane later is instant. */
+  async function prewarm(): Promise<void> {
+    if (!installed() || !existsSync(glueLib) || await alive()) return
+    background = true; wantPane = false; lastGlue = ''; writeGlue()
+    await rm(`${glueFile}.ack`, { force: true }); await nativeHosts().catch(() => {}); await preinstall().catch(() => {})
+    spawn(binary, [`--user-data-dir=${profile}`, `--remote-debugging-port=${BROWSER.port}`, '--remote-debugging-address=127.0.0.1', '--no-first-run', '--no-default-browser-check'],
+      { detached: true, stdio: 'ignore', env: { ...process.env, DYLD_INSERT_LIBRARIES: glueLib, TERMINAI_GLUE_FILE: glueFile } }).unref()
+    if (await waitAlive(20_000)) { follow(); publish({ state: 'running', endpoint, inPane: false }) }
   }
 
   /** The browser window takes the right half of the TerminAI window, the way the Files pane sits beside the tabs. */
@@ -246,5 +258,5 @@ export function createChromium(window: () => BrowserWindow | null) {
     finally { if (wasRunning) void open().catch(() => {}) }
   }
 
-  return { open, install, current, registerMcp, setPane, setInPane, importChrome, status: () => status }
+  return { open, install, current, registerMcp, setPane, setInPane, importChrome, prewarm, status: () => status }
 }

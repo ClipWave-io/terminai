@@ -445,6 +445,8 @@ app.whenReady().then(() => {
   chromium = createChromium(() => win)
   if (app.isPackaged) keepLocalFlow()
   if (!process.env.TERMINAI_TEST_BUILD) void chromium.registerMcp()
+  // TerminAI Browser starts hidden a little after launch (only once it is installed), so its pane opens instantly.
+  if (!process.env.TERMINAI_TEST_BUILD) setTimeout(() => void chromium?.prewarm().catch(() => {}), 8000)
   registerIpc()
   createWindow()
   // Local command channel for the terminal tabs, used by resources/terminai.cjs.
