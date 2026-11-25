@@ -25,6 +25,8 @@ export function streamingAnswer(lines: string[]): string {
   if (j < 0) return ''
   const head = lines[j].slice(2)
   if (/^[A-Za-z][\w.:-]*\(/.test(head)) return ''          // a tool call, not text
+  // Claude Code's grouped tool lines ("Calling terminai-browser 2 times… (ctrl+o to expand)", "Read 3 files"): not text.
+  if (/ctrl\+o|^(Calling|Called|Running|Ran|Reading|Read|Searching|Searched|Listing|Listed|Fetching|Fetched|Writing|Wrote|Updating|Updated|Editing|Edited)\b.*(\d+ (times|files?|patterns?)|…)/.test(head)) return ''
   const block = [head, ...lines.slice(j + 1, end).map(l => l.replace(/^ {2}/, ''))]
   if (block.some(l => /^\s*⎿/.test(l))) return ''
   const width = Math.max(...block.map(l => l.length))

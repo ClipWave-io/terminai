@@ -10,3 +10,6 @@ test('the text block being written, wrapped lines joined, list kept', () => {
 test('nothing while a tool runs', () => {
   assert.equal(streamingAnswer(['⏺ text done', '', '⏺ Bash(ls)', '  ⎿  Running…', '', '✳ Channeling…', ...box]), '')
 })
+test('grouped tool lines are not streamed text', () => {
+  assert.equal(streamingAnswer(['⏺ Calling terminai-browser 2 times… (ctrl+o to expand)', '', '✳ Working…', '─────────', '❯ ', '─────────']), '')
+})

@@ -214,7 +214,8 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
   const [stream, setStream] = useState('')
   useEffect(() => {
     if (status !== 'working') { setStream(''); return }
-    const t = setInterval(() => { const read = screens.get(tabId); setStream(read ? streamingAnswer(read()) : '') }, 300)
+    // Steady: a streamed answer stays until a new one replaces it or the turn ends (no blinking while tools run in between).
+    const t = setInterval(() => { const read = screens.get(tabId); const now = read ? streamingAnswer(read()) : ''; if (now) setStream(now) }, 300)
     return () => clearInterval(t)
   }, [tabId, status])
   const lastSaid = [...(items ?? [])].reverse().find(i => i.role === 'assistant')?.text ?? ''
