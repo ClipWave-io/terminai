@@ -1,0 +1,20 @@
+// Sub-agents launched in the background count as running until their task-notification arrives (src/main/bgagents.ts).
+// Run: npx esbuild src/main/bgagents.ts --bundle --platform=node --format=cjs --outfile=.bgagents.cjs && node --test tests/bgagents.test.cjs
+const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), os = require('node:os'), path = require('node:path')
+const { backgroundAgents } = require(path.join(__dirname, '..', '.bgagents.cjs'))
+const tick = () => new Promise(r => setTimeout(r, 1100))
+test('launched agents count until notified', async () => {
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bg-')), 't.jsonl')
+  const add = o => fs.appendFileSync(f, JSON.stringify({ timestamp: new Date().toISOString(), ...o }) + '\n')
+  add({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a1', content: [{ type: 'text', text: 'Async agent launched successfully. agentId: x' }] }] } })
+  add({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a2', content: 'Async agent launched successfully.' }] } })
+  add({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'sync', content: 'the full report of a foreground agent' }] } })
+  backgroundAgents(f); await tick()
+  assert.equal(backgroundAgents(f), 2)
+  add({ type: 'user', message: { role: 'user', content: '<task-notification>\n<task-id>q</task-id>\n<tool-use-id>a1</tool-use-id>\n<status>completed</status>' } })
+  await tick(); backgroundAgents(f); await tick()
+  assert.equal(backgroundAgents(f), 1)
+  add({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '<task-notification><tool-use-id>a2</tool-use-id><status>failed</status>' }] } })
+  await tick(); backgroundAgents(f); await tick()
+  assert.equal(backgroundAgents(f), 0)
+})

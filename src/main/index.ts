@@ -25,6 +25,7 @@ import { createBridge, transcriptOf } from './teambridge'
 import { askTab } from './sideask'
 import { readClean, sendClean } from './cleanview'
 import { keepLocalFlow } from './localflow'
+import { backgroundAgents } from './bgagents'
 import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
 import { watchFullscreenOff } from './fullscreen-hint'
@@ -913,7 +914,8 @@ function registerIpc(): void {
   )
   appIpc.on('pty:kill', (_e, { id }: { id: string }) => ptys.kill(id))
   appIpc.handle('pty:process', (_e, { id }: { id: string }) => ptys.foregroundProcess(id))
-  appIpc.handle('pty:status', (_e, { id }: { id: string }) => ptys.statusOf(id))
+  // Sub-agents still running in the background keep a waiting conversation shown as working (orange).
+  appIpc.handle('pty:status', (_e, { id }: { id: string }) => { const s = ptys.statusOf(id); return s === 'waiting' && ptys.agentOf(id).kind === 'claude' && backgroundAgents(transcriptOf(id)) > 0 ? 'working' : s })
   appIpc.on('pty:question', (_e, { id, kind }: { id: string; kind: QuestionKind | null }) => ptys.setQuestion(id, kind))
   appIpc.handle('pty:usedClaude', (_e, { id }: { id: string }) => ptys.usedClaude(id))
   appIpc.handle('pty:cwd', (_e, { id }: { id: string }) => ptys.cwdOf(id))
