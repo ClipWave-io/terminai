@@ -256,15 +256,25 @@ export function createBridge(opts: { team: () => Promise<Team | null>; tabName: 
       const n = Number.isInteger(a.lines) ? a.lines : 12
       return (messages ?? []).slice(-n).map((m: any) => ({ at: m.createdAt, kind: m.kind, text: m.content }))
     }
+    // --file: the file goes into the team's Files (folder "From agents") and the message carries a link that opens it in
+    // TerminAI's Files pane, plus its id for the other agent (terminai team download <id>).
+    const attach = async (text: string): Promise<string> => {
+      if (typeof a.file !== 'string') return text
+      if (!a.file.startsWith('/')) throw Error('--file needs an absolute path')
+      const { file } = await teamUpload(team.id, a.file, 'all', [], false, undefined, 'From agents')
+      return `${text}\n\n📎 ${file.name}: terminai://file/${file.id} (opens in TerminAI's Files; agents: terminai team download ${file.id} --to <folder>)`
+    }
     if (a.action === 'send') {
-      if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team send <conversation id> <message>')
+      if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team send <conversation id> <message> [--file <absolute path>]')
+      a.text = await attach(a.text)
       if (!mine()) await tick()
       const sent = await team.call(`${base}/agent`, 'POST', { to: a.id, content: a.text, from: mine() ?? undefined })
       if (typeof sent?.id === 'string') { sentHere.add(sent.id); if (sentHere.size > 2000) sentHere.delete(sentHere.values().next().value!) }
       return sent
     }
     if (a.action === 'reply') {
-      if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team reply <message id> <answer>')
+      if (typeof a.id !== 'string' || !a.text) throw Error('usage: terminai team reply <message id> <answer> [--file <absolute path>]')
+      a.text = await attach(a.text)
       // Forgotten since a restart: ask the server who sent it.
       const original = received.get(a.id) ?? await team.call(`${base}/agent/${a.id}/from`).then((r: { from: string | null; bot: boolean }) => ({ from: r.from, fromName: '', bot: r.bot })).catch(() => undefined)
       if (original?.bot && !original.from) return { ok: true, note: 'A bot sent it: it reads your answer from this session, so answering here is enough.' }

@@ -241,6 +241,8 @@ function createWindow(): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
     // A file link is shown in Finder, never opened: any program can print a link, and opening it would start an app or a script.
     if (/^file:/i.test(url)) { try { shell.showItemInFolder(fileURLToPath(url)) } catch {} }
+    // A team file sent by an agent: downloaded once, then shown in the Files pane.
+    else if (/^terminai:\/\/file\/[\w-]+$/i.test(url)) { const id = url.split('/').pop()!; void bridge?.command({ action: 'download', id }).then((r: any) => { if (r?.path) queueOpenFile(r.path) }).catch(() => {}) }
     else void shell.openExternal(url)
     return { action: 'deny' }
   })

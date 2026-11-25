@@ -93,7 +93,7 @@ function request(command,flags,words){
  // terminai browser [open <url> | start | status]: TerminAI Browser, the Chromium that runs extensions.
  if(command==='browser'){const action=words[0]==='status'?'status':'open',url=words[0]==='open'?words[1]:/^https?:\/\//i.test(words[0]||'')?words[0]:undefined;return {action,...(url?{url}:{})}}
  if(command==='ask-grok')return {question:words.join(' '),agent:flags.agent,bot:flags.bot,tab:process.env.TERMINAI_TAB_ID};
- if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),products:flags.products,as:flags.as,folder:flags.folder,to:flags.to,off:flags.off===true||flags.off==='true',tab:process.env.TERMINAI_TAB_ID};
+ if(command==='team')return {action:words[0],id:words[1],text:words.slice(2).join(' '),lines:number(flags.lines),products:flags.products,as:flags.as,folder:flags.folder,to:flags.to,off:flags.off===true||flags.off==='true',file:typeof flags.file==='string'?resolve(flags.file):undefined,tab:process.env.TERMINAI_TAB_ID};
  if(command==='log')return words[0]==='hook'?{action:'hook',session:flags.session}:{action:'day',day:words[0]};
  if(command==='task'){
   const action=words[0];

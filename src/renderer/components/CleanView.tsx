@@ -27,7 +27,7 @@ function turnsOf(items: Item[]): Turn[] {
 // A small Markdown renderer into React elements (never HTML strings): headings, lists, tables, code, quotes, links.
 function inline(text: string, key = 'i'): ReactNode[] {
   const out: ReactNode[] = []
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\((https?:\/\/[^)\s]+)\))|(https?:\/\/[^\s)]+)/g
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\((https?:\/\/[^)\s]+)\))|((?:https?|terminai):\/\/[^\s)]+)/g
   let last = 0, m: RegExpExecArray | null, n = 0
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index))
