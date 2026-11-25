@@ -19,7 +19,7 @@ import { createChromium } from './chromium'
 import { agentGuide, todoMap, writeAgentGuide, registerLogHook } from './agent-guide'
 import { startControl, controlReply, openCommandTab } from './control'
 import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
-import { workDay, handoff, today } from './worklog'
+import { workDay, today } from './worklog'
 import { eduCheck, eduConnect, eduDisconnect, eduPreview, eduSetFolders, eduStatus, eduSync, startEduSync } from './edu'
 import { createBridge, transcriptOf } from './teambridge'
 import { askTab } from './sideask'
@@ -143,11 +143,6 @@ function memberName(key: string): string {
   if (key === 'ilai') return 'Ilai'
   if (key === 'livio') return 'Matteo'
   return todos?.list().members.find(m => m.key === key)?.name.trim().split(/\s+/)[0] || 'Someone'
-}
-/** This person's own column for `terminai todo add --to`: matteo or ilai for the partners, a member's first name. */
-function ownColumn(): string {
-  const key = teamKey()
-  return key === 'livio' ? 'matteo' : key === 'ilai' || !key ? 'ilai' : memberName(key).toLowerCase()
 }
 /** A member's join first, then the sync: at start, every minute, and right after signing in. */
 function syncTodos(): Promise<unknown> {
@@ -483,16 +478,9 @@ app.whenReady().then(() => {
         const people = user ? await workspaceWorklog.get(teamKey(), d).catch(() => null) : null
         return { day: d, people: { ...(people ?? {}), ...(user ? { [store.load().tasksKey || user]: await workDay(d, user, store.load().worklogSkip) } : {}) } }
       },
-      hook: async (session) => {
-        const user = store.load().tasksUser
-        if (!user) return {}
-        const items = await handoff(join(app.getPath('userData'), 'worklog-handoff.json'), typeof session === 'string' ? session : '', undefined, (cwd, id) => modeOfConversation(cwd, id) === 'shared')
-        if (!items.length) return {}
-        return { context: `TerminAI work log hand-off: finished work in this person's other conversations since the last hand-off, not yet matched to the To-do. `
-          + `Before answering, quietly run \`terminai todo map\`; mark done any open task of the user's (theirs, Together or private) this work finished; for real work with no task, `
-          + `add one with \`terminai todo add "<title>" --to ${ownColumn()} --note "Done <time>, logged by TerminAI"\` and mark it done. Group small turns into one task; `
-          + `skip turns that did no work (questions, status). Say in one line what you changed.\n${items.join('\n')}` }
-      },
+      // No hand-off of the other conversations' work any more: it put their content into every conversation. Each
+      // conversation keeps its own To-do instead (the agent guide: a task per request, checked at the end).
+      hook: async () => ({}),
     },
     todo: { track: (action, query, session) => todos.track(action, query, session), add: (to, title, note) => todos.addTo(to, title, note), request: (title, note, urgent) => todos.request(title, note, urgent), answer: (q, ok, reply) => todos.answer(q, ok, reply, 'ai'), about: (list, text) => todos.describeList(list, text, true) } })
     .then((control) => app.once('before-quit', control.close))
