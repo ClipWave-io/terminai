@@ -18,6 +18,7 @@
 //   terminai team list                                     every shared session of the workspace (the partner's too): id, owner, title, folder, status, live
 //   terminai team read <id> [--lines N]                    its recent turns
 //   terminai team send <id> <message>                      to that session's agent, typed in there when it is free; prints the message id
+//   terminai team send --to <person> <message>             to a person: their requests session for you takes it (one request at a time)
 //   terminai team reply <message id> <answer>              answer a message that reached this tab
 //   terminai team replies <message id>                     answers to a message you sent
 //   terminai update [--restart]  check for a new TerminAI now (it downloads and asks to restart); --restart installs a downloaded one now
@@ -25,7 +26,7 @@
 //   terminai log hook                                      Claude Code's UserPromptSubmit hook: hands finished work of other tabs to this one for the To-do
 // Drives the instance named by TERMINAI_CONTROL (set in every TerminAI tab), else the installed app. Prints JSON.
 const {readFileSync,readdirSync}=require('node:fs'),{join,resolve}=require('node:path'),{homedir}=require('node:os');
-const COMMANDS=['list','open','send','ask','read','close','focus','show','todo','log','team','ask-grok','update','browser'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','off','no-enter','shared','personal','open','mine','urgent','restart'];
+const COMMANDS=['list','open','send','ask','ui','read','close','focus','show','todo','log','team','ask-grok','update','browser'],WRITES=['start','done','reopen','add','about','request','accept','decline'],SWITCHES=['foreground','off','no-enter','shared','personal','open','mine','urgent','restart'];
 // Each word after `--` is typed as one shell word, the way TerminalPane quotes a dropped path.
 const quote=s=>/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)?s:`'${s.replace(/'/g,`'\\''`)}'`;
 function parse(argv){
@@ -104,13 +105,14 @@ function request(command,flags,words){
   return {action,task:words.slice(1).join(' '),tab:process.env.TERMINAI_TAB_ID};
  }
  const id=words[0];if(command!=='list'&&command!=='open'&&!id)throw Error(`usage: terminai ${command} ${command==='show'?'<file>':'<id>'}`);
- if(command==='list')return {};
+ if(command==='list')return {tab:process.env.TERMINAI_TAB_ID};
  if(command==='open')return {cwd:resolve(flags.cwd||process.cwd()),name:flags.name,group:flags.group,command:flags.command,background:!flags.foreground,cols:number(flags.cols),rows:number(flags.rows)};
- if(command==='send')return {id,text:words.slice(1).join(' '),enter:!flags['no-enter']};
+ if(command==='send')return {id,text:words.slice(1).join(' '),enter:!flags['no-enter'],tab:process.env.TERMINAI_TAB_ID};
+ if(command==='ui')return {panel:words[0],product:flags.product,section:flags.section};
  if(command==='ask')return {id,text:words.slice(1).join(' '),tab:process.env.TERMINAI_TAB_ID};
- if(command==='read')return {id,lines:number(flags.lines)};
+ if(command==='read')return {id,lines:number(flags.lines),tab:process.env.TERMINAI_TAB_ID};
  if(command==='show')return {path:resolve(words.join(' '))};
- return {id};
+ return {id,tab:process.env.TERMINAI_TAB_ID};
 }
 // The hook: never fails the prompt; prints the hand-off only when there is one.
 async function hook(){

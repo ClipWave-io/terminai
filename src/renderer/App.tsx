@@ -19,6 +19,7 @@ import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { TodoSheet } from './components/TodoSheet'
 import { RecoverySheet } from './components/RecoverySheet'
 import { CloseSheet } from './components/CloseSheet'
+import { ShareSheet } from './components/ShareSheet'
 import { TabGrid } from './components/TabGrid'
 import { AccountMenu } from './components/AccountMenu'
 import { PrivacyPill } from './components/PrivacyPill'
@@ -298,6 +299,8 @@ export function App(): JSX.Element {
   const [recovery, setRecovery] = useState<SavedTab[] | null>(null)
   // Tab whose close is waiting on the user: an agent is still running in it.
   const [confirmClose, setConfirmClose] = useState<{ id: string; kind: string } | null>(null)
+  // Share with…: the conversation whose picker is open (right-click › Share with…).
+  const [shareFor, setShareFor] = useState<string | null>(null)
 
   // Kept in refs so the global key handler never closes over stale state.
   const tabsRef = useRef<TabInfo[]>([])
@@ -366,7 +369,7 @@ export function App(): JSX.Element {
     const now = Date.now()
     const tab: TabInfo = {
       id, browserKey,
-      customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, hidden: restore?.hidden,
+      customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, share: restore?.share, hidden: restore?.hidden,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
@@ -422,7 +425,7 @@ export function App(): JSX.Element {
       ...prev,
       {
         id: live.id,
-        customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, hidden: restore?.hidden,
+        customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, share: restore?.share, hidden: restore?.hidden,
       browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
@@ -555,6 +558,7 @@ export function App(): JSX.Element {
     name: t.customTitle,
     group: t.group,
     color: t.color || undefined,
+    share: t.share,
     hidden: t.hidden || undefined,
     browserKey: t.browserKey || t.id,
     agent: t.agent, agentSession: t.agentSession, agentArgs: t.agentArgs,
@@ -585,8 +589,21 @@ export function App(): JSX.Element {
       adoptTab({ id: input.id, cwd: input.cwd }, input, input.background !== false)
       return true
     }
+    // `terminai ui …`: an agent opens a part of TerminAI for the person (the To-do on a product, Settings, Sync, the chat).
+    if (kind === 'ui') {
+      const what = String(input?.panel ?? '')
+      if (what === 'todo' || what === 'todos') { if (typeof input?.product === 'string') patchPrefs({ todoProducts: input.product ? [input.product] : [] }); setShowTodos(true) }
+      else if (what === 'settings') { if (typeof input?.section === 'string') setSettingsSection(input.section); setShowSettings(true) }
+      else if (what === 'sync') setShowTeam(true)
+      else if (what === 'chat') setShowChat(true)
+      else if (what === 'close') { setShowTodos(false); setShowSettings(false); setShowTeam(false); setShowChat(false) }
+      else return null
+      return true
+    }
     if (!tabsRef.current.some((t) => t.id === input?.id)) return null
     if (kind === 'read') return snapshots.snapshot(input.id, input.lines)
+    // Yesterday's requests session (src/main/index.ts requestsTab): out of the rail, still under its folder heading.
+    if (kind === 'hide') { setTabs(prev => prev.map(t => t.id === input.id ? { ...t, hidden: true } : t)); return true }
     if (kind === 'close') {
       dropTab(input.id)
       return true
@@ -936,6 +953,7 @@ export function App(): JSX.Element {
             onRename={(id,name)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,customTitle:name||undefined}:t))}
             onHide={(id,hidden)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,hidden:hidden||undefined}:t))}
             onColor={(id,color)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,color:color||undefined}:t))}
+            onShare={id=>setShareFor(id)}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}
             activeId={terminalVisible ? activeId : null}
             speakingId={speakingId}
@@ -1096,6 +1114,13 @@ export function App(): JSX.Element {
           }}
         />
       )}
+
+      {shareFor && (() => {
+        const tab = tabs.find((t) => t.id === shareFor)
+        return tab ? <ShareSheet name={tab.customTitle || tab.title || tab.cwd.split('/').filter(Boolean).slice(-1)[0] || 'this conversation'} share={tab.share}
+          onChange={share => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, share } : t))}
+          onClose={() => { setShareFor(null); document.querySelector<HTMLTextAreaElement>('.term-host.active textarea')?.focus() }} /> : null
+      })()}
 
       {confirmClose && (() => {
         const tab = tabs.find((t) => t.id === confirmClose.id)

@@ -19,8 +19,10 @@ type Deps={askGrok?:(a:any)=>Promise<unknown>;askTab?:(a:any)=>unknown;wake?:(id
   log:{day:(day:unknown)=>Promise<unknown>;hook:(session:unknown)=>Promise<{context:string}|{}>}
   team:(args:any)=>Promise<unknown>
   browser?:(args:any)=>Promise<unknown>
-  update?:(restart:boolean)=>Promise<unknown>}
-const COMMANDS=['list','open','send','ask','read','close','focus','show','task','log','team','ask-grok','update','browser']
+  update?:(restart:boolean)=>Promise<unknown>
+  /** A requests session (teambridge.ts) and whether a tab is Shared: a requests session reaches Shared tabs only. */
+  restricted?:(tab:string)=>boolean;sharedTab?:(id:string)=>boolean}
+const COMMANDS=['list','open','send','ask','ui','read','close','focus','show','task','log','team','ask-grok','update','browser']
 
 const pending=new Map<string,(result:unknown)=>void>()
 /** The renderer owns the tab list: ask it to act and wait for its answer, null when none comes. */
@@ -48,11 +50,15 @@ function plain(raw:string){
 }
 function tail(lines:string[],n:number){let end=lines.length;while(end>0&&!lines[end-1].trim())end--;return lines.slice(Math.max(0,end-n),end).join('\n')}
 
+// Called from a requests session (the CLI sends its tab, TERMINAI_TAB_ID): list, read, send, ask, focus and close reach only
+// tabs marked Shared, in code and not only in its instructions.
+function limited(a:any,d:Deps){return !!d.restricted&&(typeof a.tab==='string'?d.restricted(a.tab):false)}
+function reach(a:any,d:Deps,id:string){if(limited(a,d)&&!d.sharedTab?.(id))throw Error('A requests session can only reach conversations marked Shared.')}
 async function run(command:string,a:any,d:Deps):Promise<unknown>{
   switch(command){
     case 'list':{
       const saved=store.load().tabs,rank=(id:string)=>{const i=saved.findIndex(t=>t.ptyId===id);return i<0?saved.length:i}
-      return ptys.list().sort((x,y)=>rank(x.id)-rank(y.id)).map(({id,exited})=>{
+      return ptys.list().filter(t=>!limited(a,d)||(t.id!==a.tab&&d.sharedTab?.(t.id))).sort((x,y)=>rank(x.id)-rank(y.id)).map(({id,exited})=>{
         const tab=saved.find(t=>t.ptyId===id),meta=opened.get(id),agent=ptys.agentOf(id),cwd=ptys.cwdOf(id)
         return {id,name:tab?.customTitle||tab?.name||meta?.name||null,title:tab?.title||meta?.name||basename(cwd)||'shell',cwd,group:tab?.group||meta?.group||null,
           active:id===d.activeTab(),agent:{kind:agent.kind,alive:agent.alive},status:exited?'exited':ptys.statusOf(id),question:exited?'':ptys.questionOf(id),pid:ptys.pidOf(id)||null}
@@ -75,7 +81,7 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       return {id}
     }
     case 'send':{
-      const s=liveTab(a.id)
+      const s=liveTab(a.id);reach(a,d,s.id)
       if(s.exited)throw Error('The tab has exited')
       if(typeof a.text!=='string'||a.text.length>100000)throw Error('Invalid text')
       // A tab whose conversation waits (asleep, or not started since a restart) is started first, then it gets the text.
@@ -87,13 +93,13 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       return {ok:true}
     }
     case 'read':{
-      const {id}=liveTab(a.id),lines=count(a.lines,1,5000,'lines')??80
+      const {id}=liveTab(a.id),lines=count(a.lines,1,5000,'lines')??80;reach(a,d,id)
       const shown=await ask(d.window(),'read',{id,lines}).catch(()=>null)
       // xterm's own buffer is what the user sees; the raw PTY output is the fallback when no pane is mounted.
       return Array.isArray(shown)&&shown.length?{id,source:'xterm',text:tail(shown.map(String),lines)}:{id,source:'buffer',text:tail(plain(ptys.bufferOf(id)),lines)}
     }
     case 'close':{
-      const {id}=liveTab(a.id)
+      const {id}=liveTab(a.id);reach(a,d,id)
       // The renderer drops the tab the way ⌘W does once confirmed (no sheet: nobody would answer it),
       // so ⇧⌘T can still bring it back for the 60 s grace.
       if(await ask(d.window(),'close',{id}).catch(()=>null)!==true){ptys.closeSession(id);store.save({tabs:store.load().tabs.filter(t=>t.ptyId!==id)})}
@@ -101,7 +107,7 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       return {ok:true}
     }
     case 'focus':{
-      const {id}=liveTab(a.id)
+      const {id}=liveTab(a.id);reach(a,d,id)
       if(await ask(d.window(),'focus',{id})!==true)throw Error('That tab is not in the TerminAI window')
       d.focused(id)
       return {ok:true}
@@ -121,7 +127,9 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
     case 'browser':{if(!d.browser)throw Error('Not ready yet');if(a.url!==undefined&&(typeof a.url!=='string'||!/^https?:\/\//i.test(a.url)||a.url.length>4000))throw Error('url must be an http(s) link');return d.browser({action:a.action==='status'?'status':'open',url:a.url})}
     case 'update':if(!d.update)throw Error('Not ready yet');return d.update(a.restart===true)
     // A side conversation asks the conversation it was opened beside: queued until that one is free (src/main/sideask.ts).
-    case 'ask':{if(!d.askTab)throw Error('Not ready yet');liveTab(a.id);if(typeof a.text!=='string'||!a.text.trim()||a.text.length>20000)throw Error('usage: terminai ask <id> <question>');return d.askTab(a)}
+    case 'ask':{if(!d.askTab)throw Error('Not ready yet');liveTab(a.id);reach(a,d,a.id);if(typeof a.text!=='string'||!a.text.trim()||a.text.length>20000)throw Error('usage: terminai ask <id> <question>');return d.askTab(a)}
+    // An agent opens a part of TerminAI for the person: terminai ui todo [--product X] | settings [--section S] | sync | chat | close
+    case 'ui':{if(typeof a.panel!=='string')throw Error('usage: terminai ui todo [--product <name>] | settings [--section <name>] | sync | chat | close');if(await ask(d.window(),'ui',a)!==true)throw Error('Unknown part: '+a.panel);return {ok:true}}
     case 'ask-grok':if(!d.askGrok)throw Error('Not ready yet');return d.askGrok(a)
     case 'log':return a.action==='hook'?d.log.hook(a.session):d.log.day(a.day)
     case 'task':{

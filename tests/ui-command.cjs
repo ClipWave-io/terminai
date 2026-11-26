@@ -1,0 +1,22 @@
+// `terminai ui todo --product X` opens the To-do filtered to that product; `terminai ui close` closes it.
+// After `npx electron-vite build`: TERMINAI_TEST_BUILD=1 npx electron tests/ui-command.cjs
+const { app } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict'), { execFile } = require('child_process')
+const REPO = path.join(__dirname, '..')
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-ui-')); app.setPath('userData', dir)
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, tabs: [], voice: { enabled: false }, newTabAgent: 'none' }))
+const delay = ms => new Promise(r => setTimeout(r, ms))
+const cli = (...args) => new Promise((resolve, reject) => execFile(process.execPath, [path.join(REPO, 'resources/terminai.cjs'), ...args], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMINAI_CONTROL: path.join(dir, 'control.json') } }, (e, out, err) => e ? reject(new Error(err || e.message)) : resolve(String(out))))
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = s => win.webContents.executeJavaScript(s)
+  for (let i = 0; i < 50 && !fs.existsSync(path.join(dir, 'control.json')); i++) await delay(200)
+  await delay(800)
+  await cli('ui', 'todo', '--product', 'TerminAI'); await delay(800)
+  assert.ok(await js(`!!document.querySelector('[aria-label="To-do"], .todo-sheet, .todos')`), 'To-do open')
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'prefs.json'), 'utf8')).todoProducts, ['TerminAI'])
+  if (process.env.SHOT) fs.writeFileSync(process.env.SHOT, (await win.webContents.capturePage()).toPNG())
+  await cli('ui', 'close'); await delay(500)
+  assert.ok(await js(`!document.querySelector('.todo-sheet, .todos')`), 'closed')
+  console.log('PASS ui: terminai ui todo --product opens the To-do on that product; ui close closes it')
+  app.quit()
+})().catch(e => { console.error(e); app.exit(1) }) }))
+setTimeout(() => { console.error('timeout'); app.exit(1) }, 40000).unref(); require('../out/main/index.js')
