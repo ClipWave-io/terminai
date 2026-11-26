@@ -333,10 +333,16 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
       {parts.map(([n, mb, c]) => mb > 0 && <i key={n} title={`${n} · ${gb(mb)}`} style={{ flexGrow: mb, background: c }} />)}</div>
     <div className="mem-legend">
       {parts.map(([n, mb, c]) => <span key={n}><i style={{ background: c, outline: c === 'transparent' ? '1px solid var(--border)' : undefined }} />{n} <b>{gb(mb)}</b></span>)}</div>
-    <p className="hint">{r.pressure === 'normal' ? `${gb(r.usedMb)} of ${gb(r.totalMb)} in use.` : `${gb(r.usedMb)} of ${gb(r.totalMb)} in use: ${why}. `}
+    <p className="hint">{r.pressure === 'normal' ? `${gb(r.usedMb)} of ${gb(r.totalMb)} in use. ` : `${gb(r.usedMb)} of ${gb(r.totalMb)} in use: ${why}. `}
       {r.pressure !== 'normal' && <>Biggest other apps: {r.apps.slice(0, 3).map(a => `${a.name} ${gb(a.mb)}`).join(', ')}. </>}
       Idle sessions hold memory too, and the numbers below leave out the part macOS compressed.</p>
     <p className="hint">Pause stops a chat from using the processor and lets macOS move its memory out of the way; only Close gives the memory back for good.</p>
+    {(() => {
+      // Stop all inactive: every waiting or paused chat (nothing working) gives its memory back at once; Resume brings each back.
+      const quiet = live.filter(t => { const raw = tabs.find(x => x.id === t.id)?.label; if (!raw) return false; const lead = raw.match(/^[\s✳✻✶✢✽·◐◓◑◒⠀-⣿]+/)?.[0] ?? ''; return !!paused[t.id] || !/[◐◓◑◒⠀-⣿✶✻✽✢·]/.test(lead) })
+      return quiet.length > 0 && <div className="mem-bulk"><button className="btn" onClick={() => { void Promise.all(quiet.map(t => window.term.pty.stop(t.id))).then(load) }}>Stop all inactive ({quiet.length}, {gb(quiet.reduce((n, t) => n + t.mb, 0))})</button>
+        <span className="hint">Waiting and paused chats exit and give their memory back; right-click › Resume conversation brings each one back.</span></div>
+    })()}
     <div className="mem-list">{(all ? live : live.slice(0, 8)).map(t => {
       const tab = tabs.find(x => x.id === t.id), on = !!paused[t.id], raw = tab?.label ?? 'Session'
       // Claude Code puts its state in front of the title (✳ waiting, a spinner while it works): shown as a dot instead.
@@ -349,6 +355,7 @@ function MemoryPanel({ tabs, onCloseTab, onOpenTab }: { tabs: { id: string; labe
         <em className="mem-mb">{gb(t.mb)}</em>
         <span className="mem-acts">{tab && <>
           <button className="mem-act" onClick={() => pause(tab.id, !on)}>{on ? 'Resume' : 'Pause'}</button>
+          <button className="mem-act" title="Claude Code or Codex exits and gives its memory back; Resume in its right-click menu brings the same conversation back" onClick={() => void window.term.pty.stop(tab.id).then(load)}>Stop</button>
           <button className="mem-act" onClick={() => onOpenTab(tab.id)}>Open</button>
           <button className="mem-act danger" onClick={() => onCloseTab(tab.id)}>Close</button></>}</span>
       </div> })}</div>
@@ -375,7 +382,7 @@ function MemoryDetailPanel(): JSX.Element {
     <div className="mem-head"><strong>What uses memory</strong>{busy && <span className="hint">Updating…</span>}</div>
     <p className="hint">Apps together want {gb(total)}; the part beyond the Mac's memory is compressed or written to disk. macOS's own share includes {gb(d.wiredMb)} it keeps fixed (kernel and graphics).</p>
     {msg && <p className="hint mem-msg">{msg}</p>}
-    <div className="mem-list">{d.groups.slice(0, 14).map(g => <div key={g.name} className="mem-row">
+    <div className="mem-list">{d.groups.slice(0, 14).map(g => <div key={g.name} className="mem-row plain">
       <span className="mem-name">{g.name}<em className="mem-tag"> · {g.count} {g.count === 1 ? 'process' : 'processes'}{g.kind === 'macos' ? ' · macOS' : ''}</em></span>
       <span className="mem-track"><i style={{ width: `${Math.max(2, (g.mb / max) * 100)}%` }} /></span><em>{gb(g.mb)}</em>
       <span className="mem-acts"><button className="todo-link" onClick={() => setOpen(open === g.name ? null : g.name)}>{open === g.name ? 'Hide' : 'Processes'}</button></span>
@@ -411,7 +418,7 @@ function StoragePanel(): JSX.Element {
       <div className="mem-bar" role="img" aria-label={`Disk: ${g(s.usedGb)} of ${g(s.totalGb)} used`}>
         <i style={{ flexGrow: s.usedGb, background: 'var(--accent)' }} /><i style={{ flexGrow: s.freeGb, background: 'transparent' }} /></div>
       <p className="hint">{g(s.usedGb)} of {g(s.totalGb)} used, {g(s.freeGb)} free.</p>
-      <div className="mem-list">{s.folders.map(f => <div key={f.path} className="mem-row">
+      <div className="mem-list">{s.folders.map(f => <div key={f.path} className="mem-row plain">
         <span className="mem-name" title={f.path}>{f.name}</span>
         <span className="mem-track"><i style={{ width: `${Math.max(2, (f.gb / max) * 100)}%` }} /></span><em>{g(f.gb)}</em>
         <span className="mem-acts"><button className="todo-link" onClick={() => void window.term.project.openFolder(f.path)}>Open</button></span>

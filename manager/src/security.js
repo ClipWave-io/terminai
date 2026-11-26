@@ -36,11 +36,13 @@ export async function verifyPassword(password, encoded = DUMMY) {
   return timingSafeEqual(actual, Buffer.from(expected, 'hex'));
 }
 export const isAdmin = membership => ['owner', 'admin'].includes(membership.role);
-export function canReadConversation(conversation, member, userId) {
-  return conversation.owner_id === userId || (conversation.visibility === 'company' && conversation.allowed_roles.includes(member.role));
+// Shared with: the people its owner picked read it too (a person, never a bot key: `bot` true for a bot's request).
+export const sharedWithUser = (conversation, userId, bot = false) => !bot && Array.isArray(conversation.shared_with) && conversation.shared_with.includes(userId);
+export function canReadConversation(conversation, member, userId, bot = false) {
+  return conversation.owner_id === userId || (conversation.visibility === 'company' && conversation.allowed_roles.includes(member.role)) || sharedWithUser(conversation, userId, bot);
 }
-export function canWriteConversation(conversation, member, userId) {
-  return member.role !== 'viewer' && canReadConversation(conversation, member, userId);
+export function canWriteConversation(conversation, member, userId, bot = false) {
+  return member.role !== 'viewer' && canReadConversation(conversation, member, userId, bot);
 }
 export function catalogAllowed(assignments, member) {
   return assignments.some(a => (a.subject_type === 'role' && a.subject === member.role) || (a.subject_type === 'classification' && a.subject === member.classification));

@@ -22,7 +22,7 @@ import { createTodos, DEFAULT_TASKS_REMOTE } from './todos'
 import { workDay, today } from './worklog'
 import { eduCheck, eduConnect, eduDisconnect, eduPreview, eduSetFolders, eduStatus, eduSync, startEduSync } from './edu'
 import { createBridge, transcriptOf } from './teambridge'
-import { askTab } from './sideask'
+import { askTab, asksPending } from './sideask'
 import { readClean, sendClean } from './cleanview'
 import { keepLocalFlow } from './localflow'
 import { backgroundAgents } from './bgagents'
@@ -322,6 +322,49 @@ async function sideTab(id: string, name: string): Promise<string | null> {
   await new Promise(r => setTimeout(r, 1500))
   return tab
 }
+/**
+ * A requests session: one Claude Code conversation per teammate ("✉ Matteo's requests"), in the home folder or the one set in
+ * Sync, that takes that teammate's (and their agents') requests one at a time (teambridge.ts), so no conversation of yours is
+ * typed into. Opened the first time a request comes and reused; each day starts a fresh one and the old one is hidden
+ * (still in the sidebar under its folder). It reaches your other conversations only through `terminai ask`, Shared ones only.
+ */
+const requestsOpening = new Map<string, Promise<string | null>>()
+/** Test builds only: TERMINAI_TEST_TEAM = {"url","token","company"} of a local manager server. */
+function testTeam(): { id: string; call: (path: string, method?: string, body?: unknown) => Promise<any> } | null {
+  let t: { url?: string; token?: string; company?: string } = {}
+  try { t = JSON.parse(process.env.TERMINAI_TEST_TEAM || '{}') } catch {}
+  if (!t.url?.startsWith('http://127.0.0.1:') || !t.token || !t.company) return null
+  return { id: t.company, call: async (path, method = 'GET', body) => {
+    const r = await fetch(t.url + path, { method, headers: { Authorization: `Bearer ${t.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined })
+    const data = await r.json().catch(() => ({})); if (!r.ok) throw Error(data.error || `HTTP ${r.status}`); return data
+  } }
+}
+function isRequestsTab(id: string): boolean { return store.load().requestKeys.includes(ptys.workspaceKeyOf(id)) }
+function requestsTab(sender: string, name: string): Promise<string | null> {
+  const day = today(), rec = store.load().requestSessions[sender]
+  const live = rec ? ptys.liveIds().find(id => ptys.workspaceKeyOf(id) === rec.key) : undefined
+  // Today's, or yesterday's while it is still busy with a request (it finishes that one first).
+  if (live && (rec!.day === day || ptys.statusOf(live) === 'working' || asksPending(live) > 0)) return Promise.resolve(live)
+  const opening = requestsOpening.get(sender); if (opening) return opening
+  const job = (async () => {
+    const first = name.trim().split(/\s+/)[0] || 'Teammate'
+    const folder = store.load().requestsFolder, cwd = folder && existsSync(folder) ? folder : homedir()
+    trustFolder(cwd)
+    const line = (process.env.TERMINAI_TEST_BUILD && process.env.TERMINAI_TEST_REQUESTS_COMMAND) || await ptys.resumeCommandFor({ kind: 'claude', sessionId: '', args: ['--dangerously-skip-permissions'], fresh: true })
+    const opened = await openCommandTab(cwd, `✉ ${first}'s requests`, line, true).catch(() => null) as { id?: string } | null
+    const tab = opened?.id; if (!tab) return null
+    afterResume(tab, false, true)
+    const key = ptys.workspaceKeyOf(tab), p = store.load()
+    store.save({ requestSessions: { ...p.requestSessions, [sender]: { key, day } }, requestKeys: [...p.requestKeys.filter(k => k !== key), key] })
+    // Yesterday's stays in the sidebar, hidden under its folder.
+    if (live && win && !win.isDestroyed()) win.webContents.send('tab:request', { reqId: `hide-${Date.now()}`, kind: 'hide', input: { id: live } })
+    for (let i = 0; i < 120 && !(ptys.agentOf(tab).alive && ptys.statusOf(tab) === 'waiting'); i++) await new Promise(r => setTimeout(r, 500))
+    await new Promise(r => setTimeout(r, 1500))
+    return tab
+  })().finally(() => requestsOpening.delete(sender))
+  requestsOpening.set(sender, job)
+  return job
+}
 /** Claude Code has run here before with the folder trusted, or it is the person's own home folder. */
 function folderTrusted(cwd: string): boolean {
   if (cwd === homedir()) return true
@@ -466,7 +509,8 @@ app.whenReady().then(() => {
     }, askTab: (a) => {
       if (typeof a.tab !== 'string' || !ptys.liveIds().includes(a.tab)) throw new Error('Run terminai ask from a TerminAI tab.')
       return askTab({ from: a.tab, to: a.id, question: a.text, fromName: nameOfTab(a.tab), toName: nameOfTab(a.id), transcript: transcriptOf, wake: id => resumeLater(id) })
-    }, wake: id => resumeLater(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
+    }, restricted: id => isRequestsTab(id), sharedTab: id => tabMode(ptys.workspaceKeyOf(id), ptys.cwdOf(id)) === 'shared',
+    wake: id => resumeLater(id), window: () => win, activeTab: () => activeTabId, focused: (id) => { activeTabId = id }, show: queueOpenFile,
     team: (a) => { if (!bridge) throw new Error('Not ready yet'); return bridge.command(a) },
     browser: async (a) => {
       if (!chromium) throw new Error('Not ready yet')
@@ -862,6 +906,10 @@ function registerIpc(): void {
       laterResume.has(id) ? { label: 'Resume conversation', click: () => { picked = 'wake' } } : { label: 'Stop (free its memory)', enabled: running, toolTip: 'Claude Code or Codex exits and gives its memory back; Resume brings the same conversation back', click: () => { picked = 'stop' } },
       { type: 'separator' },
       { label: 'Rename…', click: () => { picked = 'rename' } },
+      // Share with…: this one conversation with one person. Off the record wins: an Off tab is never shared.
+      tabMode(ptys.workspaceKeyOf(id), ptys.cwdOf(id)) === 'off'
+        ? { label: 'Share with… (Off the record)', enabled: false }
+        : { label: store.load().tabs.find(t => t.ptyId === id)?.share?.people.length ? 'Shared with… (change or stop)' : 'Share with…', click: () => { picked = 'share' } },
       { label: 'Colour', submenu: [
         { label: 'None', click: () => { picked = 'color:' } }, { type: 'separator' as const },
         ...['Red', 'Orange', 'Yellow', 'Green', 'Teal', 'Blue', 'Purple', 'Pink'].map(c => ({ label: c, click: () => { picked = `color:${c.toLowerCase()}` } })),
@@ -1061,20 +1109,28 @@ function registerIpc(): void {
   const tabName = (id: string) => { const tab = store.load().tabs.find(t => t.ptyId === id); return tab?.customTitle || tab?.name || tab?.title || basename(ptys.cwdOf(id)) || 'Session' }
   bridge = createBridge({
     paused: id => !!pausedTabs()[id] || guardPaused.has(id),
-    team: async () => !process.env.TERMINAI_TEST_BUILD ? teamOf(teamKey(), store.load().workspaceId) : null,
+    // A test build has no team, unless a test hands it a local server (tests/requests-session-ui.cjs).
+    team: async () => !process.env.TERMINAI_TEST_BUILD ? teamOf(teamKey(), store.load().workspaceId) : testTeam(),
     tabName,
+    // Share with…: saved with the tab (like its colour), from the sidebar's picker.
+    shareOf: (tabId: string) => store.load().tabs.find(t => t.ptyId === tabId)?.share ?? null,
     wake: (tabId: string) => resumeLater(tabId),
     side: (tabId: string, from: string) => sideTab(tabId, `↪ ${from} · ${tabName(tabId)}`),
     waiting: (tabId: string) => laterResume.has(tabId),
-    approve: async (from, tab, text, tabId, force) => {
+    requests: requestsTab,
+    toRequests: () => store.load().agentMessages === 'requests',
+    isRequests: isRequestsTab,
+    asking: tabId => asksPending(tabId) > 0,
+    approve: async (from, tab, text, tabId, force, requests) => {
       // A bot set to ask every time (or asking something risky) asks even when messages are set to Allow.
       if (store.load().agentMessages === 'allow' && !force) return true
-      if (store.load().agentMessages === 'side' && !force && ptys.agentOf(tabId).kind) return 'side'
+      if (!requests && store.load().agentMessages === 'side' && !force && ptys.agentOf(tabId).kind) return 'side'
       // No window to ask in (closed, with the app still running): the message waits; nothing gets in unasked.
       if (!win || win.isDestroyed()) return null
       // No switch to the tab being messaged: the dialog names it, and the tab you are typing in stays in view.
       // "In a side conversation": a new conversation answers it and asks this one when it must (queued until it is free).
-      const canFork = !!ptys.agentOf(tabId).kind
+      // Into a requests session (asked only for something risky): it is already a conversation of its own.
+      const canFork = !requests && !!ptys.agentOf(tabId).kind
       const buttons = [...(canFork ? ['In a side conversation'] : []), 'Allow here', 'Decline', ...(force ? [] : ['Always allow'])]
       const { response } = await dialog.showMessageBox(win, { type: 'question', buttons, defaultId: buttons.indexOf('Decline'), cancelId: buttons.indexOf('Decline'),
         message: `${from} wants to message “${tab}”`, detail: (text.length > 2000 ? `${text.slice(0, 2000)}\n… (${text.length - 2000} more characters not shown: Decline if you cannot see what it asks)` : text) + (force ? '\n\nThis bot is set to ask before its messages reach your sessions.' : '') + (canFork ? '\n\nIn a side conversation: a new conversation in its own tab takes the request. When it needs something from this one, it asks, and the question waits until this one has finished its turn, so this conversation is never interrupted.' : '') })
@@ -1095,8 +1151,16 @@ function registerIpc(): void {
     },
   })
   bridge.start()
-  appIpc.handle('team:agentMessages', (_e, v: unknown) => { if (v === 'ask' || v === 'allow' || v === 'side') store.save({ ...store.load(), agentMessages: v }); return store.load().agentMessages })
-  appIpc.handle('team:tabs', () => { const p = store.load(); return { agentMessages: p.agentMessages, byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)), own: !!p.tabModes[key] || p.tabSharing[key] !== undefined, rule: defaultMode(ptys.cwdOf(id)) } }), folders: p.folderSharing } })
+  appIpc.handle('team:agentMessages', (_e, v: unknown) => { if (v === 'requests' || v === 'ask' || v === 'allow' || v === 'side') store.save({ ...store.load(), agentMessages: v }); return store.load().agentMessages })
+  // Where requests sessions start: a folder picked here, or '' for the home folder.
+  appIpc.handle('team:requestsFolder', async (_e, pick: unknown) => {
+    if (pick === true) {
+      const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'], defaultPath: store.load().requestsFolder || homedir(), message: 'Choose the folder requests sessions start in' })
+      if (!r.canceled && r.filePaths[0]) store.save({ requestsFolder: r.filePaths[0] })
+    } else if (pick === null) store.save({ requestsFolder: '' })
+    return store.load().requestsFolder
+  })
+  appIpc.handle('team:tabs', () => { const p = store.load(); return { agentMessages: p.agentMessages, requestsFolder: p.requestsFolder, byDefault: p.shareConversations, tabs: ptys.liveIds().filter(id => ptys.agentOf(id).kind).map(id => { const key = ptys.workspaceKeyOf(id); return { key, name: tabName(id), shared: tabMode(key, ptys.cwdOf(id)) === 'shared', mode: tabMode(key, ptys.cwdOf(id)), own: !!p.tabModes[key] || p.tabSharing[key] !== undefined, rule: defaultMode(ptys.cwdOf(id)) } }), folders: p.folderSharing } })
   appIpc.handle('team:folder', async (_e, folder: unknown, mode: unknown) => {
     const p = store.load(), rules = { ...p.folderSharing }
     let path = typeof folder === 'string' ? folder : ''

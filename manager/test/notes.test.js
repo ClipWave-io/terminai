@@ -161,6 +161,28 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:a.body.token,method:'POST',data:{to:tabMo.id,from:tabA.id,replyTo:sent.id,content:'main'}})).status,200);
   const replies=(await request(`/api/companies/${alpha.id}/agent/${sent.id}/replies`,{token:mo.body.token})).body;
   assert.equal(replies.delivered,true);assert.equal(replies.replies[0].content,'main');
+  // To a person (terminai team send --to): into a mailbox the recipient's Mac routes to its requests session for the sender.
+  const adaId=a.body.user.id,moId=mo.body.user.id;
+  const toAda=await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{toUser:adaId,from:tabMo.id,content:'Can you check the build?'}});
+  assert.equal(toAda.status,200,JSON.stringify(toAda.body));assert.equal(toAda.body.person,'Ada');
+  const boxIn=(await request(`/api/companies/${alpha.id}/agent/inbox`,{token:a.body.token})).body.messages;
+  assert.equal(boxIn.length,1);assert.equal(boxIn[0].tab,`requests-${alpha.id}-${moId}`);assert.equal(boxIn[0].fromUser,moId);assert.equal(boxIn[0].from,tabMo.id);assert.equal(boxIn[0].self,false);
+  assert.ok(!(await request(`/api/companies/${alpha.id}/agent/inbox`,{token:mo.body.token})).body.messages.some(m=>m.tab?.startsWith('requests-')),'not in the sender inbox');
+  assert.ok(!(await request(`/api/companies/${alpha.id}/conversations`,{token:a.body.token})).body.conversations.some(c=>c.title.startsWith('Requests from')),'the mailbox is never listed');
+  assert.ok(!(await request(`/api/companies/${alpha.id}/conversations`,{token:mo.body.token})).body.conversations.some(c=>c.title.startsWith('Requests from')));
+  const again=(await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{toUser:adaId,content:'Second'}})).body;
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM manager_conversations WHERE source_key LIKE 'requests-%'")).rows[0].n,1,'one mailbox per sender');
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{toUser:moId,content:'me'}})).status,400,'not to yourself');
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:b.body.token,method:'POST',data:{toUser:adaId,content:'x'}})).status,404,'another workspace cannot');
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{toUser:b.body.user.id,content:'x'}})).status,404,'only members of this workspace');
+  assert.equal((await request(`/api/companies/${alpha.id}/conversations/tab/requests-${alpha.id}-${moId}`,{token:a.body.token,method:'PUT',data:{title:'x'}})).status,400,'the mailbox key is reserved');
+  // Ada answers to the person (no session to answer to): only a message that person sent her.
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:a.body.token,method:'POST',data:{toUser:moId,replyTo:again.id,content:'green'}})).status,200);
+  assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{toUser:adaId,replyTo:again.id,content:'forged'}})).status,404,'only an answer to a message received from that person');
+  assert.equal((await request(`/api/companies/${alpha.id}/agent/${again.id}/replies`,{token:mo.body.token})).body.replies[0].content,'green');
+  const moBox=(await request(`/api/companies/${alpha.id}/agent/inbox`,{token:mo.body.token})).body.messages.filter(m=>m.tab?.startsWith('requests-'));
+  assert.equal(moBox.length,1);assert.equal(moBox[0].replyTo,again.id);assert.equal(moBox[0].tab,`requests-${alpha.id}-${adaId}`);
+  for(const m of [...boxIn,{id:again.id},...moBox])await request(`/api/companies/${alpha.id}/agent/${m.id}/delivered`,{token:m===moBox[0]?mo.body.token:a.body.token,method:'POST',data:{}});
   // A tab made private: nobody else reads or messages it.
   await request(`/api/companies/${alpha.id}/conversations/tab/key-a`,{token:a.body.token,method:'PUT',data:{title:'Fix login',visibility:'owner'}});
   assert.equal((await request(`/api/companies/${alpha.id}/agent`,{token:mo.body.token,method:'POST',data:{to:tabA.id,content:'still?'}})).status,404);
@@ -202,6 +224,7 @@ test('real PostgreSQL: open sign-up, private notes stay private, the team board 
   const seen=(await asBot(`/api/companies/${alpha.id}/conversations`)).body.conversations.map(c=>c.id);
   assert.ok(seen.includes(tabB.id));assert.ok(!seen.includes(tabP.id),'not the private one');
   assert.equal((await asBot(`/api/companies/${alpha.id}/notes`)).status,403,'nothing else');
+  assert.equal((await asBot(`/api/companies/${alpha.id}/agent`,{method:'POST',data:{toUser:mo.body.user.id,content:'hi'}})).status,403,'a bot key never messages a person');
   // Team files: a bot key lists and downloads them (read-only), never uploads.
   assert.equal((await asBot(`/api/companies/${alpha.id}/files`)).status,200,'bot lists files');
   assert.equal((await asBot(`/api/companies/${alpha.id}/files?name=x.txt`,{method:'POST',data:{}})).status,403,'bot cannot upload');

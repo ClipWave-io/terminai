@@ -2,7 +2,7 @@ import { randomUUID, randomInt } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { transaction } from './db.js';
 import { catalog } from './catalog.js';
-import { ROLES, CLASSIFICATIONS, HttpError, requireThat, opaqueToken, digest, safeEqual, email, text, enumValue, uuid, hashPassword, verifyPassword, isAdmin, canReadConversation, canWriteConversation, catalogAllowed } from './security.js';
+import { ROLES, CLASSIFICATIONS, HttpError, requireThat, opaqueToken, digest, safeEqual, email, text, enumValue, uuid, hashPassword, verifyPassword, isAdmin, canReadConversation, canWriteConversation, sharedWithUser, catalogAllowed } from './security.js';
 
 const unsafe = method => !['GET', 'HEAD', 'OPTIONS'].includes(method);
 const publicUser = user => ({ id: user.id, email: user.email, name: user.name });
@@ -813,7 +813,9 @@ export function createApp(pool, config) {
         // Product access: admins and members without a list see every product; a list limits tasks and notes to it.
         const sees=product=>isAdmin(member)||!member.products||member.products.includes(product||'');
         // Someone else's shared session: admins always; everyone only when the workspace says so.
-        const seesSession=c=>c.owner_id===user.id||!c.source_key||isAdmin(member)||company.session_visibility==='all';
+        const seesSession=c=>c.owner_id===user.id||!c.source_key||isAdmin(member)||company.session_visibility==='all'||sharedWithUser(c,user.id,!!user.bot_id);
+        // Who it is shared with: told to its owner (ids) and to each of those people (sharedWithYou), nobody else.
+        const shareInfo=c=>c.owner_id===user.id?(c.shared_with?.length?{sharedWith:c.shared_with}:{}):sharedWithUser(c,user.id,!!user.bot_id)?{sharedWithYou:true}:{};
         const owner=()=>requireThat(member.role==='owner',403,'Owner access required.');
         if(!tail && req.method==='GET') return {company:publicCompany({...company,...member,id:company.id})};
         if(!tail && req.method==='PATCH') {
@@ -905,10 +907,10 @@ export function createApp(pool, config) {
         }
         if(tail==='/conversations'&&req.method==='GET') {
           const before=url.searchParams.get('before');if(before)requireThat(Number.isFinite(Date.parse(before)),400,'Invalid before cursor.');
-          const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null]);
+          const {rows}=await db.query(`SELECT c.*,u.name AS owner_name FROM manager_conversations c JOIN manager_users u ON u.id=c.owner_id WHERE company_id=$1 AND (c.source_key IS NULL OR c.source_key NOT LIKE 'requests-%') AND (owner_id=$2 OR (visibility='company' AND $3=ANY(allowed_roles)) OR ($5 AND $2=ANY(shared_with))) AND ($4::timestamptz IS NULL OR updated_at<$4) ORDER BY updated_at DESC,c.id DESC LIMIT 100`,[companyId,user.id,member.role,before||null,!user.bot_id]);
           const shown=rows.filter(r=>(!user.bot_id||r.visibility==='company')&&seesSession(r)&&botMay(r));
           if(user.bot_id)await botLog(db,'list',null,`${shown.length} sessions`);
-          return {conversations:shown.map(publicConversation)};
+          return {conversations:shown.map(r=>({...publicConversation(r),...shareInfo(r)}))};
         }
         if(tail==='/conversations'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot create conversations.');
@@ -921,6 +923,7 @@ export function createApp(pool, config) {
         const tabConv=tail.match(/^\/conversations\/tab\/([A-Za-z0-9_-]{1,120})$/);
         if(tabConv&&req.method==='PUT') {
           requireThat(member.role!=='viewer',403,'Viewers cannot share conversations.');
+          requireThat(!tabConv[1].startsWith('requests-'),400,'Reserved key.');
           const title=text(input.title,'Title'),place=typeof input.place==='string'?input.place.slice(0,300):null,status=typeof input.status==='string'?input.status.slice(0,20):null;
           const want=input.visibility===undefined?null:enumValue(input.visibility,['owner','company'],'visibility');
           requireThat(want!=='company'||company.allow_company_sharing,403,'Company sharing is disabled.');
@@ -933,9 +936,35 @@ export function createApp(pool, config) {
         // Agent messages: from a tab (or none) to a tab-conversation someone can read; its owner's Mac takes them.
         if(tail==='/agent'&&req.method==='POST') {
           requireThat(member.role!=='viewer',403,'Viewers cannot message sessions.');
+          // To a person (terminai team send --to): their Mac takes it into its requests session for the sender. It is held in a
+          // mailbox conversation owned by them (visibility owner, never listed), one per sender, so nothing else changes.
+          if(input.toUser!==undefined){
+            requireThat(!user.bot_id,403,'A bot key messages shared sessions, not people.');
+            const toUser=uuid(input.toUser),content=text(input.content,'Message',20000),from=input.from?uuid(input.from):null,replyTo=input.replyTo?uuid(input.replyTo):null;
+            requireThat(toUser!==user.id,400,'That is you.');
+            const {rows:[person]}=await db.query('SELECT u.id,u.name FROM manager_memberships m JOIN manager_users u ON u.id=m.user_id WHERE m.company_id=$1 AND m.user_id=$2',[companyId,toUser]);
+            requireThat(person,404,'No such member in this workspace.');
+            if(from){const {rowCount}=await db.query('SELECT 1 FROM manager_conversations WHERE id=$1 AND owner_id=$2',[from,user.id]);requireThat(rowCount,400,'Not your session.');}
+            // An answer to a message that person sent you: only to one that reached you from them.
+            if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2 AND m.from_user=$3',[replyTo,user.id,toUser]);requireThat(rowCount,404,'No such message to answer.');}
+            await limit(pool,`agent:${user.id}`,120,3600);
+            const key=`requests-${companyId}-${user.id}`;
+            const {rows:[box]}=await db.query(`INSERT INTO manager_conversations(id,company_id,owner_id,title,visibility,source_key) VALUES($1,$2,$3,$4,'owner',$5)
+              ON CONFLICT (owner_id,source_key) WHERE source_key IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id,company_id`,[randomUUID(),companyId,toUser,`Requests from ${user.name}`.slice(0,200),key]);
+            requireThat(box.company_id===companyId,409,'Mailbox conflict.');
+            const id=randomUUID();
+            await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,companyId,user.id,from,box.id,replyTo,content]);
+            const {rows:[seen]}=await db.query('SELECT max(seen_at) AS at FROM manager_sessions WHERE user_id=$1',[toUser]);
+            return {id,toUser,person:person.name,live:!!seen?.at&&Date.now()-new Date(seen.at).getTime()<120000};
+          }
           const to=uuid(input.to),content=text(input.content,'Message',20000),from=input.from?uuid(input.from):null,replyTo=input.replyTo?uuid(input.replyTo):null;
-          const {rows:[target]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2 AND source_key IS NOT NULL',[to,companyId]);
-          requireThat(target&&canReadConversation(target,member,user.id)&&seesSession(target)&&(!user.bot_id||target.visibility==='company'||target.owner_id===user.id)&&botMay(target),404,'That session is not shared with you.');
+          // The target may sit in another organisation of yours: a conversation shared with you there, or the session of someone
+          // you shared one with, answering the message they sent you. The message is filed in the target's organisation.
+          const {rows:[target]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND source_key IS NOT NULL',[to]);
+          let may=!!target&&target.company_id===companyId&&canReadConversation(target,member,user.id,!!user.bot_id)&&seesSession(target)&&(!user.bot_id||target.visibility==='company'||target.owner_id===user.id)&&botMay(target);
+          if(!may&&target&&!user.bot_id&&sharedWithUser(target,user.id)){const {rows:[m2]}=await db.query('SELECT role FROM manager_memberships WHERE company_id=$1 AND user_id=$2',[target.company_id,user.id]);may=!!m2&&m2.role!=='viewer';}
+          if(!may&&target&&!user.bot_id&&replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2 AND m.from_conversation=$3 AND m.from_user=$4 AND $4=ANY(c.shared_with)',[replyTo,user.id,to,target.owner_id]);may=rowCount>0;}
+          requireThat(may,404,'That session is not shared with you.');
           if(user.bot_id){
             requireThat(user.bot_scope!=='read',403,'This bot key is read-only.');
             if(user.bot_scope==='reply'){const {rowCount}=await db.query('SELECT 1 FROM manager_bot_asks WHERE key_id=$1 AND conversation_id=$2 AND until>now()',[user.bot_id,to]);requireThat(rowCount,403,'This bot key can only answer a question that session asked it in the last 30 minutes.');}
@@ -945,7 +974,7 @@ export function createApp(pool, config) {
           if(replyTo){const {rowCount}=await db.query('SELECT 1 FROM manager_agent_messages m JOIN manager_conversations c ON c.id=m.to_conversation WHERE m.id=$1 AND c.owner_id=$2 AND m.from_conversation=$3',[replyTo,user.id,to]);requireThat(rowCount,404,'No such message to answer.');}
           await limit(pool,`agent:${user.id}`,120,3600);
           const id=randomUUID();
-          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content,from_bot,from_bot_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,companyId,user.id,from,to,replyTo,content,user.bot_name||null,user.bot_id||null]);
+          await db.query('INSERT INTO manager_agent_messages(id,company_id,from_user,from_conversation,to_conversation,reply_to,content,from_bot,from_bot_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,target.company_id,user.id,from,to,replyTo,content,user.bot_name||null,user.bot_id||null]);
           return {id,to,live:!!target.seen_at&&Date.now()-new Date(target.seen_at).getTime()<120000};
         }
         // Bot keys: made by any member for their own bots, listed and revoked by them.
@@ -983,31 +1012,43 @@ export function createApp(pool, config) {
         }
         if(botMatch&&req.method==='DELETE'){await db.query('UPDATE manager_bot_keys SET revoked_at=now() WHERE id=$1 AND company_id=$2 AND user_id=$3',[botMatch[1],companyId,user.id]);return {ok:true};}
         if(tail==='/agent/inbox'&&req.method==='GET') {
-          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,CASE WHEN f.visibility='company' THEN f.title END AS from_title,m.from_conversation,bk.approval AS bot_approval,bk.scope AS bot_scope
+          const {rows}=await db.query(`SELECT m.id,m.content,m.created_at,m.reply_to,m.to_conversation,m.from_user,t.source_key,(m.from_user=t.owner_id AND m.from_bot IS NULL) AS self,m.from_bot,u.name AS from_name,CASE WHEN f.visibility='company' THEN f.title END AS from_title,m.from_conversation,bk.approval AS bot_approval,bk.scope AS bot_scope
             FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation JOIN manager_users u ON u.id=m.from_user LEFT JOIN manager_conversations f ON f.id=m.from_conversation LEFT JOIN manager_bot_keys bk ON bk.id=m.from_bot_key
             WHERE m.company_id=$1 AND t.owner_id=$2 AND m.delivered_at IS NULL AND m.created_at>now()-interval '1 day' ORDER BY m.created_at LIMIT 50`,[companyId,user.id]);
-          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,botApproval:r.bot_approval??null,botScope:r.bot_scope??null,fromTitle:r.from_title,from:r.from_conversation,self:r.self}))};
+          return {messages:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,replyTo:r.reply_to,to:r.to_conversation,tab:r.source_key,fromName:r.from_bot?`${r.from_bot} (${r.from_name}'s bot)`:r.from_name,bot:!!r.from_bot,botApproval:r.bot_approval??null,botScope:r.bot_scope??null,fromTitle:r.from_title,from:r.from_conversation,fromUser:r.from_user,self:r.self}))};
         }
         const agentMsg=tail.match(/^\/agent\/([^/]+)\/(delivered|replies|from)$/);
         if(agentMsg) {
           const id=uuid(agentMsg[1]);
-          const {rows:[m]}=await db.query('SELECT m.*,t.owner_id AS to_owner FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation WHERE m.id=$1 AND m.company_id=$2',[id,companyId]);
+          // Found by its sender or its receiver from any organisation of theirs: a message to or from a shared conversation is filed in that one's.
+          const {rows:[m]}=await db.query('SELECT m.*,t.owner_id AS to_owner FROM manager_agent_messages m JOIN manager_conversations t ON t.id=m.to_conversation WHERE m.id=$1',[id]);
           requireThat(m&&(m.from_user===user.id||m.to_owner===user.id),404,'Message not found.');
           // Who sent a message you received: lets `terminai team reply` answer after a restart, when this Mac forgot it.
-          if(agentMsg[2]==='from'&&req.method==='GET'){requireThat(m.to_owner===user.id,403,'Not yours.');return {from:m.from_conversation,bot:!!m.from_bot};}
+          if(agentMsg[2]==='from'&&req.method==='GET'){requireThat(m.to_owner===user.id,403,'Not yours.');return {from:m.from_conversation,bot:!!m.from_bot,fromUser:m.from_bot?null:m.from_user};}
           if(agentMsg[2]==='delivered'&&req.method==='POST'){requireThat(m.to_owner===user.id,403,'Not yours.');await db.query('UPDATE manager_agent_messages SET delivered_at=now() WHERE id=$1',[id]);return {ok:true};}
           if(agentMsg[2]==='replies'&&req.method==='GET'){
             const {rows}=await db.query('SELECT r.id,r.content,r.created_at,u.name AS from_name FROM manager_agent_messages r JOIN manager_users u ON u.id=r.from_user WHERE r.reply_to=$1 ORDER BY r.created_at',[id]);
             return {delivered:!!m.delivered_at,replies:rows.map(r=>({id:r.id,content:r.content,createdAt:r.created_at,fromName:r.from_name}))};
           }
         }
-        const conv=tail.match(/^\/conversations\/([^/]+)(\/messages)?$/);
+        const conv=tail.match(/^\/conversations\/([^/]+)(\/messages|\/share)?$/);
         if(conv) {
           const conversationId=uuid(conv[1]);
           const {rows:[conversation]}=await db.query('SELECT * FROM manager_conversations WHERE id=$1 AND company_id=$2',[conversationId,companyId]);
-          requireThat(conversation&&canReadConversation(conversation,member,user.id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company')&&botMay(conversation),404,'Conversation not found.');
+          requireThat(conversation&&canReadConversation(conversation,member,user.id,!!user.bot_id)&&seesSession(conversation)&&(!user.bot_id||conversation.visibility==='company')&&botMay(conversation),404,'Conversation not found.');
           if(user.bot_id&&req.method==='GET')await botLog(db,'read',conversationId,conversation.title);
-          if(!conv[2]&&req.method==='GET')return {conversation:publicConversation(conversation)};
+          if(!conv[2]&&req.method==='GET')return {conversation:{...publicConversation(conversation),...shareInfo(conversation)}};
+          // Share with…: its owner names the people (members of this organisation) who may read and message it; [] stops sharing.
+          if(conv[2]==='/share'&&req.method==='PUT'){
+            requireThat(conversation.owner_id===user.id&&!user.bot_id&&member.role!=='viewer',403,'Only its owner can share it.');
+            requireThat(Array.isArray(input.people)&&input.people.length<=20,400,'Name up to 20 people.');
+            const people=[...new Set(input.people.map(uuid))].filter(p=>p!==user.id);
+            if(people.length){const {rows}=await db.query('SELECT user_id FROM manager_memberships WHERE company_id=$1 AND user_id=ANY($2::uuid[])',[companyId,people]);requireThat(rows.length===people.length,400,'Everyone must be a member of this organisation.');}
+            const {rows:[row]}=await db.query('UPDATE manager_conversations SET shared_with=$1 WHERE id=$2 RETURNING *',[people,conversationId]);
+            await audit(db,companyId,user.id,'conversation.shared',conversationId);
+            return {conversation:{...publicConversation(row),...shareInfo(row)}};
+          }
+          if(conv[2]==='/share')throw new HttpError(405,'Use PUT.');
           // Its owner deletes it for good: its messages, and the agent messages to and from it, go with it.
           if(!conv[2]&&req.method==='DELETE'){requireThat(conversation.owner_id===user.id,403,'Only its owner can delete it.');await db.query('DELETE FROM manager_conversations WHERE id=$1',[conversationId]);return {ok:true};}
           if(!conv[2]&&req.method==='PATCH') {
@@ -1026,7 +1067,7 @@ export function createApp(pool, config) {
             return {messages:rows.map(publicMessage),nextCursor:rows.at(-1)?.id||null,hasMore:!!cursor&&rows.length===200};
           }
           if(conv[2]&&req.method==='POST') {
-            requireThat(canWriteConversation(conversation,member,user.id),403,'Read-only conversation.');
+            requireThat(canWriteConversation(conversation,member,user.id,!!user.bot_id),403,'Read-only conversation.');
             // A Mac's synced tab: only its owner writes its turns, so nobody can put words in their agent's mouth.
             requireThat(!conversation.source_key||conversation.owner_id===user.id||(input.kind??'user')==='note',403,'Only the owner writes turns into this conversation; post a note instead.');
             const content=text(input.content,'Message',64000),kind=enumValue(input.kind??'user',['user','assistant','note'],'message kind'),clientId=input.clientMessageId?uuid(input.clientMessageId):null;

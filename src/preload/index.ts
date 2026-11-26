@@ -32,7 +32,9 @@ const api = {
     updateReady: (): Promise<string> => ipcRenderer.invoke('app:update-ready'),
     installUpdate: (): Promise<boolean> => ipcRenderer.invoke('app:install-update') },
   team: {
-    agentMessages: (v?: 'ask' | 'allow' | 'side'): Promise<'ask' | 'allow' | 'side'> => ipcRenderer.invoke('team:agentMessages', v),
+    agentMessages: (v?: 'requests' | 'ask' | 'allow' | 'side'): Promise<'requests' | 'ask' | 'allow' | 'side'> => ipcRenderer.invoke('team:agentMessages', v),
+    /** true: pick a folder; null: back to the home folder; nothing: read it. */
+    requestsFolder: (pick?: true | null): Promise<string> => ipcRenderer.invoke('team:requestsFolder', pick),
     onIncoming: (cb: (v: { tabId: string; from: string }) => void): (() => void) => { const h = (_e: Electron.IpcRendererEvent, v: { tabId: string; from: string }) => cb(v); ipcRenderer.on('team:incoming', h); return () => { ipcRenderer.removeListener('team:incoming', h) } }, tabs: (): Promise<{ agentMessages: 'ask' | 'allow' | 'side'; byDefault: boolean; tabs: { key: string; name: string; shared: boolean; mode: string; own?: boolean; rule?: string }[]; folders: Record<string, string> }> => ipcRenderer.invoke('team:tabs'), tabMode: (key: string, mode: 'shared' | 'private' | 'off' | null): Promise<void> => ipcRenderer.invoke('team:tabMode', key, mode), share: (key: string | null, shared: boolean): Promise<void> => ipcRenderer.invoke('team:share', key, shared),
     folder: (folder: string | null, mode: 'shared' | 'private' | 'off' | null): Promise<Record<string, string>> => ipcRenderer.invoke('team:folder', folder, mode) },
   macguard: {

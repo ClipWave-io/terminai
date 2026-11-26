@@ -230,6 +230,8 @@ export interface TabInfo {
   group?: string
   /** A colour the person gave the row in the sidebar (Colour in its right-click menu): a key of TAB_COLORS. */
   color?: string
+  /** Share with…: this one conversation shared with people of an organisation (right-click › Share with…). */
+  share?: TabShare
   /** tucked out of the rail; its folder heading counts it and can show it again */
   hidden?: boolean
   agent?: string
@@ -307,6 +309,8 @@ export interface SavedTab {
   group?: string
   /** A colour the person gave the row in the sidebar (Colour in its right-click menu): a key of TAB_COLORS. */
   color?: string
+  /** Share with…: this one conversation shared with people of an organisation (right-click › Share with…). */
+  share?: TabShare
   hidden?: boolean
   agent?: string
   browserKey?: string
@@ -417,7 +421,15 @@ export interface Prefs {
   teamTasks: boolean
   /** messages from others' agents and bots: ask before typing them in, or allow all */
   /** ask each time, let them in, or always answer them in a side conversation (a fork of the tab's conversation) */
-  agentMessages: 'ask' | 'allow' | 'side'
+  agentMessages: 'requests' | 'ask' | 'allow' | 'side'
+  /** 2 once 'requests' became the default (an older Mac on Ask me or Side conversation moved to it once) */
+  agentMessagesV: number
+  /** where a requests session starts (empty: the home folder) */
+  requestsFolder: string
+  /** per teammate (their user id): the workspace key of their requests session and the day it started (teambridge.ts) */
+  requestSessions: Record<string, { key: string; day: string }>
+  /** every requests session's workspace key, today's and earlier ones: reach Shared conversations only (control.ts) */
+  requestKeys: string[]
   /** folder -> what the partner may see of conversations there (sharing.ts) */
   folderSharing: Record<string, FolderMode>
   /** per tab (its workspace key): true shared, false private, whatever the default */
@@ -507,7 +519,11 @@ export const DEFAULT_PREFS: Prefs = {
   shareConversations: false,
   skippedAccount: false,
   teamTasks: false,
-  agentMessages: 'ask',
+  agentMessages: 'requests',
+  agentMessagesV: 2,
+  requestsFolder: '',
+  requestSessions: {},
+  requestKeys: [],
   tabSharing: {},
   tabModes: {},
   sessionTabs: {},
@@ -543,3 +559,6 @@ export type FolderMode = 'shared' | 'private' | 'off'
 
 /** The sidebar row colours (right-click › Colour). */
 export const TAB_COLORS: Record<string, string> = { red: '#e5484d', orange: '#f76b15', yellow: '#e2b93b', green: '#30a46c', teal: '#12a594', blue: '#3e63dd', purple: '#8e4ec6', pink: '#d6409f' }
+
+/** Share with…: the organisation the conversation is mirrored into, and the people (members there) who may read and message it. */
+export interface TabShare { company: string; companyName?: string; people: { id: string; name: string }[] }

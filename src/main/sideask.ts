@@ -9,6 +9,9 @@ import { cursor, readAppended } from './transcripts'
  * One question at a time per conversation; the command itself returns at once.
  */
 const queues = new Map<string, Promise<void>>()
+/** Per asking conversation: questions whose answer has not been typed back yet (a requests session takes no new request meanwhile). */
+const open = new Map<string, number>()
+export const asksPending = (from: string): number => open.get(from) ?? 0
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
 const LIMIT = 3 * 60 * 60 * 1000
 
@@ -60,6 +63,7 @@ export function askTab(o: { from: string; to: string; question: string; fromName
   if (from === to) throw Error('That is this conversation.')
   if (!ptys.liveIds().includes(to) || !ptys.agentOf(to).kind) throw Error('No Claude Code or Codex conversation in that tab.')
   const busy = !free(to)
+  open.set(from, asksPending(from) + 1)
   const run = async () => {
     if (!await untilFree(to, o.wake)) return
     const file = o.transcript(to)
@@ -70,6 +74,7 @@ export function askTab(o: { from: string; to: string; question: string; fromName
     await type(from, `[TerminAI · answer from the conversation "${o.toName}" (tab ${to}) to your question] ${answer || '(no answer)'}`)
   }
   const next = (queues.get(to) ?? Promise.resolve()).then(run).catch(err => console.warn('[sideask]', err))
+    .finally(() => { const n = asksPending(from) - 1; if (n > 0) open.set(from, n); else open.delete(from) })
   queues.set(to, next)
   return { queued: true, note: busy ? `That conversation is busy: your question is typed in when its turn ends, and the answer is typed back here. Stop your turn now and wait for it.` : `Asked. The answer is typed back here when it comes: stop your turn now and wait for it.` }
 }

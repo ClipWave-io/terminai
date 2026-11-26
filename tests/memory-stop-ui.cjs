@@ -1,0 +1,40 @@
+// Settings › Memory: every chat row has Stop, "Stop all inactive" stops the waiting and paused ones (never a working one),
+// and the rows without a state dot (what uses memory, storage) show their full names. The measurements are faked.
+// Screenshots: $TMPDIR/terminai-memory-stop-*.png. After `npx electron-vite build`: TERMINAI_TEST_BUILD=1 npx electron tests/memory-stop-ui.cjs
+const { app, ipcMain } = require('electron'), fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict')
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminai-memstop-')); app.setPath('userData', dir)
+const f = path.join(dir, 'proj'); fs.mkdirSync(f)
+const tab = title => ({ cwd: f, title, customTitle: title, notes: '', focusedMs: 0 })
+fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ seenWelcome: true, voice: { enabled: false }, newTabAgent: 'none', tabs: [tab('Citation monitor'), tab('⠋ Daily cost tracker'), tab('B2B email outreach')] }))
+const delay = ms => new Promise(r => setTimeout(r, ms))
+const shot = async (win, n) => fs.writeFileSync(path.join(os.tmpdir(), `terminai-memory-stop-${n}.png`), (await win.webContents.capturePage(undefined, { stayHidden: true })).toPNG())
+app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => { void (async () => {
+  const js = s => win.webContents.executeJavaScript(s)
+  win.setSize(1300, 900)
+  for (let i = 0; i < 60 && (await js(`document.querySelectorAll('.rail .tab').length`)) < 3; i++) await delay(150)
+  const ids = (await js(`window.term.pty.list()`)).map(t => t.id)
+  const stopped = []
+  for (const ch of ['memory:report', 'memory:detail', 'memory:storage', 'tab:stop']) ipcMain.removeHandler(ch)
+  ipcMain.handle('memory:report', () => ({ pressure: 'normal', totalMb: 16384, usedMb: 12000, tabsMb: 900, appMb: 500, macosMb: 3500, compressedMb: 2000, swapMb: 0, apps: [],
+    tabs: ids.map((id, i) => ({ id, mb: [400, 300, 200][i] ?? 100, running: !stopped.includes(id) })) }))
+  ipcMain.handle('memory:detail', () => ({ wiredMb: 3400, groups: [['Google Chrome', 7300], ['Claude', 5800], ['Python', 4500], ['macOS', 3900]].map(([name, mb]) => ({ name, mb, count: 3, kind: name === 'macOS' ? 'macos' : 'app', procs: [] })) }))
+  ipcMain.handle('memory:storage', () => ({ totalGb: 460, usedGb: 412, freeGb: 12, folders: [{ name: 'Clipwave', path: '/x/Clipwave', gb: 102.4 }, { name: 'other projects', path: '/x/o', gb: 19.7 }] }))
+  ipcMain.handle('tab:stop', (_e, id) => { stopped.push(id); return true })
+  await js(`document.querySelector('[aria-label="Settings"]').click()`); await delay(800)
+  await js(`[...document.querySelectorAll('.team-side nav button')].find(b => b.textContent === 'Memory and MacGuard').click()`); await delay(1500)
+  const rows = await js(`[...document.querySelectorAll('#memory .mem-row')].map(r => r.innerText.replace(/\\s+/g, ' '))`)
+  assert.equal(rows.length, 3); for (const r of rows) assert.match(r, /Pause Stop Open Close/)
+  const bulk = await js(`document.querySelector('.mem-bulk .btn')?.textContent || ''`)
+  assert.match(bulk, /Stop all inactive \(2,/, 'the working one is left out: ' + bulk)
+  await shot(win, 'sessions')
+  // What uses memory and storage: full names, not one letter.
+  const names = await js(`[...document.querySelectorAll('#memory-detail .mem-row .mem-name, #storage .mem-row .mem-name')].map(n => n.getBoundingClientRect().width)`)
+  assert.ok(names.length >= 6 && names.every(w => w > 60), 'names have room: ' + names)
+  await js(`document.querySelector('#memory-detail').scrollIntoView()`); await delay(400)
+  await shot(win, 'detail')
+  await js(`document.querySelector('.mem-bulk .btn').click()`); await delay(5000)
+  assert.equal(stopped.length, 2, 'two stopped: ' + stopped.length); assert.ok(!stopped.includes(ids[1]), 'not the working one')
+  console.log('PASS memory: Stop per chat, Stop all inactive (2 of 3, not the working one), full names in what uses memory and storage')
+  app.exit(0)
+})().catch(e => { console.error(e); app.exit(1) }) }))
+setTimeout(() => { console.error('timeout'); app.exit(1) }, 60000).unref(); require('../out/main/index.js')

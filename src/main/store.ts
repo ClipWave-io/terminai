@@ -45,7 +45,12 @@ function hydrate(raw: unknown): Prefs {
     // Off the record unless chosen: a Mac that never said so shares nothing.
     shareConversations: p.shareConversations === true,
     skippedAccount: p.skippedAccount === true,
-    agentMessages: p.agentMessages === 'allow' || p.agentMessages === 'side' ? p.agentMessages : 'ask',
+    // Requests session is the default: a Mac still on the old default (Ask me) or on Side conversation moves to it once; Allow all stays.
+    agentMessages: p.agentMessagesV === 2 && (p.agentMessages === 'ask' || p.agentMessages === 'side' || p.agentMessages === 'allow') ? p.agentMessages : p.agentMessages === 'allow' ? 'allow' : 'requests',
+    agentMessagesV: 2,
+    requestsFolder: typeof p.requestsFolder === 'string' && p.requestsFolder.startsWith('/') && p.requestsFolder.length < 1000 ? p.requestsFolder : '',
+    requestSessions: p.requestSessions && typeof p.requestSessions === 'object' && !Array.isArray(p.requestSessions) ? Object.fromEntries(Object.entries(p.requestSessions).filter(([k, v]) => /^[0-9a-f-]{36}$/.test(k) && v && typeof (v as any).key === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test((v as any).key) && typeof (v as any).day === 'string').slice(-100)) as Prefs['requestSessions'] : {},
+    requestKeys: Array.isArray(p.requestKeys) ? p.requestKeys.filter((k: unknown): k is string => typeof k === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(k)).slice(-500) : [],
     tabSharing: p.tabSharing && typeof p.tabSharing === 'object' && !Array.isArray(p.tabSharing) ? Object.fromEntries(Object.entries(p.tabSharing).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'boolean').slice(-500)) as Record<string, boolean> : {},
     tabModes: p.tabModes && typeof p.tabModes === 'object' && !Array.isArray(p.tabModes) ? Object.fromEntries(Object.entries(p.tabModes).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && ['shared', 'private', 'off'].includes(v as string)).slice(-500)) as Record<string, 'shared' | 'private' | 'off'> : {},
     sessionTabs: p.sessionTabs && typeof p.sessionTabs === 'object' && !Array.isArray(p.sessionTabs) ? Object.fromEntries(Object.entries(p.sessionTabs).filter(([k, v]) => /^[A-Za-z0-9_-]{1,120}$/.test(k) && typeof v === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(v)).slice(-1000)) as Record<string, string> : {},

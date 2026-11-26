@@ -15,6 +15,8 @@ interface Props {
   /** tuck a session out of its folder in the rail, or bring it back */
   onHide: (id: string, hidden: boolean) => void
   onColor?: (id: string, color: string) => void
+  /** right-click › Share with…: opens the picker for this conversation */
+  onShare?: (id: string) => void
   /** chats paused by hand (right-click › Pause): tab id -> when */
   pausedByYou?: Record<string, string>
   onReorderGroups: (from: string, to: string) => void
@@ -91,7 +93,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
 }
 
 export function TabRail({
-  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onColor, onReorderGroups,
+  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onColor, onShare, onReorderGroups,
   activeId,
   speakingId,
   incoming = {},
@@ -223,6 +225,7 @@ export function TabRail({
         else if (action === 'stop') void window.term.pty.stop(tab.id)
         else if (action === 'wake') void window.term.pty.resume(tab.id)
         else if (action === 'rename') startEdit(tab)
+        else if (action === 'share') onShare?.(tab.id)
         else if (action === 'hide') onHide(tab.id, !tab.hidden)
         else if (action?.startsWith('color:')) { for (const id of picked.has(tab.id) ? [...picked] : [tab.id]) onColor?.(id, action.slice(6)); setPicked(new Set()) }
         else if (action === 'close') onClose(tab.id)
@@ -237,6 +240,8 @@ export function TabRail({
         {editingId===tab.id ? <input className="tab-title-input" aria-label="Session title" autoFocus spellCheck={false} maxLength={100} placeholder={tab.title || 'session'} value={draftTitle} onChange={e=>setDraftTitle(e.target.value)} onFocus={e=>e.target.select()} onMouseDown={e=>e.stopPropagation()} onDoubleClick={e=>e.stopPropagation()} onBlur={()=>endEdit(tab.id,true)} onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')endEdit(tab.id,true);if(e.key==='Escape')endEdit(tab.id,false)}}/> : <div className={tab.customTitle ? 'tab-title named' : 'tab-title'}>{tab.cloud && <span className="tab-cloud" title={`Cloud session${tab.cloud.title ? `: ${tab.cloud.title}` : ''} · runs on Anthropic's machines. Right-click to open, message or bring it here.`}>☁</span>}<span className="tab-name">{tabLabel(tab)}</span>{incoming[tab.id] && <span className="tab-incoming" title={`${incoming[tab.id]}'s agent wrote to this session`}>{incoming[tab.id]}</span>}</div>}
         {times ? <div className="tab-sub"><span className="tab-cwd">{shortCwd(tab.cwd)}</span><span className="tab-ago" title={`Last active ${new Date(tab.activityAt ?? tab.createdAt).toLocaleString()}`}>{activeAgo(tab.activityAt ?? tab.createdAt)}</span></div>
           : <div className="tab-cwd">{shortCwd(tab.cwd)}</div>}
+        {tab.share?.people.length ? <div className="tab-share" title={`Shared with ${tab.share.people.map(p => p.name).join(', ')}${tab.share.companyName ? ` (${tab.share.companyName})` : ''}: only they and their agents read and message it. Right-click › Share with… to change or stop.`}>
+          shared with {tab.share.people.map(p => p.name.split(/\s+/)[0]).join(', ')}</div> : null}
       </span>
       {tab.agent && !tab.exited && !tab.cloud && (tab.agentAlive || asleep(tab)) && (
         <button

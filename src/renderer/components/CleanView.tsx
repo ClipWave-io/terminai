@@ -6,6 +6,27 @@ import { finders, screens, streamingAnswer } from '../find'
  * transcript (src/main/cleanview.ts); tool calls stay in the terminal underneath, one click (or ⇧⌘E) away. Of the
  * agent's text in a turn, the first (the point list) and the last (the answer) show; anything between folds away.
  */
+/**
+ * A prompt as the person reads it: a message another agent sent in ("[TerminAI · reply from Matteo's agent to your message …] …")
+ * gets a small header (the full line in its tooltip) instead of the raw bracket, and text pasted into the prompt
+ * (<pasted_content …>…</pasted_content …>) shows as a quoted block, folded when it is long.
+ */
+function UserText({ text }: { text: string }): JSX.Element {
+  const head = /^\[TerminAI · ([^\]]{1,600})\]\s*/.exec(text)
+  const body = head ? text.slice(head[0].length) : text
+  const title = head ? head[1].split(/,| id [0-9a-f-]{36}| to your message [0-9a-f-]{36}|\. /)[0].trim() : ''
+  const parts: { paste: boolean; text: string }[] = []
+  const re = /<pasted_content[^>]*>([\s\S]*?)<\/pasted_content[^>]*>/g
+  let at = 0, m: RegExpExecArray | null
+  while ((m = re.exec(body))) { if (m.index > at) parts.push({ paste: false, text: body.slice(at, m.index) }); parts.push({ paste: true, text: m[1].trim() }); at = m.index + m[0].length }
+  if (at < body.length) parts.push({ paste: false, text: body.slice(at) })
+  return <>
+    {head && <div className="clean-from" title={head[1]}><span aria-hidden="true">{/^reply/i.test(title) ? '↩' : '✉'}</span>{title.charAt(0).toUpperCase() + title.slice(1)}</div>}
+    {parts.map((p, i) => p.paste
+      ? <details key={i} className="clean-paste" open={p.text.split('\n').length <= 8}><summary>Pasted text · {p.text.split('\n').length} line{p.text.split('\n').length === 1 ? '' : 's'}</summary><div className="clean-paste-body">{p.text}</div></details>
+      : p.text.trim() ? <Markdown key={i} text={p.text.trim()} /> : null)}
+  </>
+}
 type Item = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean }
 type Turn = { user?: Item; note?: Item; replies: Item[]; done: boolean }
 
@@ -236,7 +257,7 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
           const hidden = t.replies.length - shown.length
           return <div key={ti} className="clean-turn">
             {t.note && <div className="clean-note"><span>⚙</span>{t.note.text}</div>}
-            {t.user && <div className="clean-msg user"><Markdown text={t.user.text} /></div>}
+            {t.user && <div className="clean-msg user"><UserText text={t.user.text} /></div>}
             {shown.map((r, ri) => <Fragment key={ri}>
               {ri === 1 && hidden > 0 && <button className="clean-more" onClick={() => setOpen(o => ({ ...o, [ti]: true }))}>{hidden} update{hidden === 1 ? '' : 's'} in between</button>}
               <div className="clean-msg assistant"><Markdown text={r.text} /></div>

@@ -141,6 +141,8 @@ export async function migrate(pool) {
       ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS place text;
       ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS tab_status text;
       ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS seen_at timestamptz;
+      -- Share with…: the people (members of its company) its owner shared this one conversation with.
+      ALTER TABLE manager_conversations ADD COLUMN IF NOT EXISTS shared_with uuid[] NOT NULL DEFAULT '{}';
       CREATE UNIQUE INDEX IF NOT EXISTS manager_conversations_source ON manager_conversations(owner_id,source_key) WHERE source_key IS NOT NULL;
       -- Agent to agent: a message for a tab-conversation, typed into that tab by its owner's TerminAI when it is free.
       CREATE TABLE IF NOT EXISTS manager_agent_messages (
