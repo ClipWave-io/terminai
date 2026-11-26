@@ -6,12 +6,13 @@ import { finders, screens, streamingAnswer } from '../find'
  * transcript (src/main/cleanview.ts); tool calls stay in the terminal underneath, one click (or ⇧⌘E) away. Of the
  * agent's text in a turn, the first (the point list) and the last (the answer) show; anything between folds away.
  */
-type Item = { role: 'user' | 'assistant'; text: string; end?: boolean }
-type Turn = { user?: Item; replies: Item[]; done: boolean }
+type Item = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean }
+type Turn = { user?: Item; note?: Item; replies: Item[]; done: boolean }
 
 function turnsOf(items: Item[]): Turn[] {
   const turns: Turn[] = []
   for (const it of items) {
+    if (it.role === 'note') { turns.push({ note: it, replies: [], done: false }); continue }
     if (it.role === 'user' || !turns.length) turns.push({ user: it.role === 'user' ? it : undefined, replies: it.role === 'user' ? [] : [it], done: !!it.end })
     else {
       const t = turns[turns.length - 1]
@@ -234,6 +235,7 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
           const shown = t.replies.length <= 2 || open[ti] ? t.replies : [t.replies[0], t.replies[t.replies.length - 1]]
           const hidden = t.replies.length - shown.length
           return <div key={ti} className="clean-turn">
+            {t.note && <div className="clean-note"><span>⚙</span>{t.note.text}</div>}
             {t.user && <div className="clean-msg user"><Markdown text={t.user.text} /></div>}
             {shown.map((r, ri) => <Fragment key={ri}>
               {ri === 1 && hidden > 0 && <button className="clean-more" onClick={() => setOpen(o => ({ ...o, [ti]: true }))}>{hidden} update{hidden === 1 ? '' : 's'} in between</button>}

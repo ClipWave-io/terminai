@@ -1584,3 +1584,7 @@ details.st-more > summary:hover { color: var(--fg); }
    Done by lifting the toolbar, not by isolating the panes: an isolated pane made the terminal's WebGL canvas flash
    black and white whenever the sidebar changed (hiding a conversation). */
 .topbar { position: relative; z-index: 50; }
+
+/* A background task reporting back, as one quiet line instead of the raw <task-notification> block. */
+.clean-note { display: flex; align-items: center; gap: 8px; width: fit-content; margin: 0 auto 12px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--dim); }
+.clean-note span { font-size: 11px; opacity: .8; }

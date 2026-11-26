@@ -6,7 +6,7 @@ import { cursor, readAppended, type Cursor } from './transcripts'
  * The Clean view of a Claude Code or Codex tab: its transcript as a chat, only the person's messages and the agent's
  * text (no tool calls, no tool output). Read incrementally per transcript file, like the sharing bridge does.
  */
-export type CleanItem = { role: 'user' | 'assistant'; text: string; end?: boolean }
+export type CleanItem = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean }
 let versions = 0
 const cache = new Map<string, { cur: Cursor; items: CleanItem[]; version: number }>()
 
@@ -41,6 +41,13 @@ function parse(line: string, items: CleanItem[]): void {
     role = d.payload.role; text = textOf(d.payload.content, ['input_text', 'output_text', 'text'])
   } else if ((d.type === 'system' && d.subtype === 'turn_duration') || (d.type === 'event_msg' && d.payload?.type === 'task_complete')) {
     const last = items[items.length - 1]; if (last) last.end = true
+    return
+  }
+  // A background task reporting back (<task-notification>…): one short line, "Task · what · status", not the raw block.
+  if (role === 'user' && /^\s*<task-notification>/.test(text)) {
+    const tag = (n: string) => new RegExp(`<${n}>([\\s\\S]*?)</${n}>`).exec(text)?.[1]?.trim() ?? ''
+    const what = tag('summary').replace(/^(Monitor|Background (shell )?command|Agent)\s*/i, '').replace(/^"(.*)"\s*/, '$1 ').replace(/\s*(stream ended|completed|finished)$/i, '').trim() || 'Background task'
+    items.push({ role: 'note', text: `${what}${tag('status') ? ` · ${tag('status')}` : ''}` })
     return
   }
   if (!role || !text.trim() || (role === 'user' && NOISE.test(text))) return
