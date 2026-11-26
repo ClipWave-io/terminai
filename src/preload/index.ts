@@ -7,6 +7,7 @@ import type { WorkspaceState, WorkspaceLogin, McpSetupResult } from '../shared/w
 import type { BrowserState } from '../shared/browser'
 import type { AccountFlow, ChromeProfile, ClaudeAccounts, Prefs, TabStatus, Task, TaskInput, TaskActivity, TaskList, TaskScope, TaskVersion, VoiceClip } from '../shared/types'
 import type { QuestionKind } from '../shared/questions'
+import type { LocalFlowStatus } from '../shared/localflow'
 
 /**
  * The only surface the renderer gets. contextIsolation is on and nodeIntegration
@@ -185,6 +186,12 @@ const api = {
   agents: {
     status: (): Promise<{ claude: boolean; codex: boolean; chrome: boolean; chromeApp: boolean }> => ipcRenderer.invoke('agents:status'),
     install: (which: ('claude' | 'codex' | 'chrome')[]): Promise<boolean> => ipcRenderer.invoke('agents:install', which),
+  },
+  /** Voice dictation: LocalFlow's setup and what it still needs (src/main/localflow.ts). */
+  localflow: {
+    status: (): Promise<LocalFlowStatus> => ipcRenderer.invoke('localflow:status'),
+    setup: (): Promise<boolean> => ipcRenderer.invoke('localflow:setup'),
+    pane: (which: 'microphone' | 'accessibility'): Promise<void> => ipcRenderer.invoke('localflow:pane', which),
   },
   teamchat: {
     /** Sharing the screen needs macOS Screen Recording permission: called when it is missing (Settings was opened). */

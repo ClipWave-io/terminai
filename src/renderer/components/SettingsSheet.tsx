@@ -24,6 +24,7 @@ const LOCAL_VOICES = [
 ]
 import { THEMES } from '../../shared/themes'
 import { PermissionsSetup } from './PermissionsSetup'
+import { VoiceSetup } from './VoiceSetup'
 import { EduPanel } from './EduPanel'
 import { BotsPanel } from './BotsPanel'
 import './workspace.css'
@@ -202,7 +203,7 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
       <Row label="Font size" hint={<><span className="kbd">⌘+</span> / <span className="kbd">⌘−</span></>}>
         <select value={prefs.fontSize} onChange={e => onChange({ fontSize: Number(e.target.value) })}>{[11, 12, 13, 14, 15, 16, 18].map(n => <option key={n} value={n}>{n}px</option>)}</select></Row>
     </div>),
-    voice: () => page('Voice', 'Each finished turn read aloud from its SPOKEN line.', <div className="st-card">
+    voice: () => page('Voice', 'Each finished turn read aloud from its SPOKEN line, and dictation: hold fn and talk.', <><div className="st-card">
       <Row label="Spoken summaries" hint="Reads the SPOKEN: line each turn ends with."><Toggle on={prefs.voice.enabled} set={v => patchVoice({ enabled: v })} /></Row>
       <Row label="Play automatically" hint="Off: the dock waits for you to press play."><Toggle on={prefs.voice.autoplay} set={v => patchVoice({ autoplay: v })} /></Row>
       <Row label="Engine" hint={prefs.voice.engine === 'local' && !hasLocal ? 'Not installed: run scripts/setup-local-tts.sh, falling back to say' : prefs.voice.engine === 'local' ? 'Free, on-device, no API cost' : prefs.voice.engine === 'elevenlabs' && !hasEleven ? 'No key saved: falling back to macOS say' : prefs.voice.engine === 'elevenlabs' ? 'Best quality, billed per character' : 'Built into macOS'}>
@@ -218,7 +219,9 @@ export function SettingsSheet({ prefs, onChange, onClose, onCustomize, tabs, onC
           {elevenVoices.map(v => <option key={v.id} value={v.id}>{v.name}{v.description ? `, ${v.description}` : ''}</option>)}</select></Row>}
       <Row label="Preview" hint="Hear the current engine and voice."><button className="btn" onClick={preview}>Play sample</button></Row>
       <Row label="Volume"><input type="range" min={0} max={1} step={0.05} value={prefs.voice.volume} onChange={e => patchVoice({ volume: Number(e.target.value) })} /></Row>
-    </div>),
+    </div>
+      <div className="st-card"><div className="st-card-head"><strong>Voice dictation</strong><span>LocalFlow: hold fn anywhere, talk, release, and your words are typed. Runs on this Mac, offline.</span></div>
+        <VoiceSetup compact /></div></>),
     memory: () => page('Memory and MacGuard', 'What your chats and the rest of the Mac use, pausing chats, MacGuard and the disk.', <>
       <MemoryPanel tabs={tabs} onCloseTab={onCloseTab} onOpenTab={onOpenTab} /><GuardPanel tabs={tabs} onOpenTab={onOpenTab} activeTab={activeTab} /><MemoryDetailPanel /><StoragePanel /></>),
     notifications: () => page('Notifications', 'What macOS lets TerminAI do, and when it tells you.', <>

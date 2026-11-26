@@ -24,7 +24,7 @@ import { eduCheck, eduConnect, eduDisconnect, eduPreview, eduSetFolders, eduStat
 import { createBridge, transcriptOf } from './teambridge'
 import { askTab, asksPending } from './sideask'
 import { readClean, sendClean } from './cleanview'
-import { keepLocalFlow } from './localflow'
+import { keepLocalFlow, localFlowStatus, setupLocalFlow } from './localflow'
 import { backgroundAgents } from './bgagents'
 import * as voiceChat from './voicechat'
 import { memoryReport, watchMemory } from './memory'
@@ -684,6 +684,10 @@ function registerIpc(): void {
     await openCommandTab(homedir(), want.length > 1 ? 'Installing Claude Code and Codex' : want[0] === 'claude' ? 'Installing Claude Code' : 'Installing Codex', cmd, false)
     return true
   })
+  // Onboarding and Settings › Voice: "Set up voice dictation" installs LocalFlow and its speech model (src/main/localflow.ts).
+  appIpc.handle('localflow:status', () => localFlowStatus())
+  appIpc.handle('localflow:setup', () => { void setupLocalFlow(); return true })
+  appIpc.handle('localflow:pane', (_e, which: unknown) => shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${which === 'microphone' ? 'Privacy_Microphone' : 'Privacy_Accessibility'}`))
   appIpc.handle('team:files', (_e, company) => teamFiles(company))
   appIpc.handle('team:file-change', (_e, company, id, change) => teamFileChange(company, id, change))
   appIpc.handle('team:file-share', (_e, company, id, on) => teamFileShare(company, id, on))

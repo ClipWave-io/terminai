@@ -1,4 +1,5 @@
 import { PermissionsSetup } from './PermissionsSetup'
+import { VoiceSetup } from './VoiceSetup'
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import './welcome.css'
@@ -11,7 +12,8 @@ interface Props {
 
 /**
  * The first launch: three short animated steps, no settings. The terminal works without an account; signing in is
- * offered for what needs one (to-dos, notes and the agent log on every device and with a team), and LocalFlow for talking.
+ * offered for what needs one (to-dos, notes and the agent log on every device and with a team), and voice dictation
+ * (LocalFlow, installed from here by VoiceSetup) for talking.
  */
 const LINES = ['claude', '› Fixing the login bug in api/auth.ts…', '✓ Tests pass. Summary read aloud.', 'codex', '› Writing the landing page…']
 export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
@@ -61,11 +63,10 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
       {step === 4 && <>
         <div className="onb-wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ animationDelay: `${i * 90}ms` }} />)}</div>
         <h1>Talk instead of typing</h1>
-        <p className="onb-lead">TerminAI reads each finished step aloud. To speak your prompts, add LocalFlow: hold fn, talk, and your words appear in any app. On your Mac, offline and completely free.</p>
-        <div className="onb-row">
-          <button className="onb-primary" onClick={onDismiss}>Start using TerminAI</button>
-          <a className="onb-ghost" href="https://terminai.xyz/localflow" target="_blank" rel="noreferrer">Get LocalFlow</a>
-        </div>
+        <p className="onb-lead">TerminAI reads each finished step aloud. To speak your prompts, set up voice dictation: hold fn, talk, and your words appear in any app. On your Mac, offline and completely free.</p>
+        <VoiceSetup compact />
+        <button className="onb-primary" onClick={onDismiss}>Start using TerminAI</button>
+        <small className="onb-foot">The model keeps downloading after you start. Voice dictation is also in Settings › Voice.</small>
       </>}
       <div className="onb-dots" aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
     </div>
