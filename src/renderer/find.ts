@@ -29,6 +29,8 @@ export function streamingAnswer(lines: string[]): string {
   if (/ctrl\+o|^(Calling|Called|Running|Ran|Reading|Read|Searching|Searched|Listing|Listed|Fetching|Fetched|Writing|Wrote|Updating|Updated|Editing|Edited)\b.*(\d+ (times|files?|patterns?)|…)/.test(head)) return ''
   const block = [head, ...lines.slice(j + 1, end).map(l => l.replace(/^ {2}/, ''))]
   if (block.some(l => /^\s*⎿/.test(l))) return ''
+  // A later prompt ("❯ …") or the turn's end line ("✻ Churned for 57s · done …") under it: that block is a past answer.
+  if (lines.slice(j + 1, end).some(l => /^❯ /.test(l) || /^[✻✳✶✷✸✹✺✼✽✢·*] .*\b(for \d|done)\b/.test(l))) return ''
   const width = Math.max(...block.map(l => l.length))
   const out: string[] = []
   for (const l of block) {

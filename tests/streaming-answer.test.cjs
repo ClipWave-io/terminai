@@ -13,3 +13,6 @@ test('nothing while a tool runs', () => {
 test('grouped tool lines are not streamed text', () => {
   assert.equal(streamingAnswer(['⏺ Calling terminai-browser 2 times… (ctrl+o to expand)', '', '✳ Working…', '─────────', '❯ ', '─────────']), '')
 })
+test('a past answer above a new prompt is not streamed', () => {
+  assert.equal(streamingAnswer(['⏺ The old answer.', '', '✻ Churned for 57s · done Wednesday 11:19 PM', '', '❯ whats the state of it now', '', '✳ Working…', '─────────', '❯ ', '─────────']), '')
+})
