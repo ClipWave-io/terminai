@@ -27,7 +27,7 @@ function UserText({ text }: { text: string }): JSX.Element {
       : p.text.trim() ? <Markdown key={i} text={p.text.trim()} /> : null)}
   </>
 }
-type Item = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean }
+type Item = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean; images?: string[] }
 type Turn = { user?: Item; note?: Item; replies: Item[]; done: boolean }
 
 function turnsOf(items: Item[]): Turn[] {
@@ -257,7 +257,7 @@ export function CleanView({ tabId, status, onTerminal }: { tabId: string; status
           const hidden = t.replies.length - shown.length
           return <div key={ti} className="clean-turn">
             {t.note && <div className="clean-note"><span>⚙</span>{t.note.text}</div>}
-            {t.user && <div className="clean-msg user"><UserText text={t.user.text} /></div>}
+            {t.user && <div className={`clean-msg user${/^\[TerminAI · /.test(t.user.text) ? ' from' : ''}`}>{t.user.images && <div className="clean-pics">{t.user.images.map((src, i) => <img key={i} src={src} alt="" />)}</div>}{t.user.text && <UserText text={t.user.text} />}</div>}
             {shown.map((r, ri) => <Fragment key={ri}>
               {ri === 1 && hidden > 0 && <button className="clean-more" onClick={() => setOpen(o => ({ ...o, [ti]: true }))}>{hidden} update{hidden === 1 ? '' : 's'} in between</button>}
               <div className="clean-msg assistant"><Markdown text={r.text} /></div>

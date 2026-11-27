@@ -32,6 +32,11 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '1. **Signups:** 42 this week.\n\n| Day | Users |\n|---|---|\n| Mon | 20 |\n| Tue | 22 |' }] } })
   line({ type: 'attachment', attachment: { type: 'queued_command', prompt: 'MIDTURN_QUESTION was it sent?', commandMode: 'prompt', origin: { kind: 'human' } } })
   line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'NARRATED only 4 went out.', signature: Buffer.from('xx narration yy').toString('base64') }, { type: 'thinking', thinking: 'SECRET_THOUGHT', signature: Buffer.from('plain').toString('base64') }] } })
+  line({ type: 'user', message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context. SUMMARY_TEXT' } })
+  line({ type: 'user', message: { role: 'user', content: '<local-command-stdout>Bye!</local-command-stdout>' } })
+  line({ type: 'user', message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' } }, { type: 'text', text: '[Image #1] look at this PICTURE_TEXT' }] } })
+  line({ type: 'user', message: { role: 'user', content: '<bash-input>ls -la</bash-input>' } })
+  line({ type: 'user', message: { role: 'user', content: '[TerminAI · reply from Matteo\'s agent to your message e47f4961-2058-4864-ad6a-ea0319b16692] REPLY_BODY done.' } })
   line({ type: 'user', message: { role: 'user', content: '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Monitor "0.3.114 release finishing" stream ended</summary>\n<event>done</event>\n</task-notification>' } })
   line({ type: 'system', subtype: 'turn_duration' })
   // An answer cut off by a tool call and then written in full shows once.
@@ -48,8 +53,12 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   assert.match(text, /NARRATED only 4 went out/, 'the narrated progress line shows')
   assert.doesNotMatch(text, /SECRET_THOUGHT/, 'other thinking stays hidden')
   assert.doesNotMatch(text, /task-notification|tool-use-id/, 'no raw task notification')
-  assert.match(await js(`document.querySelector('.clean-note')?.textContent || ''`), /0\.3\.114 release finishing.*completed/)
-  if (process.env.NOTESHOT) { await js(`document.querySelector('.clean-note').scrollIntoView({block:'center'})`); await delay(200); fs.writeFileSync(process.env.NOTESHOT, (await win.webContents.capturePage()).toPNG()) }
+  assert.doesNotMatch(text, /SUMMARY_TEXT|local-command|Bye!|\[Image #1\]|e47f4961|bash-input/, 'no raw bookkeeping: ' + text.slice(0, 300))
+  assert.match(text, /Earlier part of the conversation summarized/)
+  assert.match(text, /PICTURE_TEXT/); assert.equal(await js(`document.querySelectorAll('.clean-pics img').length`), 1)
+  assert.match(text, /\$ ls -la/); assert.match(text, /REPLY_BODY/)
+  assert.match(await js(`[...document.querySelectorAll('.clean-note')].map(n => n.textContent).join(' ')`), /0\.3\.114 release finishing.*completed/)
+  if (process.env.NOTESHOT) { await js(`document.querySelector('.clean-pics').scrollIntoView({block:'center'})`); await delay(200); fs.writeFileSync(process.env.NOTESHOT, (await win.webContents.capturePage()).toPNG()) }
   assert.doesNotMatch(text, /Checking the database/, 'the update in between is folded')
   await waitFor('second turn', async () => /FULL_END/.test(await js(`document.querySelector('.clean-scroll').innerText`)), 10000)
   assert.equal((await js(`document.querySelector('.clean-scroll').innerText`)).split('the planning is done').length - 1, 1, 'the cut-off answer shows once')

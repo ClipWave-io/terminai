@@ -6,12 +6,38 @@ import { cursor, readAppended, type Cursor } from './transcripts'
  * The Clean view of a Claude Code or Codex tab: its transcript as a chat, only the person's messages and the agent's
  * text (no tool calls, no tool output). Read incrementally per transcript file, like the sharing bridge does.
  */
-export type CleanItem = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean }
+export type CleanItem = { role: 'user' | 'assistant' | 'note'; text: string; end?: boolean; images?: string[] }
+
+/** Pictures the person sent with a message, small enough to show (data URLs; at most 4, each under 4 MB). */
+function imagesOf(content: unknown): string[] {
+  if (!Array.isArray(content)) return []
+  return content.filter((b: any) => b?.type === 'image' && b.source?.type === 'base64' && typeof b.source.data === 'string' && b.source.data.length < 4_000_000)
+    .slice(0, 4).map((b: any) => `data:${b.source.media_type || 'image/png'};base64,${b.source.data}`)
+}
+
+/**
+ * What TerminAI and Claude Code put into a user message, turned into something readable: a sender for messages from
+ * other agents and sessions (their header with ids and instructions goes), pasted blocks as quotes, shell commands as
+ * code; the rest of the bookkeeping becomes a one-line note or nothing.
+ */
+function tidyUser(text: string): { note?: string; text: string } | null {
+  const t = text.trim()
+  if (/^This session is being continued from a previous conversation/i.test(t)) return { note: 'Earlier part of the conversation summarized', text: '' }
+  if (/^\[Request interrupted/i.test(t)) return { note: 'Interrupted', text: '' }
+  const cmd = /<command-name>\/?([^<]+)<\/command-name>/.exec(t)
+  if (cmd) return /^(exit|clear)$/i.test(cmd[1].trim()) ? null : { note: `/${cmd[1].trim()}`, text: '' }
+  if (/^<local-command-(stdout|stderr)>/.test(t) || /^<(system-reminder|environment_context|user_instructions|permissions|user-prompt-submit-hook)/.test(t) || /^Caveat: /.test(t) || /^# AGENTS\.md/.test(t)) return null
+  // TerminAI's message headers and pasted blocks are laid out by the view (CleanView.tsx UserText).
+  let out = t
+  // A shell command run with ! and its output.
+  out = out.replace(/<bash-input>([\s\S]*?)<\/bash-input>/g, (_m, c: string) => '`$ ' + c.trim() + '`').replace(/<bash-(stdout|stderr)>([\s\S]*?)<\/bash-\1>/g, (_m, _k, o: string) => o.trim() ? '```\n' + o.trim().slice(0, 4000) + '\n```' : '')
+  // [Image #3] markers: the pictures themselves show above the text.
+  out = out.replace(/\[Image #\d+\]\s*/g, '')
+  return { text: out }
+}
 let versions = 0
 const cache = new Map<string, { cur: Cursor; items: CleanItem[]; version: number }>()
 
-// What the agents write into the conversation themselves: commands, reminders, the environment they start with.
-const NOISE = /^\s*(<command-|<local-command|<system-reminder|<environment_context|<user_instructions|<permissions|<user-prompt-submit-hook|Caveat: |# AGENTS\.md|\[Request interrupted)/
 
 function textOf(content: unknown, kinds: string[]): string {
   if (typeof content === 'string') return content
@@ -50,11 +76,21 @@ function parse(line: string, items: CleanItem[]): void {
     items.push({ role: 'note', text: `${what}${tag('status') ? ` · ${tag('status')}` : ''}` })
     return
   }
-  if (!role || !text.trim() || (role === 'user' && NOISE.test(text))) return
+  let images: string[] | undefined
+  if (role === 'user') {
+    const raw = d.type === 'user' ? d.message?.content : undefined
+    const pics = imagesOf(raw); if (pics.length) images = pics
+    const tidy = tidyUser(text)
+    if (!tidy) return
+    if (tidy.note) { items.push({ role: 'note', text: tidy.note }); return }
+    text = tidy.text
+    if (!text.trim() && !images) return
+  }
+  if (!role || (!text.trim() && !images)) return
   // A Codex answer comes twice (the event and the item): once is enough.
   const last = items[items.length - 1]
   if (last && last.role === role && last.text === text) return
-  items.push({ role, text: text.replace(/\n{3,}/g, '\n\n').trim() })
+  items.push({ role, text: text.replace(/\n{3,}/g, '\n\n').trim(), ...(images ? { images } : {}) })
 }
 
 /** The conversation so far; `seen` is the version the view already has: then only `{ version }` comes back. */
