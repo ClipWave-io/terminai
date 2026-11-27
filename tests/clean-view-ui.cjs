@@ -118,6 +118,7 @@ app.on('browser-window-created', (_e, win) => win.webContents.once('did-finish-l
   assert.ok(box > 0.9, 'the box is full width: ' + box)
   await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', metaKey: true, shiftKey: true, bubbles: true }))`)
   await waitFor('terminal shown', () => js(`!document.querySelector('.clean-view') && !!document.querySelector('.clean-toggle')`), 3000)
+  await waitFor('saved for every conversation', () => JSON.parse(fs.readFileSync(path.join(dir, 'prefs.json'), 'utf8')).cleanView === false, 3000)
   await js(`document.querySelector('.clean-toggle').click()`)
   await waitFor('clean again', () => js(`!!document.querySelector('.clean-view')`), 3000)
   console.log('PASS clean view: messages and answers only, in-between folded, table rendered, the box types into the tab, ⇧⌘E switches')

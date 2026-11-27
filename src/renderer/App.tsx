@@ -130,7 +130,8 @@ export function App(): JSX.Element {
   const [showTerminal, setShowTerminal] = useState(true)
   const [showBrowser, setShowBrowser] = useState(false)
   // Clean view: tabs switched to the terminal by hand (⇧⌘E or its Terminal button), for this run of the app.
-  const [cleanOff, setCleanOff] = useState<Record<string, boolean>>({})
+  // Clean view or terminal: one choice for every conversation (⇧⌘E or the switch in any tab), kept in Settings › Clean view.
+  const cleanOn = prefs.cleanView
   const [browserOnly, setBrowserOnly] = useState(false)
   // TerminAI Browser inside the browser pane (the real Chromium glued onto it); closing the pane keeps it running hidden.
   const [fullInPane, setFullInPane] = useState(false), [fullClosed, setFullClosed] = useState(false)
@@ -825,7 +826,7 @@ export function App(): JSX.Element {
       // ⌥⌘L: the panes side by side or one above the other.
       if (e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === 'KeyL') { e.preventDefault(); void patchPrefs({ paneStack: !prefsRef.current.paneStack }); return }
       if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === 'e' && activeRef.current) {
-        e.preventDefault(); const id = activeRef.current; setCleanOff(o => ({ ...o, [id]: !o[id] })); return
+        e.preventDefault(); void patchPrefs({ cleanView: !prefsRef.current.cleanView }); return
       }
 
       // ⌃⇥ / ⌃⇧⇥ cycle. Everything else here is ⌘-based, which no TUI claims.
@@ -1044,10 +1045,10 @@ export function App(): JSX.Element {
             onClose={() => { setFindOpen(false); setFilterOpen(false); setFilter(''); document.querySelector<HTMLTextAreaElement>('.clean-input textarea, .term-host.active textarea')?.focus() }} />}
           {(() => {
             const t = tabs.find(x => x.id === activeId)
-            if (!terminalVisible || !t || !prefs.cleanView || !t.agent || t.exited) return null
+            if (!terminalVisible || !t || !t.agent || t.exited) return null
             // A question or a permission is answered in the terminal: it shows by itself until that is done.
-            if (cleanOff[t.id] || t.status === 'question') return <button className="clean-switch clean-toggle" title="Only the messages and the answers" onClick={() => setCleanOff(o => ({ ...o, [t.id]: false }))}>Clean view <span className="kbd">⇧⌘E</span></button>
-            return <CleanView key={`clean-${t.id}`} tabId={t.id} status={t.status} onTerminal={() => setCleanOff(o => ({ ...o, [t.id]: true }))} />
+            if (!cleanOn || t.status === 'question') return <button className="clean-switch clean-toggle" title="Only the messages and the answers, in every conversation" onClick={() => void patchPrefs({ cleanView: true })}>Clean view <span className="kbd">⇧⌘E</span></button>
+            return <CleanView key={`clean-${t.id}`} tabId={t.id} status={t.status} onTerminal={() => void patchPrefs({ cleanView: false })} />
           })()}
           {/* Bottom right of the terminal: the chat's privacy and the tab's Claude account (the team chat sits in the toolbar). */}
           {terminalVisible && activeId && pausedByYou[activeId] && <div className="guard-banner" role="status"><span className="guard-icon" aria-hidden="true" />
