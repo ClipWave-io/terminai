@@ -119,7 +119,7 @@ export function App(): JSX.Element {
   const [resizingPane, setResizingPane] = useState(false)
   const [showFiles, setShowFiles] = useState(false)
   const [openFileRequest, setOpenFileRequest] = useState<string | null>(null)
-  useEffect(()=>{const open=(id:string)=>{setOpenFileRequest(id);setShowFiles(true);setBrowserOnly(false);setCompactPane('files')};void window.term.project.pending().then(id=>{if(id)open(id)});return window.term.project.onOpen(open)},[])
+  useEffect(()=>{const open=(id:string,quiet?:string)=>{setOpenFileRequest(id);if(quiet){setToast(`📄 ${quiet} is ready in Files`);return}setShowFiles(true);setBrowserOnly(false);setCompactPane('files')};void window.term.project.pending().then(id=>{if(id)open(id)});return window.term.project.onOpen(open)},[])
   useEffect(() => {
     const element = workspace.current
     if (!element) return
@@ -140,11 +140,13 @@ export function App(): JSX.Element {
   const [fullPopped, setFullPopped] = useState(false)
   const wasInPane = useRef(false)
   useEffect(() => {
-    const seen = (s: { state?: string; inPane?: boolean } | null) => { const on = !!s?.inPane && s.state === 'running'; setFullInPane(on); if (on) wasInPane.current = true; setFullPopped(!on && s?.state === 'running' && wasInPane.current); if (s?.state !== 'running') wasInPane.current = false; if (on) { setFullOpening(false); setFullClosed(false); setCompactPane('browser') } else if (s?.state === 'running') setFullOpening(false) }
+    const seen = (s: { state?: string; inPane?: boolean; reveal?: boolean } | null) => { const on = !!s?.inPane && s.state === 'running'; setFullInPane(on); if (on) wasInPane.current = true; setFullPopped(!on && s?.state === 'running' && wasInPane.current); if (s?.state !== 'running') wasInPane.current = false; if (on && s?.reveal === false && !shownRef.current) setFullClosed(true)
+      else if (on) { setFullOpening(false); setFullClosed(false); setCompactPane('browser') } else if (s?.state === 'running') setFullOpening(false) }
     void window.term.browser.fullStatus().then(seen)
     return window.term.browser.onFullStatus(seen)
   }, [])
   const fullShown = (fullInPane || fullOpening || fullPopped) && !fullClosed
+  const shownRef = useRef(false); shownRef.current = fullShown
   useEffect(() => window.term.browser.onFullClose(() => { setFullClosed(true); setCompactPane('terminal') }), [])
   useEffect(()=>window.term.browser.onReveal(()=>{if(!prefsRef.current.browserBeta)return;setShowBrowser(true);setCompactPane('browser')}),[])
   useEffect(() => {
@@ -369,7 +371,7 @@ export function App(): JSX.Element {
     const now = Date.now()
     const tab: TabInfo = {
       id, browserKey,
-      customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, share: restore?.share, hidden: restore?.hidden,
+      customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, autoFiles: restore?.autoFiles, autoBrowser: restore?.autoBrowser, share: restore?.share, hidden: restore?.hidden,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || realCwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
       cwd: realCwd,
@@ -425,7 +427,7 @@ export function App(): JSX.Element {
       ...prev,
       {
         id: live.id,
-        customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, share: restore?.share, hidden: restore?.hidden,
+        customTitle: restore?.customTitle || restore?.name, group: restore?.group, color: restore?.color, autoFiles: restore?.autoFiles, autoBrowser: restore?.autoBrowser, share: restore?.share, hidden: restore?.hidden,
       browserKey: restore?.browserKey || live.id,
       agent: restore?.agent, agentSession: restore?.agentSession, agentArgs: restore?.agentArgs,
       title: restore?.title || live.cwd.split('/').filter(Boolean).slice(-1)[0] || 'shell',
@@ -558,6 +560,7 @@ export function App(): JSX.Element {
     name: t.customTitle,
     group: t.group,
     color: t.color || undefined,
+    autoFiles: t.autoFiles, autoBrowser: t.autoBrowser,
     share: t.share,
     hidden: t.hidden || undefined,
     browserKey: t.browserKey || t.id,
@@ -952,6 +955,7 @@ export function App(): JSX.Element {
             filter={filterOpen && (!findOpen || titleHits > 0) ? filter : ''} onFilter={setFilter} filterOpen={filterOpen}
             onRename={(id,name)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,customTitle:name||undefined}:t))}
             onHide={(id,hidden)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,hidden:hidden||undefined}:t))}
+            onAuto={(id,kind,on)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,...(kind==='files'?{autoFiles:on}:{autoBrowser:on})}:t))}
             onColor={(id,color)=>setTabs(prev=>prev.map(t=>t.id===id?{...t,color:color||undefined}:t))}
             onShare={id=>setShareFor(id)}
             onReorderGroups={(from,to)=>setTabs(prev=>{const order=[...new Set(prev.map(groupOf))];const a=order.indexOf(from),b=order.indexOf(to);if(a<0||b<0)return prev;order.splice(b,0,...order.splice(a,1));return order.flatMap(key=>prev.filter(t=>groupOf(t)===key))})}

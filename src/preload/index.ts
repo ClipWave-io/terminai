@@ -66,7 +66,7 @@ const api = {
   project: {
     pending: (): Promise<string | null> => ipcRenderer.invoke('project:pending'),
     open: (id: string): Promise<{listing: ProjectListing; preview: ProjectPreview}> => ipcRenderer.invoke('project:open', id),
-    onOpen: (cb: (id: string) => void): (() => void) => { const handler=(_e:IpcRendererEvent,id:string)=>cb(id); ipcRenderer.on('project:open-request',handler); return ()=>{ipcRenderer.removeListener('project:open-request',handler)} },
+    onOpen: (cb: (id: string, quiet?: string) => void): (() => void) => { const handler=(_e:IpcRendererEvent,id:string,quiet?:string)=>cb(id,quiet); ipcRenderer.on('project:open-request',handler); return ()=>{ipcRenderer.removeListener('project:open-request',handler)} },
     choose: (): Promise<string | null> => ipcRenderer.invoke('project:choose'),
     list: (path: string): Promise<ProjectListing> => ipcRenderer.invoke('project:list', path),
     save: (path: string, content: string, version: string): Promise<ProjectPreview> => ipcRenderer.invoke('project:save', path, content, version),

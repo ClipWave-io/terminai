@@ -60,6 +60,8 @@ function hydrate(raw: unknown): Prefs {
     railRecent: p.railRecent === true,
     newTabsAt: p.newTabsAt === 'top' ? 'top' : 'bottom',
     cleanView: p.cleanView !== false,
+    autoShowFiles: p.autoShowFiles !== false,
+    autoShowBrowser: p.autoShowBrowser !== false,
     paneStack: p.paneStack === true,
     railTimes: p.railTimes === true,
     resumeAll: p.resumeAll === true,

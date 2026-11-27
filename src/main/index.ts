@@ -60,10 +60,18 @@ import type { QuestionKind } from '../shared/questions'
 declare const __REPO_ROOT__: string
 
 const openFiles = new Map<string,string>()
-function queueOpenFile(path: string) {
+/** May this tab's agent bring a pane forward (Settings › Files/Browser open by themselves, or the tab's own choice)? */
+function mayOpen(kind: 'files' | 'browser', tab?: string): boolean {
+  const p = store.load(), own = tab ? p.tabs.find(t => t.ptyId === tab) : undefined
+  const per = kind === 'files' ? own?.autoFiles : own?.autoBrowser
+  return per ?? (kind === 'files' ? p.autoShowFiles : p.autoShowBrowser)
+}
+function queueOpenFile(path: string, tab?: string) {
   const id = crypto.randomUUID(); openFiles.set(id, resolve(path))
+  // Not allowed to open by itself: the file waits in Files (a note says so) and the view stays where it is.
+  const quiet = !!tab && !mayOpen('files', tab)
   if (app.isReady() && (!win || win.isDestroyed())) createWindow()
-  if (win && !win.isDestroyed()) { win.webContents.send('project:open-request', id); win.show(); win.focus() }
+  if (win && !win.isDestroyed()) { win.webContents.send('project:open-request', id, quiet ? basename(path) : ''); if (!quiet) { win.show(); win.focus() } }
 }
 app.on('open-file', (event, path) => { event.preventDefault(); queueOpenFile(path) })
 // terminai://signin from the website: sign in with it, then the window refreshes its account (and shows the tour once).
@@ -516,9 +524,11 @@ app.whenReady().then(() => {
       if (!chromium) throw new Error('Not ready yet')
       const url = typeof a?.url === 'string' && a.url ? a.url : undefined, now = await chromium.current()
       if (a?.action === 'status' || now.state === 'downloading') return now
-      if (now.state === 'installed' || now.state === 'running') return chromium.open(url)
+      // An agent may be kept from bringing the browser pane forward (Settings, or the tab's own choice): it still opens, out of sight.
+      const quiet = typeof a?.tab === 'string' && !mayOpen('browser', a.tab)
+      if (now.state === 'installed' || now.state === 'running') return chromium.open(url, quiet)
       // A first start downloads the browser (about 160 MB): answer at once, it opens when the download is done.
-      void chromium.open(url).catch(() => {})
+      void chromium.open(url, quiet).catch(() => {})
       return { ...chromium.status(), message: 'Downloading TerminAI Browser; it opens by itself when ready. terminai browser status shows the progress.' }
     },
     log: {
@@ -914,6 +924,14 @@ function registerIpc(): void {
       tabMode(ptys.workspaceKeyOf(id), ptys.cwdOf(id)) === 'off'
         ? { label: 'Share with… (Off the record)', enabled: false }
         : { label: store.load().tabs.find(t => t.ptyId === id)?.share?.people.length ? 'Shared with… (change or stop)' : 'Share with…', click: () => { picked = 'share' } },
+      { label: 'Opens by itself', submenu: (() => {
+        const p = store.load(), own = p.tabs.find(t => t.ptyId === id)
+        const files = own?.autoFiles ?? p.autoShowFiles, browser = own?.autoBrowser ?? p.autoShowBrowser
+        return [
+          { label: 'Files it shows', type: 'checkbox' as const, checked: files, click: () => { picked = `auto:files:${!files}` } },
+          { label: 'TerminAI Browser', type: 'checkbox' as const, checked: browser, click: () => { picked = `auto:browser:${!browser}` } },
+        ]
+      })() },
       { label: 'Colour', submenu: [
         { label: 'None', click: () => { picked = 'color:' } }, { type: 'separator' as const },
         ...['Red', 'Orange', 'Yellow', 'Green', 'Teal', 'Blue', 'Purple', 'Pink'].map(c => ({ label: c, click: () => { picked = `color:${c.toLowerCase()}` } })),

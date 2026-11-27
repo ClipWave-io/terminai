@@ -16,6 +16,7 @@ export type ThemeName =
   | 'phosphor'
   | 'ocean'
   | 'linen'
+  | 'sand'
   | 'mint'
 
 export interface AnsiRamp {
@@ -230,6 +231,9 @@ export interface TabInfo {
   group?: string
   /** A colour the person gave the row in the sidebar (Colour in its right-click menu): a key of TAB_COLORS. */
   color?: string
+  /** This conversation's own choice: may its agent bring Files / the browser forward (undefined: Settings decides). */
+  autoFiles?: boolean
+  autoBrowser?: boolean
   /** Share with…: this one conversation shared with people of an organisation (right-click › Share with…). */
   share?: TabShare
   /** tucked out of the rail; its folder heading counts it and can show it again */
@@ -309,6 +313,9 @@ export interface SavedTab {
   group?: string
   /** A colour the person gave the row in the sidebar (Colour in its right-click menu): a key of TAB_COLORS. */
   color?: string
+  /** This conversation's own choice: may its agent bring Files / the browser forward (undefined: Settings decides). */
+  autoFiles?: boolean
+  autoBrowser?: boolean
   /** Share with…: this one conversation shared with people of an organisation (right-click › Share with…). */
   share?: TabShare
   hidden?: boolean
@@ -446,6 +453,9 @@ export interface Prefs {
   newTabsAt: 'bottom' | 'top'
   /** Claude Code and Codex tabs open as a chat (only messages and answers); the terminal is one click away. */
   cleanView: boolean
+  /** Files and the browser open by themselves when an agent shows a file or uses the browser (each conversation can override). */
+  autoShowFiles: boolean
+  autoShowBrowser: boolean
   /** The terminal, the browser and Files one above the other instead of side by side. */
   paneStack: boolean
   /** each conversation in the sidebar shows when it was last active */
@@ -532,6 +542,8 @@ export const DEFAULT_PREFS: Prefs = {
   railRecent: false,
   newTabsAt: 'bottom',
   cleanView: true,
+  autoShowFiles: true,
+  autoShowBrowser: true,
   paneStack: false,
   railTimes: false,
   resumeAll: false,

@@ -354,8 +354,43 @@ const ocean: Theme = {
   brightWhite: '#eceff3',
 }
 
+// The original Linen, back by request (26 Nov 2026).
 const linen: Theme = {
   name: 'linen',
+  label: 'Linen',
+  dark: false,
+
+  background: '#f2f0ec',
+  surface: '#e9e6e0',
+  pane: '#f9f8f5',
+  foreground: '#33312d',
+  dim: '#8b877f',
+  accent: '#4a7fb5',
+  cursor: '#a8702f',
+  selection: 'rgba(74, 127, 181, 0.20)',
+  border: 'rgba(51, 49, 45, 0.10)',
+  shadow: 'rgba(51, 49, 45, 0.13)',
+
+  black: '#33312d',
+  red: '#ad4046',
+  green: '#43855c',
+  yellow: '#a8702f',
+  blue: '#35619f',
+  magenta: '#7a4a9e',
+  cyan: '#2a7a76',
+  white: '#6b675f',
+  brightBlack: '#8b877f',
+  brightRed: '#c25a60',
+  brightGreen: '#55a071',
+  brightYellow: '#c08842',
+  brightBlue: '#4a7ac0',
+  brightMagenta: '#9163b5',
+  brightCyan: '#38928d',
+  brightWhite: '#45423b',
+}
+
+const sand: Theme = {
+  name: 'sand',
   // Muted, easy on the eyes (26 Nov 2026: the neon palettes were replaced).
   label: 'Sand',
   dark: false,
@@ -437,6 +472,7 @@ export const THEMES: Record<ThemeName, Theme> = {
   mono,
   paper,
   linen,
+  sand,
   mint,
 }
 

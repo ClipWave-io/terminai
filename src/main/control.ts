@@ -12,7 +12,7 @@ import type {SavedTab,Task,TaskListPage} from '../shared/types'
  * and `terminai todo start|done|reopen` (resources/terminai.cjs). Same boundary as the browser bridge: loopback only, a random token
  * in a 0600 file next to prefs, the file gone on quit. Every PTY gets its path as TERMINAI_CONTROL.
  */
-type Deps={askGrok?:(a:any)=>Promise<unknown>;askTab?:(a:any)=>unknown;wake?:(id:string)=>Promise<boolean>|boolean;window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string)=>void
+type Deps={askGrok?:(a:any)=>Promise<unknown>;askTab?:(a:any)=>unknown;wake?:(id:string)=>Promise<boolean>|boolean;window:()=>BrowserWindow|null;activeTab:()=>string|null;focused:(id:string)=>void;show:(path:string,tab?:string)=>void
   todo:{track:(action:unknown,query:unknown,session?:{tab:string;name:string})=>Promise<{scope:string;task:Task}>
     add:(to:unknown,title:unknown,note?:unknown)=>Promise<{scope:string;page:string;task:Task}>;
     request:(title:unknown,note?:unknown,urgent?:boolean)=>Promise<Task>;answer:(query:unknown,accept:boolean,reply?:unknown)=>Promise<Task>;about:(list:unknown,text:unknown)=>{lists:TaskListPage[]}}
@@ -117,7 +117,7 @@ async function run(command:string,a:any,d:Deps):Promise<unknown>{
       if(typeof a.path!=='string'||!isAbsolute(a.path))throw Error('path must be an absolute file path')
       let file=false;try{file=statSync(a.path).isFile()}catch{}
       if(!file)throw Error(`No such file: ${a.path}`)
-      d.show(a.path)
+      d.show(a.path,typeof a.tab==='string'?a.tab:undefined)
       return {ok:true,path:a.path}
     }
     // The To-do from a tab: a task added to a page, a private list described, or a task started, done or reopened

@@ -15,6 +15,7 @@ interface Props {
   /** tuck a session out of its folder in the rail, or bring it back */
   onHide: (id: string, hidden: boolean) => void
   onColor?: (id: string, color: string) => void
+  onAuto?: (id: string, kind: 'files' | 'browser', on: boolean) => void
   /** right-click › Share with…: opens the picker for this conversation */
   onShare?: (id: string) => void
   /** chats paused by hand (right-click › Pause): tab id -> when */
@@ -93,7 +94,7 @@ const DOT_TITLE: Record<TabStatus, string> = {
 }
 
 export function TabRail({
-  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onColor, onShare, onReorderGroups,
+  tabs, filter, filterOpen, onFilter, onFilterClose, onRename, onHide, onColor, onAuto, onShare, onReorderGroups,
   activeId,
   speakingId,
   incoming = {},
@@ -227,6 +228,7 @@ export function TabRail({
         else if (action === 'rename') startEdit(tab)
         else if (action === 'share') onShare?.(tab.id)
         else if (action === 'hide') onHide(tab.id, !tab.hidden)
+        else if (action?.startsWith('auto:')) { const [, kind, on] = action.split(':'); onAuto?.(tab.id, kind as 'files' | 'browser', on === 'true') }
         else if (action?.startsWith('color:')) { for (const id of picked.has(tab.id) ? [...picked] : [tab.id]) onColor?.(id, action.slice(6)); setPicked(new Set()) }
         else if (action === 'close') onClose(tab.id)
       }) }}

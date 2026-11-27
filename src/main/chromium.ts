@@ -30,7 +30,9 @@ const CLAUDE_EXTENSIONS = ['fcoeoabgfenejglbffodgkkbkcdhcgfn', 'dihbgbndebgnbjfm
 
 export type ChromiumStatus = { state: 'missing' | 'downloading' | 'installed' | 'running' | 'error'; progress?: number; message?: string; endpoint?: string; version: string
   /** shown inside TerminAI's browser pane (the browser window glued onto it) rather than as a window of its own */
-  inPane?: boolean }
+  inPane?: boolean
+  /** false: an agent put it in the pane without bringing the pane forward */
+  reveal?: boolean }
 export type PaneRect = { x: number; y: number; width: number; height: number; visible: boolean }
 
 export function createChromium(window: () => BrowserWindow | null) {
@@ -41,7 +43,7 @@ export function createChromium(window: () => BrowserWindow | null) {
   let installing: Promise<void> | null = null
   const publish = (next: Partial<ChromiumStatus>) => {
     status = { ...status, ...next }
-    const w = window(); if (w && !w.isDestroyed()) w.webContents.send('chromium:status', status)
+    const w = window(); if (w && !w.isDestroyed()) w.webContents.send('chromium:status', { ...status, reveal })
   }
   const installed = () => { try { return JSON.parse(readFileSync(marker, 'utf8')).sha256 === BROWSER.sha256 && existsSync(binary) } catch { return false } }
   const endpoint = `http://127.0.0.1:${BROWSER.port}`
@@ -135,6 +137,8 @@ export function createChromium(window: () => BrowserWindow | null) {
   /** Show it in the pane (true) or as a window of its own again (false, "Pop out"). */
   function setInPane(on: boolean) { background = false; wantPane = on; publish({ inPane: on && glueRunning() }); writeGlue() }
   let wantPane = false
+  // false: put in the pane without showing it (an agent not allowed to bring the browser forward)
+  let reveal = true
   // Started at TerminAI's launch, out of sight, so the pane is instant when it is asked for.
   let background = false
   setInterval(() => {
@@ -160,7 +164,8 @@ export function createChromium(window: () => BrowserWindow | null) {
   async function waitAlive(ms: number) { const end = Date.now() + ms; while (Date.now() < end) { if (await alive()) return true; await new Promise(r => setTimeout(r, 250)) } return false }
 
   /** Opens the browser (installing it first if needed) with `url` in a new tab, beside the TerminAI window. */
-  async function open(url?: string) {
+  async function open(url?: string, quiet = false) {
+    reveal = !quiet
     await install()
     if (url && !/^https?:\/\//i.test(url)) throw Error('Only http and https links open in TerminAI Browser')
     if (await alive()) {
