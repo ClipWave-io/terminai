@@ -64,9 +64,16 @@ export async function chromeProfiles(): Promise<{ dir: string; name: string }[]>
     return all.sort((a, b) => (b.key === last ? 1 : 0) - (a.key === last ? 1 : 0)).map(({ dir, name }) => ({ dir, name }))
   } catch { return existsSync(join(root, 'Default')) ? [{ dir: join(root, 'Default'), name: 'Default' }] : [] }
 }
+/** Can TerminAI read Chrome's profile at all? Throws NEEDS_FULL_DISK_ACCESS when macOS keeps it private. */
+export async function checkChromeAccess(): Promise<void> {
+  const root = join(process.env.HOME ?? '', 'Library/Application Support/Google/Chrome')
+  if (!existsSync(root)) throw Error('Google Chrome is not installed on this Mac (no Chrome profile found).')
+  try { await readFile(join(root, 'Local State')) } catch (e: any) { if (e?.code === 'EPERM' || e?.code === 'EACCES') throw Error('NEEDS_FULL_DISK_ACCESS') }
+}
 export async function importFromChrome(browserProfile: string, source?: string): Promise<ImportResult> {
   const list = await chromeProfiles(), chrome = list.find(p => p.dir === source) ?? (source ? { dir: source, name: source.split('/').pop() || source } : await chromeProfile())
-  if (!existsSync(chrome.dir)) throw Error('No Google Chrome profile found on this Mac.')
+  // macOS keeps other apps' data private: without Full Disk Access for TerminAI, reading Chrome's files is refused.
+  try { await readFile(join(chrome.dir, 'Preferences')) } catch (e: any) { if (e?.code === 'EPERM' || e?.code === 'EACCES') throw Error('NEEDS_FULL_DISK_ACCESS'); if (e?.code === 'ENOENT') throw Error('No Google Chrome profile found on this Mac.') }
   const from = keyFrom(await secret('Chrome Safe Storage', 'Chrome').catch(() => { throw Error('macOS did not allow reading Chrome\'s key (click Always Allow when it asks).') }))
   const to = keyFrom(await secret('Chromium Safe Storage', 'Chromium').catch(() => { throw Error('Open TerminAI Browser once first, then import.') }))
   const dst = join(browserProfile, 'Default'); await mkdir(dst, { recursive: true })

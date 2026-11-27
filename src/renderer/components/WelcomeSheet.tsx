@@ -1,3 +1,4 @@
+import { ChromeImport } from './ChromeImport'
 import { PermissionsSetup } from './PermissionsSetup'
 import { VoiceSetup } from './VoiceSetup'
 import { useEffect, useState } from 'react'
@@ -21,7 +22,7 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
   const [typed, setTyped] = useState(0)
   useEffect(() => { if (step !== 0) return; const t = window.setInterval(() => setTyped(n => n >= LINES.length ? n : n + 1), 650); return () => window.clearInterval(t) }, [step])
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); if (e.key === 'Enter' && step < 4 && step !== 2) setStep(s => s + 1) }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); if (e.key === 'Enter' && step < 5 && step !== 2) setStep(s => s + 1) }
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
   }, [step, onDismiss])
   return <div className="onb" role="dialog" aria-modal="true" aria-label="Welcome to TerminAI">
@@ -65,10 +66,18 @@ export function WelcomeSheet({ onDismiss, onSignIn }: Props): JSX.Element {
         <h1>Talk instead of typing</h1>
         <p className="onb-lead">TerminAI reads each finished step aloud. To speak your prompts, set up voice dictation: hold fn, talk, and your words appear in any app. On your Mac, offline and completely free.</p>
         <VoiceSetup compact />
-        <button className="onb-primary" onClick={onDismiss}>Start using TerminAI</button>
+        <button className="onb-primary" onClick={() => setStep(5)}>Continue</button>
         <small className="onb-foot">The model keeps downloading after you start. Voice dictation is also in Settings › Voice.</small>
       </>}
-      <div className="onb-dots" aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
+      {step === 5 && <>
+        <div className="onb-icons" aria-hidden="true"><span>◎</span><span>⚿</span><span>★</span></div>
+        <h1>Your logins in TerminAI Browser</h1>
+        <p className="onb-lead">TerminAI Browser is where your agents use websites with Claude in Chrome. Bring your Chrome logins, saved passwords and bookmarks over, so sites open signed in. It stays on this Mac.</p>
+        <ChromeImport big />
+        <div className="onb-row"><button className="onb-ghost" onClick={onDismiss}>Start using TerminAI</button></div>
+        <small className="onb-foot">You can do this any time in Settings › General › Logins from Chrome.</small>
+      </>}
+      <div className="onb-dots" aria-hidden="true">{[0, 1, 2, 3, 4, 5].map(i => <i key={i} className={i === step ? 'on' : ''} onClick={() => setStep(i)} />)}</div>
     </div>
     <button className="onb-skip" onClick={onDismiss}>Skip</button>
   </div>

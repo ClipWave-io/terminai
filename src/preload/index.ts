@@ -94,6 +94,7 @@ const api = {
     fullInPane: (on: boolean): Promise<void> => ipcRenderer.invoke('chromium:inPane', on),
     importChrome: (from?: string): Promise<{ cookies: number; passwords: number; bookmarks: boolean; profile: string }> => ipcRenderer.invoke('chromium:import', from),
     chromeProfiles: (): Promise<{ dir: string; name: string }[]> => ipcRenderer.invoke('chromium:chromeProfiles'),
+    openFullDiskAccess: (): Promise<void> => ipcRenderer.invoke('app:full-disk-access'),
     onFullClose: (cb: () => void): (() => void) => { const h = () => cb(); ipcRenderer.on('chromium:closePane', h); return () => { ipcRenderer.removeListener('chromium:closePane', h) } },
     onFullStatus: (cb: (s: any) => void): (() => void) => { const h = (_e: IpcRendererEvent, s: any) => cb(s); ipcRenderer.on('chromium:status', h); return () => { ipcRenderer.removeListener('chromium:status', h) } },
     onState: (cb: (state: BrowserState) => void): (() => void) => {

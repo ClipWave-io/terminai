@@ -1,5 +1,5 @@
 import { app, screen, type BrowserWindow } from 'electron'
-import { importFromChrome, chromeProfiles, type ImportResult } from './chrome-import'
+import { importFromChrome, chromeProfiles, checkChromeAccess, type ImportResult } from './chrome-import'
 import { spawn, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs'
@@ -252,6 +252,8 @@ export function createChromium(window: () => BrowserWindow | null) {
 
   /** Import from Chrome: the browser closes (its files must not be in use), takes Chrome's logins, passwords and bookmarks, and opens again. */
   async function importChrome(from?: string): Promise<ImportResult> {
+    // First whether Chrome's data can be read at all (Full Disk Access), before any download of the browser.
+    await checkChromeAccess()
     await install()
     const wasRunning = await alive()
     if (wasRunning) {

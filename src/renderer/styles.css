@@ -1635,3 +1635,11 @@ details.st-more > summary:hover { color: var(--fg); }
 /* Pictures sent with a message, above its text in the Clean view. */
 .clean-pics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
 .clean-pics img { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--border); object-fit: cover; }
+
+/* Import from Chrome (Settings › General and the onboarding). */
+.chrome-import { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.chrome-import.big { align-items: center; margin: 6px 0 4px; }
+.chrome-import-row { display: flex; align-items: center; gap: 8px; }
+.chrome-import-msg { max-width: 320px; text-align: right; line-height: 1.45; }
+.chrome-import.big .chrome-import-msg { text-align: center; max-width: 420px; }
+.chrome-import-msg .todo-link { margin-left: 6px; }

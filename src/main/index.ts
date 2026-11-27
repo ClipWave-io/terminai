@@ -818,6 +818,7 @@ function registerIpc(): void {
   appIpc.handle('memory:storage', () => storageReport())
   // Feedback: an email to Maracuya Labs in the person's own mail app, with the version and Mac already filled in.
   // macOS keeps Downloads, Documents and Desktop behind a permission; this opens the page where TerminAI is allowed in.
+  appIpc.handle('app:full-disk-access', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'))
   appIpc.handle('app:privacy-files', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'))
   // Feedback goes to TerminAI's server (we read it there); if the server cannot be reached, an email in Mail instead.
   appIpc.handle('app:feedback', async (_e, text: unknown, email: unknown) => {
